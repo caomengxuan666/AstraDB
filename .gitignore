@@ -8,7 +8,10 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+
+# Ignore .cmake files in root and build directories, but keep cmake/ directory
 *.cmake
+!cmake/*.cmake
 
 # IDE
 .vscode/
