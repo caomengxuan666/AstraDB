@@ -27,6 +27,11 @@ Makefile
 .cache/
 .cpm-cache/
 
+# Runtime data
+testdb/
+*.db
+*.log
+
 # OS
 .DS_Store
 Thumbs.db

@@ -41,12 +41,12 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/hub/loader.cmake)
 
 # Note: Temporarily disabled CMakeHub modules due to compatibility issues
 # Uncomment these when needed:
-# cmakehub_use(precompiled_header)
-# cmakehub_use(lto_optimization)
-# cmakehub_use(compile_options)
-# cmakehub_use(compiler_warnings)
-# cmakehub_use(clang_tidy_tools)
-# cmakehub_use(code_formatter)
+cmakehub_use(precompiled_header)
+cmakehub_use(lto_optimization)
+cmakehub_use(compile_options)
+cmakehub_use(compiler_warnings)
+cmakehub_use(clang_tidy_tools)
+cmakehub_use(code_formatter)
 # cmakehub_use(sanitizers)
 
 # Load CPM from CMakeHub
