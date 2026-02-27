@@ -31,8 +31,8 @@ cmakehub check sanitizers
 
 ## Features
 
-- CMake 3.19+
-- C++17 standard
+- CMake 3.20+
+- C++20 standard
 - CMakeHub integration
 - Testing enabled
 
