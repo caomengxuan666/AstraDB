@@ -1,0 +1,29 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMakeHub cache
+.cmakehub/
+
+# Other cache
+.cache/
+.cpm-cache/
+
+# OS
+.DS_Store
+Thumbs.db

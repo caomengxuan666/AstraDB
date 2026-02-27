@@ -1,0 +1,1434 @@
+{
+  "schema_version": "1.0",
+  "modules": [
+    {
+      "name": "add_gtest",
+      "description": "Google Test integration helper",
+      "category": "testing",
+      "author": "CLIUtils",
+      "repository": "https://github.com/CLIUtils/cmake.git",
+      "path": "AddGoogleTest.cmake",
+      "license": "MIT",
+      "stars": 650,
+      "last_updated": "2023-10-01",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "testing",
+        "gtest",
+        "google"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "afl_fuzzing",
+      "description": "AFL fuzzing instrumentation",
+      "category": "testing",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "afl-fuzzing.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "fuzzing",
+        "afl",
+        "security",
+        "testing"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "android_toolchain",
+      "description": "Android NDK toolchain file",
+      "category": "platform",
+      "author": "taka-no-me",
+      "repository": "https://github.com/taka-no-me/android-cmake.git",
+      "path": "android.toolchain.cmake",
+      "license": "BSD3",
+      "stars": 2000,
+      "last_updated": "2023-01-15",
+      "version": "master",
+      "cmake_minimum_required": "3.7",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [
+        "ios_toolchain"
+      ],
+      "tags": [
+        "android",
+        "ndk",
+        "mobile",
+        "toolchain"
+      ],
+      "platform": [
+        "android",
+        "linux",
+        "windows"
+      ]
+    },
+    {
+      "name": "c_standards",
+      "description": "C standards configuration",
+      "category": "build_optimization",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "c-standards.cmake",
+      "license": "Apache-2.0",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "c",
+        "standards",
+        "c11",
+        "c99"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "catch2_cmake",
+      "description": "Catch2 testing framework CMake integration",
+      "category": "testing",
+      "author": "catchorg",
+      "repository": "https://github.com/catchorg/Catch2.git",
+      "path": "extras/Catch.cmake",
+      "license": "BSL-1.0",
+      "stars": 30000,
+      "last_updated": "2024-02-01",
+      "version": "devel",
+      "cmake_minimum_required": "3.22",
+      "cpp_minimum_required": "14",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "catch2",
+        "testing",
+        "unit-test",
+        "ctest"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "clang_tidy_cg",
+      "description": "Clang-Tidy integration from cginternals cmake-init",
+      "category": "code_quality",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/ClangTidy.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "clang-tidy",
+        "static-analysis",
+        "linting"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "clang_tidy_tools",
+      "description": "clang-tidy, IWYU, and cppcheck integration tools",
+      "category": "code_quality",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "tools.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "clang-tidy",
+        "iwyu",
+        "cppcheck",
+        "static-analysis",
+        "linting"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "code_coverage_bilke",
+      "description": "Code coverage from bilke/cmake-modules",
+      "category": "code_quality",
+      "author": "bilke",
+      "repository": "https://github.com/bilke/cmake-modules.git",
+      "path": "CodeCoverage.cmake",
+      "license": "MIT",
+      "stars": 300,
+      "last_updated": "2023-05-10",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "coverage",
+        "gcov",
+        "lcov",
+        "testing"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "code_formatter",
+      "description": "clang-format and cmake-format integration",
+      "category": "code_quality",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "formatting.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "format",
+        "clang-format",
+        "cmake-format",
+        "style"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "compile_options",
+      "description": "Compiler options management",
+      "category": "build_optimization",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/CompileOptions.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "compiler",
+        "options",
+        "flags"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "compiler_info",
+      "description": "Get detailed compiler information and version strings",
+      "category": "debugging",
+      "author": "rpavlik",
+      "repository": "https://github.com/rpavlik/cmake-modules.git",
+      "path": "GetCompilerInfoString.cmake",
+      "license": "Boost",
+      "stars": 1054,
+      "last_updated": "2023-01-20",
+      "version": "master",
+      "cmake_minimum_required": "3.5",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "compiler",
+        "version",
+        "info"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "compiler_warnings",
+      "description": "Compiler warning and option helpers",
+      "category": "code_quality",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "compiler-options.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "warnings",
+        "compiler",
+        "options"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "component_install",
+      "description": "Component installation helper",
+      "category": "packaging",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/ComponentInstall.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "install",
+        "component",
+        "packaging"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "conan",
+      "description": "Conan package manager integration",
+      "category": "dependency",
+      "author": "conan-io",
+      "repository": "https://github.com/conan-io/cmake-conan.git",
+      "path": "conan.cmake",
+      "license": "MIT",
+      "stars": 1000,
+      "last_updated": "2023-12-01",
+      "version": "develop",
+      "cmake_minimum_required": "3.15",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [
+        "cpm",
+        "vcpkg"
+      ],
+      "tags": [
+        "package_manager",
+        "dependency",
+        "conan"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "cotire",
+      "description": "Automates precompiled header (PCH) and unity build generation",
+      "category": "build_optimization",
+      "author": "sakra",
+      "repository": "https://github.com/sakra/cotire.git",
+      "path": "CMake/cotire.cmake",
+      "license": "MIT",
+      "stars": 1300,
+      "last_updated": "2024-02-01",
+      "version": "master",
+      "cmake_minimum_required": "3.5",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "pch",
+        "precompiled",
+        "unity",
+        "build",
+        "speed"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "coverage",
+      "description": "Code coverage support using gcov/lcov for C/C++ projects",
+      "category": "code_quality",
+      "author": "bilke",
+      "repository": "https://github.com/bilke/cmake-modules.git",
+      "path": "CodeCoverage.cmake",
+      "license": "MIT",
+      "stars": 300,
+      "last_updated": "2023-05-10",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "coverage",
+        "gcov",
+        "lcov",
+        "testing"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "coverage_cg",
+      "description": "Code coverage from cginternals cmake-init",
+      "category": "code_quality",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/Coverage.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "coverage",
+        "gcov",
+        "testing"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "cpm",
+      "description": "Lightweight CMake package manager",
+      "category": "dependency",
+      "author": "cpm-cmake",
+      "repository": "https://github.com/cpm-cmake/CPM.cmake.git",
+      "path": "cmake/CPM.cmake",
+      "license": "MIT",
+      "stars": 3700,
+      "last_updated": "2024-01-10",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [
+        "conan",
+        "vcpkg"
+      ],
+      "tags": [
+        "package_manager",
+        "dependency",
+        "cpm"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "cpp_standards",
+      "description": "C++ standards configuration",
+      "category": "build_optimization",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "c++-standards.cmake",
+      "license": "Apache-2.0",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "c++",
+        "standards",
+        "c++11",
+        "c++14",
+        "c++17",
+        "c++20"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "cppcheck_cg",
+      "description": "Cppcheck integration from cginternals cmake-init",
+      "category": "code_quality",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/Cppcheck.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "cppcheck",
+        "static-analysis",
+        "linting"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "cuda",
+      "description": "CUDA integration helper",
+      "category": "platform",
+      "author": "CLIUtils",
+      "repository": "https://github.com/CLIUtils/cmake.git",
+      "path": "CUDA.cmake",
+      "license": "MIT",
+      "stars": 650,
+      "last_updated": "2023-10-01",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "cuda",
+        "nvidia",
+        "gpu"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "dependency_graph",
+      "description": "Generate dependency graphs for CMake projects",
+      "category": "docs",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "dependency-graph.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "graph",
+        "dependency",
+        "visualization",
+        "docs"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "doctest",
+      "description": "Doctest testing framework integration",
+      "category": "testing",
+      "author": "doctest",
+      "repository": "https://github.com/doctest/doctest.git",
+      "path": "scripts/cmake/doctest.cmake",
+      "license": "MIT",
+      "stars": 5000,
+      "last_updated": "2024-01-01",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "11",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "doctest",
+        "testing",
+        "unit-test"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "doxygen_helper",
+      "description": "Doxygen documentation generation helper",
+      "category": "docs",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "doxygen.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "doxygen",
+        "documentation",
+        "docs"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "export_header",
+      "description": "Generate template export header",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/GenerateTemplateExportHeader.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "export",
+        "header",
+        "dll",
+        "shared"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_assimp",
+      "description": "Find ASSIMP 3D model library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindASSIMP.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "assimp",
+        "3d",
+        "model",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_egl",
+      "description": "Find EGL library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindEGL.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "egl",
+        "opengl",
+        "graphics",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_ffmpeg",
+      "description": "Find FFMPEG library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindFFMPEG.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "ffmpeg",
+        "video",
+        "multimedia",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_glesv2",
+      "description": "Find OpenGL ES 2.0 library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindGLESv2.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "gles",
+        "opengl-es",
+        "graphics",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_glew",
+      "description": "Find GLEW OpenGL library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindGLEW.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "glew",
+        "opengl",
+        "graphics",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_gtk3",
+      "description": "Find GTK3 library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindGTK3.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "gtk3",
+        "gui",
+        "linux",
+        "find"
+      ],
+      "platform": [
+        "linux"
+      ]
+    },
+    {
+      "name": "find_gtk4",
+      "description": "Find GTK4 library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindGTK4.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "gtk4",
+        "gui",
+        "linux",
+        "find"
+      ],
+      "platform": [
+        "linux"
+      ]
+    },
+    {
+      "name": "find_hidapi",
+      "description": "Find HIDAPI library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindHIDAPI.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "hidapi",
+        "usb",
+        "hardware",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_nodejs",
+      "description": "Find Node.js",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/Findnodejs.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "nodejs",
+        "javascript",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_or_build_gtest",
+      "description": "Find GTest or build from source",
+      "category": "testing",
+      "author": "viaduck",
+      "repository": "https://github.com/viaduck/cmake-modules.git",
+      "path": "FindOrBuildGTest.cmake",
+      "license": "MIT",
+      "stars": 100,
+      "last_updated": "2022-05-01",
+      "version": "master",
+      "cmake_minimum_required": "3.10",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "gtest",
+        "testing",
+        "google"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "find_sdl2",
+      "description": "Find SDL2 library",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/FindSDL2.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "sdl2",
+        "game",
+        "multimedia",
+        "find"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "gcov",
+      "description": "Gcov coverage tool",
+      "category": "code_quality",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/Gcov.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "gcov",
+        "coverage",
+        "testing"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "git_version",
+      "description": "Get git revision description for version management",
+      "category": "utils",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/GetGitRevisionDescription.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "git",
+        "version",
+        "revision",
+        "vcs"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "glsl_shaders",
+      "description": "GLSL shader compilation support",
+      "category": "platform",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "glsl-shaders.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "glsl",
+        "shader",
+        "vulkan",
+        "graphics"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "install_helpers",
+      "description": "Simplified install rules and helpers",
+      "category": "packaging",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/ComponentInstall.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "install",
+        "package",
+        "deployment",
+        "helper"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "ios_toolchain",
+      "description": "iOS/macOS/watchOS/tvOS toolchain file",
+      "category": "platform",
+      "author": "leetal",
+      "repository": "https://github.com/leetal/ios-cmake.git",
+      "path": "ios.toolchain.cmake",
+      "license": "MIT",
+      "stars": 2500,
+      "last_updated": "2023-10-01",
+      "version": "master",
+      "cmake_minimum_required": "3.16",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [
+        "android_toolchain"
+      ],
+      "tags": [
+        "ios",
+        "macos",
+        "watchos",
+        "tvos",
+        "mobile",
+        "toolchain",
+        "apple"
+      ],
+      "platform": [
+        "macos"
+      ]
+    },
+    {
+      "name": "launchers",
+      "description": "Create launcher scripts for easy execution in IDEs",
+      "category": "debugging",
+      "author": "rpavlik",
+      "repository": "https://github.com/rpavlik/cmake-modules.git",
+      "path": "CreateLaunchers.cmake",
+      "license": "Boost",
+      "stars": 1054,
+      "last_updated": "2023-01-20",
+      "version": "master",
+      "cmake_minimum_required": "3.5",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "launcher",
+        "ide",
+        "vs",
+        "xcode"
+      ],
+      "platform": [
+        "windows"
+      ]
+    },
+    {
+      "name": "lto_optimization",
+      "description": "Link Time Optimization (LTO/IPO) support",
+      "category": "build_optimization",
+      "author": "StableCoder",
+      "repository": "https://github.com/StableCoder/cmake-scripts.git",
+      "path": "link-time-optimization.cmake",
+      "license": "MIT",
+      "stars": 500,
+      "last_updated": "2023-06-01",
+      "version": "main",
+      "cmake_minimum_required": "3.4",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "lto",
+        "ipo",
+        "optimization",
+        "performance"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "precompiled_header",
+      "description": "Precompiled header setup for CMake (alternative to cotire)",
+      "category": "build_optimization",
+      "author": "larsch",
+      "repository": "https://github.com/larsch/cmake-precompiled-header.git",
+      "path": "PrecompiledHeader.cmake",
+      "license": "MIT",
+      "stars": 800,
+      "last_updated": "2022-01-01",
+      "version": "master",
+      "cmake_minimum_required": "3.5",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "pch",
+        "precompiled",
+        "header",
+        "build",
+        "speed"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "qt_helper",
+      "description": "Qt integration helper",
+      "category": "utils",
+      "author": "dcourtois",
+      "repository": "https://github.com/dcourtois/CMakeUtils.git",
+      "path": "Qt.cmake",
+      "license": "MIT",
+      "stars": 100,
+      "last_updated": "2021-01-01",
+      "version": "master",
+      "cmake_minimum_required": "3.10",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "qt",
+        "gui",
+        "framework"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "runtime_dependencies",
+      "description": "Runtime dependencies management",
+      "category": "packaging",
+      "author": "cginternals",
+      "repository": "https://github.com/cginternals/cmake-init.git",
+      "path": "cmake/RuntimeDependencies.cmake",
+      "license": "MIT",
+      "stars": 2000,
+      "last_updated": "2023-03-01",
+      "version": "master",
+      "cmake_minimum_required": "3.20",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "runtime",
+        "dependencies",
+        "deployment"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "sanitizers",
+      "description": "Sanitizer integration (ASan, UBSan, TSan, MSan) for C/C++ projects",
+      "category": "code_quality",
+      "author": "arsenm",
+      "repository": "https://github.com/arsenm/sanitizers-cmake.git",
+      "path": "cmake/FindSanitizers.cmake",
+      "license": "MIT",
+      "stars": 200,
+      "last_updated": "2023-08-15",
+      "version": "master",
+      "cmake_minimum_required": "3.14",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "sanitizer",
+        "address",
+        "undefined",
+        "thread",
+        "memory"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    },
+    {
+      "name": "use_folders",
+      "description": "Enable USE_FOLDERS property for MSVC projects",
+      "category": "platform",
+      "author": "rpavlik",
+      "repository": "https://github.com/rpavlik/cmake-modules.git",
+      "path": "UseFolders.cmake",
+      "license": "Boost",
+      "stars": 1054,
+      "last_updated": "2023-01-20",
+      "version": "master",
+      "cmake_minimum_required": "3.5",
+      "cpp_minimum_required": "",
+      "dependencies": [],
+      "conflicts": [],
+      "tags": [
+        "windows",
+        "msvc",
+        "folders",
+        "ide"
+      ],
+      "platform": [
+        "windows",
+        "linux",
+        "macos",
+        "freebsd",
+        "ios",
+        "android"
+      ]
+    }
+  ],
+  "categories": {
+    "code_quality": "Static analysis, sanitizers, coverage",
+    "build_optimization": "Build speed optimization tools",
+    "debugging": "Debugging helpers and tools",
+    "dependency": "Dependency management tools",
+    "platform": "Platform-specific tools",
+    "testing": "Testing frameworks integration",
+    "utils": "Utility functions",
+    "packaging": "Installation and packaging helpers",
+    "gui": "GUI framework integration"
+  }
+}
