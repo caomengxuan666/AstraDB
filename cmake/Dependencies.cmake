@@ -226,24 +226,31 @@ CPMAddPackage(
 # Logging and Formatting
 # ==============================================================================
 
-# fmt - Formatting library (for spdlog)
-# Use fmt 12.1.0 for latest C++20 support
-set(_SAVED_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-if(NOT MSVC)
-  string(REPLACE "-Werror" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-endif()
+# Asio - Asynchronous I/O (C++23 coroutines)
+CPMAddPackage(
+  NAME
+  asio
+  GITHUB_REPOSITORY
+  chriskohlhoff/asio
+  GIT_TAG
+  asio-1-30-8
+  DOWNLOAD_ONLY
+  YES)
+
+# fmt - Formatting library (spdlog dependency)
 CPMAddPackage(
   NAME
   fmt
   VERSION
-  12.1.0
-  URL
-  https://github.com/fmtlib/fmt/archive/refs/tags/12.1.0.tar.gz
+  10.2.1
+  GITHUB_REPOSITORY
+  fmtlib/fmt
+  GIT_TAG
+  10.2.1
   OPTIONS
+  "FMT_INSTALL OFF"
   "FMT_TEST OFF"
-  "FMT_DOC OFF"
-  "FMT_INSTALL OFF")
-set(CMAKE_CXX_FLAGS "${_SAVED_CMAKE_CXX_FLAGS}")
+  "FMT_DOC OFF")
 
 # Disable -Werror for fmt
 if(fmt_ADDED)

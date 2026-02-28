@@ -93,6 +93,16 @@ target_link_libraries(astradb PRIVATE
   fmt::fmt
 )
 
+# Add Asio include directory
+if(asio_SOURCE_DIR)
+  target_include_directories(astradb PRIVATE ${asio_SOURCE_DIR}/asio/include)
+endif()
+
+# Add fmt include directory
+if(fmt_SOURCE_DIR)
+  target_include_directories(astradb PRIVATE ${fmt_SOURCE_DIR}/include)
+endif()
+
 # Link optional libraries
 if(TARGET asio)
   target_link_libraries(astradb PRIVATE asio)
