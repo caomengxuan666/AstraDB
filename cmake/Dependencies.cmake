@@ -8,22 +8,156 @@
 # Core Dependencies
 # ==============================================================================
 
-# gflags - Command-line flags library
+# mimalloc - High-performance memory allocator
+# Features: Thread-local caching, size-classes, decay mechanism
+# Benefits: 20-30% faster than glibc malloc, lower fragmentation
 CPMAddPackage(
   NAME
-  gflags
+  mimalloc
   VERSION
-  2.2.2
-  URL
-  https://github.com/gflags/gflags/archive/refs/tags/v2.2.2.tar.gz
-  URL_HASH
-  SHA256=34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf
+  2.1.7
+  GITHUB_REPOSITORY
+  microsoft/mimalloc
+  GIT_TAG
+  v2.1.7
   OPTIONS
-  "BUILD_SHARED_LIBS OFF"
-  "BUILD_STATIC_LIBS ON"
-  "CMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/gflags")
+  "MI_INSTALL OFF"
+  "MI_BUILD_SHARED OFF"
+  "MI_BUILD_STATIC ON"
+  "MI_BUILD_OBJECT OFF"
+  "MI_BUILD_TESTS OFF")
 
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/gflags")
+# xxHash - Ultra-fast hash algorithm
+# Usage: Dashtable hashing, key sharding, CRC calculations
+# Benefits: 10-100x faster than std::hash, essential for performance
+CPMAddPackage(
+  NAME
+  xxhash
+  VERSION
+  0.8.2
+  GITHUB_REPOSITORY
+  Cyan4973/xxHash
+  GIT_TAG
+  v0.8.2
+  OPTIONS
+  "XXHASH_BUILD_TESTS OFF"
+  "XXHASH_BUILD_CLI OFF"
+  "XXHASH_BUILD_INSTALL OFF")
+
+# zstd - Fast compression algorithm
+# Usage: AOF file compression, RDB snapshot compression
+# Benefits: Similar compression ratio to gzip, 3-5x faster
+CPMAddPackage(
+  NAME
+  zstd
+  VERSION
+  1.5.6
+  GITHUB_REPOSITORY
+  facebook/zstd
+  GIT_TAG
+  v1.5.6
+  OPTIONS
+  "ZSTD_BUILD_TESTS OFF"
+  "ZSTD_BUILD_PROGRAMS OFF"
+  "ZSTD_BUILD_SHARED OFF"
+  "ZSTD_BUILD_STATIC ON"
+  "ZSTD_BUILD_CONTRIB OFF"
+  "ZSTD_BUILD_LEGACY_SUPPORT OFF")
+
+# Abseil - Common C++ Libraries
+# Usage: High-performance containers (flat_hash_map, btree), string utilities
+# Benefits: Better performance than STL containers, widely used in production
+# Note: Only build what we need
+CPMAddPackage(
+  NAME
+  abseil
+  VERSION
+  20240116.1
+  GITHUB_REPOSITORY
+  abseil/abseil-cpp
+  GIT_TAG
+  20240116.1
+  OPTIONS
+  "ABSL_ENABLE_INSTALL OFF"
+  "ABSL_PROPAGATE_CXX_STD OFF"
+  "BUILD_TESTING OFF")
+
+# cxxopts - Lightweight command line parser
+# Usage: Parse command line arguments for AstraDB server
+# Benefits: Header-only, type-safe, modern C++, better than gflags
+CPMAddPackage(
+  NAME
+  cxxopts
+  VERSION
+  3.2.1
+  GITHUB_REPOSITORY
+  jarro2783/cxxopts
+  GIT_TAG
+  v3.2.1)
+
+# tomlplusplus - TOML parser
+# Usage: Parse AstraDB configuration file (astradb.toml)
+# Benefits: More readable than JSON, simpler than YAML, header-only
+CPMAddPackage(
+  NAME
+  tomlplusplus
+  VERSION
+  3.4.0
+  GITHUB_REPOSITORY
+  marzer/tomlplusplus
+  GIT_TAG
+  v3.4.0
+  OPTIONS
+  "TOMLPLUSPLUS_BUILD_TESTS OFF"
+  "TOMLPLUSPLUS_BUILD_EXAMPLES OFF")
+
+# date - Modern date/time library by Howard Hinnant
+# Usage: Timestamp handling, time calculations for TTL
+# Benefits: Better than std::chrono, easier to use, timezone support
+CPMAddPackage(
+  NAME
+  date
+  VERSION
+  3.0.3
+  URL
+  https://github.com/HowardHinnant/date/archive/refs/tags/v3.0.3.tar.gz
+  DOWNLOAD_ONLY
+  YES)
+
+# Prometheus Client - Metrics collection and monitoring
+# Usage: Export QPS, latency, memory usage, connection count
+# Benefits: Production monitoring, Grafana integration, observability
+# Reference: DragonflyDB uses Prometheus for metrics
+CPMAddPackage(
+  NAME
+  prometheus-cpp
+  VERSION
+  1.2.2
+  GITHUB_REPOSITORY
+  jupp0r/prometheus-cpp
+  GIT_TAG
+  v1.2.2
+  OPTIONS
+  "ENABLE_PULL OFF"
+  "ENABLE_PUSH OFF"
+  "ENABLE_COMPRESSION OFF"
+  "BUILD_TESTING OFF")
+
+# Lua - Scripting support (Redis-compatible EVAL, SCRIPT commands)
+# Usage: Server-side scripting, stored procedures, Lua 5.4
+# Benefits: Full Redis compatibility, high performance scripting
+# Reference: DragonflyDB uses Lua for Redis compatibility
+CPMAddPackage(
+  NAME
+  lua
+  VERSION
+  5.4.7
+  GITHUB_REPOSITORY
+  lua/lua
+  GIT_TAG
+  v5.4.7
+  OPTIONS
+  "BUILD_SHARED_LIBS OFF")
 
 # ==============================================================================
 # libgossip Dependencies
@@ -32,6 +166,7 @@ list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/gflags")
 message(STATUS "🔧 Configuring libgossip dependencies...")
 
 # nlohmann_json - JSON library for libgossip
+# Note: This must be downloaded before libgossip
 CPMAddPackage(
   NAME
   nlohmann_json
@@ -44,21 +179,33 @@ CPMAddPackage(
   DOWNLOAD_ONLY
   YES)
 
-set(LIBGOSSIP_JSON_DIR
-    "${libgossip_SOURCE_DIR}/third_party/json/single_include")
-file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_DIR}")
+# libgossip - Gossip Protocol for Cluster Communication
+CPMAddPackage(
+  NAME
+  libgossip
+  VERSION
+  1.2.0
+  URL
+  https://github.com/caomengxuan666/libgossip/archive/master.tar.gz
+  OPTIONS
+  "BUILD_PYTHON_BINDINGS OFF"
+  "BUILD_EXAMPLES OFF"
+  "BUILD_TESTS OFF"
+  "BUILD_DOCS OFF"
+  "INSTALL OFF")
 
-set(JSON_SOURCE_DIR "${nlohmann_json_SOURCE_DIR}/single_include/nlohmann")
-set(JSON_TARGET_DIR "${LIBGOSSIP_JSON_DIR}/nlohmann")
+# Inject nlohmann_json into libgossip's own third_party directory
+# libgossip expects JSON at ${libgossip_SOURCE_DIR}/third_party/json/single_include/nlohmann
+if(libgossip_ADDED AND nlohmann_json_ADDED)
+  set(LIBGOSSIP_JSON_DIR "${libgossip_SOURCE_DIR}/third_party/json/single_include/nlohmann")
+  file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_DIR}")
 
-if(NOT EXISTS "${JSON_TARGET_DIR}")
-  message(STATUS "Injecting json into ${libgossip_SOURCE_DIR}")
-  file(COPY "${JSON_SOURCE_DIR}" DESTINATION "${LIBGOSSIP_JSON_DIR}/")
-  message(STATUS "Done")
+  # Copy nlohmann header files to libgossip's third_party directory
+  file(COPY "${nlohmann_json_SOURCE_DIR}/single_include/nlohmann/"
+       DESTINATION "${LIBGOSSIP_JSON_DIR}/")
+
+  message(STATUS "✅ nlohmann_json injected to libgossip's third_party: ${LIBGOSSIP_JSON_DIR}")
 endif()
-
-message(STATUS "libgossip dir: ${libgossip_SOURCE_DIR}")
-message(STATUS "json location: ${JSON_TARGET_DIR}")
 
 # ==============================================================================
 # Network and Async Libraries
@@ -139,8 +286,9 @@ CPMAddPackage(
   URL
   https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
   OPTIONS
-  "BUILD_GMOCK ON"
-  "INSTALL_GTEST OFF")
+  "BUILD_GMOCK OFF"
+  "INSTALL_GTEST OFF"
+  "gtest_force_shared_crt OFF")
 
 # LevelDB - Lightweight Key-Value Store
 CPMAddPackage(
@@ -179,6 +327,7 @@ endif()
 # ==============================================================================
 
 # libgossip - Gossip Protocol for Cluster Communication
+# Note: We use CPM's SOURCE_DIR option to pre-populate the directory
 CPMAddPackage(
   NAME
   libgossip
@@ -189,7 +338,19 @@ CPMAddPackage(
   OPTIONS
   "BUILD_PYTHON_BINDINGS OFF"
   "BUILD_EXAMPLES OFF"
-  "BUILD_TESTS OFF")
+  "BUILD_TESTS OFF"
+  "BUILD_DOCS OFF"
+  "INSTALL OFF")
+
+# Inject nlohmann_json into libgossip's third_party directory immediately after download
+if(libgossip_ADDED AND nlohmann_json_ADDED)
+  set(LIBGOSSIP_JSON_DIR "${libgossip_SOURCE_DIR}/third_party/json")
+  file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_DIR}")
+
+  # Copy the entire single_include directory
+  file(COPY "${nlohmann_json_SOURCE_DIR}/single_include/"
+       DESTINATION "${LIBGOSSIP_JSON_DIR}/")
+endif()
 
 # FlatBuffers - Zero-Copy Serialization
 CPMAddPackage(
@@ -200,7 +361,13 @@ CPMAddPackage(
   GITHUB_REPOSITORY
   google/flatbuffers
   GIT_TAG
-  v24.3.25)
+  v24.3.25
+  OPTIONS
+  "FLATBUFFERS_BUILD_TESTS OFF"
+  "FLATBUFFERS_BUILD_FLATC OFF"
+  "FLATBUFFERS_BUILD_FLATHASH OFF"
+  "FLATBUFFERS_BUILD_GRPCCPP OFF"
+  "FLATBUFFERS_INSTALL OFF")
 
 # ==============================================================================
 # Testing and Benchmarking
@@ -242,8 +409,6 @@ endif()
 
 # Inject ASIO into libgossip's third_party directory to fix asio.hpp not found
 if(libgossip_ADDED AND asio_ADDED)
-  message(STATUS "🔧 Fixing libgossip ASIO dependency...")
-
   set(LIBGOSSIP_ASIO_TARGET "${libgossip_SOURCE_DIR}/third_party/asio/asio/include")
   file(MAKE_DIRECTORY "${LIBGOSSIP_ASIO_TARGET}")
 
@@ -251,17 +416,7 @@ if(libgossip_ADDED AND asio_ADDED)
       DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
   file(COPY "${asio_SOURCE_DIR}/asio/include/asio.hpp"
       DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
-
-  if(EXISTS "${LIBGOSSIP_ASIO_TARGET}/asio.hpp")
-    message(STATUS "✅ ASIO successfully injected into libgossip")
-  else()
-    message(WARNING "⚠️ ASIO injection failed")
-  endif()
 endif()
-
-# Print current status for debugging
-message(STATUS "📌 asio dir: ${asio_SOURCE_DIR}")
-message(STATUS "📌 libgossip dir: ${libgossip_SOURCE_DIR}")
 
 # ==============================================================================
 # Optional High-Performance Libraries

@@ -71,6 +71,31 @@ endif()
 # Link Libraries
 # ==============================================================================
 
+# Link mimalloc for high-performance memory allocation
+if(TARGET mimalloc-static)
+  target_link_libraries(astradb PUBLIC mimalloc-static)
+  message(STATUS "Linked mimalloc-static for high-performance memory allocation")
+elseif(TARGET mimalloc)
+  target_link_libraries(astradb PUBLIC mimalloc)
+  message(STATUS "Linked mimalloc for high-performance memory allocation")
+endif()
+
+# Configure static linking flags
+if(ASTRADB_STATIC_BUILD)
+  if(MSVC)
+    # MSVC static linking
+    target_compile_definitions(astradb PRIVATE MI_STATIC_LIB)
+  else()
+    # GCC/Clang static linking
+    target_link_options(astradb PRIVATE
+      -static
+      -static-libgcc
+      -static-libstdc++
+    )
+    target_compile_definitions(astradb PRIVATE MI_STATIC_LIB)
+  endif()
+endif()
+
 # Use target-based linking for dependencies that provide targets
 if(TARGET leveldb)
   target_link_libraries(astradb PUBLIC leveldb)
@@ -126,6 +151,23 @@ endif()
 # ==============================================================================
 # Compile Options
 # ==============================================================================
+
+# Performance optimizations for static builds
+if(ASTRADB_STATIC_BUILD AND CMAKE_BUILD_TYPE STREQUAL "Release")
+  if(MSVC)
+    # MSVC optimizations
+    target_compile_options(astradb PRIVATE /O2 /GL)
+    target_link_options(astradb PRIVATE /LTCG)
+  else()
+    # GCC/Clang optimizations
+    target_compile_options(astradb PRIVATE
+      -O3
+      -march=native
+      -DNDEBUG
+    )
+    target_link_options(astradb PRIVATE -flto)
+  endif()
+endif()
 
 # Also disable -Werror in global flags
 if(NOT MSVC)
