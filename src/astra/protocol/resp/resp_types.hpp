@@ -21,8 +21,8 @@ enum class RespType : uint32_t {
   kArray = '*',         // Array: "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
   
   // Special values (not single characters)
-  kNullBulkString,
-  kNullArray,
+  kNullBulkString = 1000,
+  kNullArray = 1001,
   
   // RESP3 Only
   kBoolean = '#',       // Boolean: "#t\r\n" or "#f\r\n"
