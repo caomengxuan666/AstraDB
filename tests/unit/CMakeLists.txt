@@ -29,6 +29,7 @@ if(ASTRADB_BUILD_TESTS)
   add_subdirectory(core)
   add_subdirectory(memory)
   add_subdirectory(container)
+  add_subdirectory(protocol)
   
   # Register tests
   add_test(NAME unit_tests COMMAND astradb_tests)

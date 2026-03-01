@@ -5,3 +5,4 @@
 # Add subdirectories
 add_subdirectory(base)
 add_subdirectory(container)
+add_subdirectory(protocol)
