@@ -7,6 +7,7 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     main.cpp
     executor_bench.cpp
     memory_bench.cpp
+    zset_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE
@@ -20,6 +21,18 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     mimalloc-static
     spdlog::spdlog
   )
+  
+  # Link zset implementation
+  target_sources(astradb_benchmarks PRIVATE
+    $<TARGET_OBJECTS:astra_zset>
+  )
+  
+  # Add B+ Tree include path
+  if(TARGET b-plus-tree)
+    target_include_directories(astradb_benchmarks PRIVATE
+      ${b-plus-tree_SOURCE_DIR}
+    )
+  endif()
   
   # Register benchmark
   add_test(NAME benchmarks COMMAND astradb_benchmarks --benchmark_min_time=0.1)

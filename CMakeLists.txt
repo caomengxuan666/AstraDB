@@ -79,6 +79,13 @@ target_include_directories(astradb PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# Add subdirectories
+add_subdirectory(src/astra)
+
+# ==============================================================================
+# Testing
+# ==============================================================================
+
 # Disable mimalloc warnings that are treated as errors
 if(TARGET mimalloc-static)
   target_compile_options(mimalloc-static PRIVATE -Wno-error)

@@ -14,5 +14,27 @@ if(NOT TARGET astra_container)
     absl::hash
     absl::flat_hash_map
     absl::synchronization
+    absl::btree
   )
 endif()
+
+# Create object library for zset implementation
+add_library(astra_zset OBJECT
+  zset/btree_zset.cpp
+)
+
+target_include_directories(astra_zset PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../..
+)
+
+target_link_libraries(astra_zset PRIVATE
+  absl::base
+  absl::hash
+  absl::flat_hash_map
+  absl::synchronization
+  absl::btree
+)
+
+target_compile_features(astra_zset PRIVATE cxx_std_23)
