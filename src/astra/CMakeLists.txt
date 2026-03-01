@@ -6,3 +6,4 @@
 add_subdirectory(base)
 add_subdirectory(container)
 add_subdirectory(protocol)
+add_subdirectory(network)
