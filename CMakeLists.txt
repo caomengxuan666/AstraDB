@@ -150,16 +150,13 @@ endif()
 
 if(ASTRADB_BUILD_TESTS)
   enable_testing()
+  add_subdirectory(tests)
   
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/CMakeLists.txt)
-    add_subdirectory(tests/unit)
-  endif()
+  # Build unit tests
+  add_subdirectory(tests/unit)
   
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/CMakeLists.txt)
-    add_subdirectory(tests/integration)
-  endif()
-  
-  if(ASTRADB_BUILD_BENCHMARKS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark/CMakeLists.txt)
+  # Build benchmarks
+  if(ASTRADB_BUILD_BENCHMARKS)
     add_subdirectory(tests/benchmark)
   endif()
 endif()
