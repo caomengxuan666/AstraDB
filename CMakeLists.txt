@@ -148,17 +148,15 @@ endif()
 # Testing
 # ==============================================================================
 
-if(ASTRADB_BUILD_TESTS)
-  enable_testing()
-  add_subdirectory(tests)
-  
-  # Build unit tests
-  add_subdirectory(tests/unit)
-  
-  # Build benchmarks
-  if(ASTRADB_BUILD_BENCHMARKS)
-    add_subdirectory(tests/benchmark)
-  endif()
+enable_testing()
+add_subdirectory(tests)
+
+# Build unit tests
+add_subdirectory(tests/unit)
+
+# Build benchmarks
+if(ASTRADB_BUILD_BENCHMARKS)
+  add_subdirectory(tests/benchmark)
 endif()
 
 # ==============================================================================
