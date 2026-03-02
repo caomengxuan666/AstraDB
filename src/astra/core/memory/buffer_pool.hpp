@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <absl/base/log_severity.h>
 #include <absl/base/thread_annotations.h>
 #include <absl/container/fixed_array.h>
 #include <absl/synchronization/mutex.h>
@@ -162,7 +163,8 @@ class BufferPool final {
   Buffer* AllocateBuffer(size_t size);
 
   mutable absl::Mutex mutex_;
-  std::vector<BufferBucket> buckets_;
+  static constexpr size_t kNumBuckets = 4;
+  std::unique_ptr<BufferBucket[]> buckets_;
   size_t max_buffer_size_;
 };
 
@@ -301,31 +303,28 @@ inline void BufferPtr::Reset(Buffer* buffer) {
 inline BufferPool::BufferPool(size_t max_buffer_size)
     : max_buffer_size_(max_buffer_size) {
   // Create buckets for different buffer sizes
-  buckets_.push_back({});  // kSmallBufferSize
-  buckets_.push_back({});  // kMediumBufferSize
-  buckets_.push_back({});  // kLargeBufferSize
-  buckets_.push_back({});  // kXLargeBufferSize
+  buckets_ = std::make_unique<BufferBucket[]>(kNumBuckets);
 }
 
 inline BufferPool::~BufferPool() {
   absl::MutexLock lock(&mutex_);
-  for (auto& bucket : buckets_) {
-    for (auto* buffer : bucket.free_buffers) {
+  for (size_t i = 0; i < kNumBuckets; ++i) {
+    for (auto* buffer : buckets_[i].free_buffers) {
       delete buffer;
     }
-    bucket.free_buffers.clear();
+    buckets_[i].free_buffers.clear();
   }
 }
 
 inline BufferPtr BufferPool::Acquire(size_t size) {
   size_t bucket_index = GetBucketIndex(size);
-  
+
   {
     absl::MutexLock lock(&mutex_);
-    DCHECK(bucket_index < buckets_.size());
-    
+    assert(bucket_index < kNumBuckets);
+
     auto& bucket = buckets_[bucket_index];
-    
+
     if (!bucket.free_buffers.empty()) {
       Buffer* buffer = bucket.free_buffers.back();
       bucket.free_buffers.pop_back();
@@ -334,7 +333,7 @@ inline BufferPtr BufferPool::Acquire(size_t size) {
       return BufferPtr(buffer);
     }
   }
-  
+
   // Allocate new buffer
   Buffer* buffer = AllocateBuffer(size);
   {
@@ -349,12 +348,12 @@ inline void BufferPool::Release(Buffer* buffer) {
   if (!buffer) {
     return;
   }
-  
+
   size_t bucket_index = GetBucketIndex(buffer->capacity());
-  
+
   absl::MutexLock lock(&mutex_);
-  DCHECK(bucket_index < buckets_.size());
-  
+  assert(bucket_index < kNumBuckets);
+
   auto& bucket = buckets_[bucket_index];
   bucket.free_buffers.push_back(buffer);
   bucket.used_count.fetch_sub(1, std::memory_order_relaxed);
@@ -379,8 +378,8 @@ inline Buffer* BufferPool::AllocateBuffer(size_t size) {
 inline size_t BufferPool::GetTotalBuffers() const {
   size_t total = 0;
   absl::MutexLock lock(&mutex_);
-  for (const auto& bucket : buckets_) {
-    total += bucket.total_count.load(std::memory_order_relaxed);
+  for (size_t i = 0; i < kNumBuckets; ++i) {
+    total += buckets_[i].total_count.load(std::memory_order_relaxed);
   }
   return total;
 }
@@ -388,8 +387,8 @@ inline size_t BufferPool::GetTotalBuffers() const {
 inline size_t BufferPool::GetAvailableBuffers() const {
   size_t available = 0;
   absl::MutexLock lock(&mutex_);
-  for (const auto& bucket : buckets_) {
-    available += bucket.free_buffers.size();
+  for (size_t i = 0; i < kNumBuckets; ++i) {
+    available += buckets_[i].free_buffers.size();
   }
   return available;
 }
@@ -397,8 +396,8 @@ inline size_t BufferPool::GetAvailableBuffers() const {
 inline size_t BufferPool::GetUsedBuffers() const {
   size_t used = 0;
   absl::MutexLock lock(&mutex_);
-  for (const auto& bucket : buckets_) {
-    used += bucket.used_count.load(std::memory_order_relaxed);
+  for (size_t i = 0; i < kNumBuckets; ++i) {
+    used += buckets_[i].used_count.load(std::memory_order_relaxed);
   }
   return used;
 }

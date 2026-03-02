@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "astra/base/macros.hpp"
+#include "astra/base/logging.hpp"
 
 namespace astra::core::async {
 

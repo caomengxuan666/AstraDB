@@ -1,0 +1,184 @@
+// ==============================================================================
+// Hash Commands Implementation
+// ==============================================================================
+// License: Apache 2.0
+// ==============================================================================
+
+#include "hash_commands.hpp"
+#include "command_auto_register.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+
+namespace astra::commands {
+
+// HSET key field value
+CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HSET' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  bool is_new = db->HSet(key, field, value);
+  return CommandResult(RespValue(static_cast<int64_t>(is_new ? 1 : 0)));
+}
+
+// HGET key field
+CommandResult HandleHGet(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HGET' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+
+  auto value = db->HGet(key, field);
+  if (value.has_value()) {
+    return CommandResult(RespValue(std::string(*value)));
+  } else {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+}
+
+// HDEL key field [field ...]
+CommandResult HandleHDel(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HDEL' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::vector<std::string> fields;
+  fields.reserve(command.ArgCount() - 1);
+
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    const auto& arg = command[i];
+    if (!arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of field argument");
+    }
+    fields.push_back(arg.AsString());
+  }
+
+  size_t count = db->HDel(key, fields);
+  return CommandResult(RespValue(static_cast<int64_t>(count)));
+}
+
+// HEXISTS key field
+CommandResult HandleHExists(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HEXISTS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+
+  bool exists = db->HExists(key, field);
+  return CommandResult(RespValue(static_cast<int64_t>(exists ? 1 : 0)));
+}
+
+// HGETALL key
+CommandResult HandleHGetAll(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HGETALL' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto hash = db->HGetAll(key);
+
+  std::vector<RespValue> array;
+  array.reserve(hash.size() * 2);
+  for (const auto& [field, value] : hash) {
+    array.emplace_back(RespValue(std::string(field)));
+    array.emplace_back(RespValue(std::string(value)));
+  }
+
+  return CommandResult(RespValue(std::move(array)));
+}
+
+// HLEN key
+CommandResult HandleHLen(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HLEN' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  size_t len = db->HLen(key);
+  return CommandResult(RespValue(static_cast<int64_t>(len)));
+}
+
+// Auto-register all hash commands
+ASTRADB_REGISTER_COMMAND(HSET, -3, "write", RoutingStrategy::kByFirstKey, HandleHSet);
+ASTRADB_REGISTER_COMMAND(HGET, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
+ASTRADB_REGISTER_COMMAND(HDEL, -2, "write", RoutingStrategy::kByFirstKey, HandleHDel);
+ASTRADB_REGISTER_COMMAND(HEXISTS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
+ASTRADB_REGISTER_COMMAND(HGETALL, 1, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
+ASTRADB_REGISTER_COMMAND(HLEN, 1, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
+
+}  // namespace astra::commands

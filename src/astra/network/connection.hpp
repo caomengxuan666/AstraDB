@@ -43,6 +43,9 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // Check if connected
   bool IsConnected() const { return socket_.is_open(); }
   
+  // Send data to client
+  void Send(const std::string& data);
+  
  private:
   void DoRead();
   void DoWrite();

@@ -23,6 +23,7 @@ if(ASTRADB_BUILD_TESTS)
     absl::hash
     absl::flat_hash_map
     absl::synchronization
+    astra_base
   )
   
   # Add test subdirectories
@@ -30,7 +31,7 @@ if(ASTRADB_BUILD_TESTS)
   add_subdirectory(memory)
   add_subdirectory(container)
   add_subdirectory(protocol)
-  
+  add_subdirectory(commands)  
   # Register tests
   add_test(NAME unit_tests COMMAND astradb_tests)
 endif()

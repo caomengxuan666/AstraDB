@@ -19,8 +19,7 @@ target_link_libraries(astra_network PUBLIC
 
 target_compile_features(astra_network PUBLIC cxx_std_23)
 
-# Find Asio
+# Find Asio (header-only)
 if(asio_SOURCE_DIR)
   target_include_directories(astra_network PRIVATE ${asio_SOURCE_DIR}/asio/include)
-  target_link_libraries(astra_network PRIVATE asio)
 endif()

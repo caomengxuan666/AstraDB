@@ -22,6 +22,7 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 option(ASTRADB_BUILD_TESTS "Build unit tests" ON)
 option(ASTRADB_BUILD_BENCHMARKS "Build performance benchmarks" ON)
+option(ASTRADB_BUILD_EXECUTABLE "Build main executable" ON)
 option(ASTRADB_BUILD_DOCS "Build documentation" ON)
 option(ASTRADB_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(ASTRADB_ENABLE_SANITIZERS "Enable sanitizers (debug mode)" OFF)
@@ -31,19 +32,35 @@ option(ASTRADB_ENABLE_LTO "Enable Link Time Optimization (release mode)" ON)
 # Build Configuration: Static vs Dynamic
 # ==============================================================================
 
-# Static linking is recommended for production builds:
-# - Better performance (no dynamic linking overhead)
-# - Simpler deployment (single binary)
-# - Better LTO optimization
-# - Avoid runtime dependency conflicts
-option(ASTRADB_STATIC_BUILD "Build statically linked binary (recommended)" ON)
+# Static linking options:
+# - FULL_STATIC: Fully static linking (requires musl libc or glibc with --enable-static-nss)
+# - PARTIAL_STATIC: Static linking except glibc (recommended for production)
+# - DYNAMIC: Dynamic linking (for development)
+set(ASTRADB_LINK_MODE "PARTIAL_STATIC" CACHE STRING "Linking mode: FULL_STATIC, PARTIAL_STATIC, or DYNAMIC")
+set_property(CACHE ASTRADB_LINK_MODE PROPERTY STRINGS "FULL_STATIC" "PARTIAL_STATIC" "DYNAMIC")
 
-if(ASTRADB_STATIC_BUILD)
-  message(STATUS "Building with static linking (recommended for production)")
+if(ASTRADB_LINK_MODE STREQUAL "FULL_STATIC")
+  message(STATUS "Linking mode: FULL_STATIC (requires musl libc or custom glibc)")
   set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
-else()
-  message(STATUS "Building with dynamic linking (for development)")
+  add_compile_definitions(ASTRABI_FULL_STATIC)
+  # Fully static linking with glibc requires special handling
+  if(UNIX AND NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+  endif()
+elseif(ASTRADB_LINK_MODE STREQUAL "PARTIAL_STATIC")
+  message(STATUS "Linking mode: PARTIAL_STATIC (recommended for production)")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+  # Link glibc dynamically, everything else statically
+  if(UNIX AND NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-whole-archive")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--as-needed")
+    # Explicitly link libc dynamically
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-whole-archive")
+  endif()
+else()  # DYNAMIC
+  message(STATUS "Linking mode: DYNAMIC (for development)")
   set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
 endif()
 

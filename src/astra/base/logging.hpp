@@ -16,7 +16,9 @@ inline std::shared_ptr<spdlog::logger> g_logger;
 
 // Initialize logging system
 void InitLogging(const std::string& log_file = "",
-                 spdlog::level::level_enum level = spdlog::level::info);
+                 spdlog::level::level_enum level = spdlog::level::info,
+                 bool async = true,
+                 size_t queue_size = 8192);
 
 // Log macros
 #define ASTRADB_LOG_TRACE(...) ::astra::base::g_logger->trace(__VA_ARGS__)

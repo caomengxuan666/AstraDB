@@ -126,6 +126,31 @@ CPMAddPackage(
   DOWNLOAD_ONLY
   YES)
 
+# concurrentqueue - Lock-free MPMC queue
+# Usage: High-performance task queue for thread pool, command batching
+# Benefits: No locks, no memory allocation, faster than std::queue with mutex
+CPMAddPackage(
+  NAME
+  concurrentqueue
+  GITHUB_REPOSITORY
+  cameron314/concurrentqueue
+  GIT_TAG
+  v1.0.4)
+
+# Intel TBB - Threading Building Blocks
+# Usage: Work-stealing task scheduler, parallel algorithms, concurrent containers
+# Benefits: Intel-proven, NUMA-aware, cache-friendly, automatic load balancing
+CPMAddPackage(
+  NAME
+  TBB
+  GITHUB_REPOSITORY
+  oneapi-src/oneTBB
+  GIT_TAG
+  v2021.12.0
+  OPTIONS
+  "TBB_TEST OFF"
+  "TBB_EXAMPLES OFF")
+
 # Prometheus Client - Metrics collection and monitoring
 # Usage: Export QPS, latency, memory usage, connection count
 # Benefits: Production monitoring, Grafana integration, observability
@@ -158,8 +183,52 @@ CPMAddPackage(
   lua/lua
   GIT_TAG
   v5.4.7
-  OPTIONS
-  "BUILD_SHARED_LIBS OFF")
+  DOWNLOAD_ONLY
+  YES)
+
+# Build Lua library manually
+if(lua_ADDED)
+  add_library(lua_lib STATIC
+    ${lua_SOURCE_DIR}/lapi.c
+    ${lua_SOURCE_DIR}/lauxlib.c
+    ${lua_SOURCE_DIR}/lbaselib.c
+    ${lua_SOURCE_DIR}/lcode.c
+    ${lua_SOURCE_DIR}/lcorolib.c
+    ${lua_SOURCE_DIR}/lctype.c
+    ${lua_SOURCE_DIR}/ldblib.c
+    ${lua_SOURCE_DIR}/ldebug.c
+    ${lua_SOURCE_DIR}/ldo.c
+    ${lua_SOURCE_DIR}/ldump.c
+    ${lua_SOURCE_DIR}/lfunc.c
+    ${lua_SOURCE_DIR}/lgc.c
+    ${lua_SOURCE_DIR}/linit.c
+    ${lua_SOURCE_DIR}/liolib.c
+    ${lua_SOURCE_DIR}/llex.c
+    ${lua_SOURCE_DIR}/lmathlib.c
+    ${lua_SOURCE_DIR}/lmem.c
+    ${lua_SOURCE_DIR}/loadlib.c
+    ${lua_SOURCE_DIR}/lobject.c
+    ${lua_SOURCE_DIR}/lopcodes.c
+    ${lua_SOURCE_DIR}/loslib.c
+    ${lua_SOURCE_DIR}/lparser.c
+    ${lua_SOURCE_DIR}/lstate.c
+    ${lua_SOURCE_DIR}/lstring.c
+    ${lua_SOURCE_DIR}/lstrlib.c
+    ${lua_SOURCE_DIR}/ltable.c
+    ${lua_SOURCE_DIR}/ltablib.c
+    ${lua_SOURCE_DIR}/ltm.c
+    ${lua_SOURCE_DIR}/lundump.c
+    ${lua_SOURCE_DIR}/lvm.c
+    ${lua_SOURCE_DIR}/lzio.c
+    ${lua_SOURCE_DIR}/lutf8lib.c
+  )
+  
+  target_include_directories(lua_lib PUBLIC ${lua_SOURCE_DIR})
+  target_compile_definitions(lua_lib PUBLIC LUA_COMPAT_5_3)
+  
+  # Create alias for easier linking
+  add_library(lua::lua ALIAS lua_lib)
+endif()
 
 # ==============================================================================
 # libgossip Dependencies

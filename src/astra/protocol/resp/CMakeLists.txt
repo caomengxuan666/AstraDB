@@ -9,6 +9,7 @@ add_library(astra_protocol_resp
 
 target_include_directories(astra_protocol_resp PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../..
 )
 
 target_link_libraries(astra_protocol_resp PUBLIC

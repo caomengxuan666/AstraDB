@@ -1,0 +1,28 @@
+# AstraDB Configuration File
+# Copy this file to astradb.toml and modify as needed
+
+[server]
+# Network binding
+host = "0.0.0.0"
+port = 6379
+max_connections = 10000
+# Set to 0 to auto-detect number of threads
+thread_count = 1
+
+[database]
+# Number of databases
+num_databases = 16
+# Number of data shards for parallel processing
+num_shards = 16
+
+[logging]
+level = "warn"
+file = "astradb.log"
+async = true
+queue_size = 8192
+
+[performance]
+# Enable automatic pipeline processing
+enable_pipeline = true
+# Enable response compression (not implemented yet)
+enable_compression = false

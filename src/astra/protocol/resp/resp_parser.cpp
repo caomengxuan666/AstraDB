@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "resp_parser.hpp"
+#include "astra/base/simd_utils.hpp"
 #include <charconv>
 #include <algorithm>
 
@@ -70,9 +71,9 @@ std::optional<RespValue> RespParser::ParseSimpleString(std::string_view& data) {
   if (!line.has_value()) {
     return std::nullopt;
   }
-  
+
   RespValue value(RespType::kSimpleString);
-  value.SetString(std::string(*line));
+  value.SetString(std::string(*line), RespType::kSimpleString);
   return value;
 }
 
@@ -81,9 +82,9 @@ std::optional<RespValue> RespParser::ParseError(std::string_view& data) {
   if (!line.has_value()) {
     return std::nullopt;
   }
-  
+
   RespValue value(RespType::kError);
-  value.SetString(std::string(*line));
+  value.SetString(std::string(*line), RespType::kError);
   return value;
 }
 
@@ -208,11 +209,27 @@ std::optional<RespValue> RespParser::ParseDoubleValue(std::string_view& data) {
 }
 
 std::optional<std::string_view> RespParser::ReadUntilCRLF(std::string_view& data) {
-  size_t crlf_pos = data.find("\r\n");
-  if (crlf_pos == std::string_view::npos) {
+  // Use SIMD-accelerated CRLF search for large buffers
+  const char* crlf_ptr = nullptr;
+  
+  if (data.size() >= 32) {
+    crlf_ptr = astra::base::simd::FindCRLF(data.data(), data.size());
+  } else {
+    // For small buffers, use the standard approach
+    size_t crlf_pos = data.find("\r\n");
+    if (crlf_pos == std::string_view::npos) {
+      return std::nullopt;
+    }
+    auto result = data.substr(0, crlf_pos);
+    data.remove_prefix(crlf_pos + 2);
+    return result;
+  }
+  
+  if (crlf_ptr == nullptr) {
     return std::nullopt;
   }
   
+  size_t crlf_pos = crlf_ptr - data.data();
   auto result = data.substr(0, crlf_pos);
   data.remove_prefix(crlf_pos + 2);
   return result;

@@ -3,10 +3,10 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
 #include <absl/types/variant.h>
 #include <string>
 #include <vector>
-#include <map>
 #include <cstdint>
 #include <memory>
 
@@ -60,67 +60,93 @@ class RespValue {
   explicit RespValue(std::vector<RespValue> arr)
       : type_(RespType::kArray), value_(std::move(arr)) {}
   
-  explicit RespValue(std::map<std::string, RespValue> map)
+  explicit RespValue(absl::flat_hash_map<std::string, RespValue> map)
       : type_(RespType::kMap), value_(std::move(map)) {}
   
   // Getters
-  RespType GetType() const { return type_; }
-  
-  bool IsNull() const { return type_ == RespType::kNull; }
-  bool IsSimpleString() const { return type_ == RespType::kSimpleString; }
-  bool IsError() const { return type_ == RespType::kError; }
-  bool IsInteger() const { return type_ == RespType::kInteger; }
-  bool IsBulkString() const { return type_ == RespType::kBulkString; }
-  bool IsArray() const { return type_ == RespType::kArray; }
+  RespType GetType() const noexcept { return type_; }
+
+  bool IsNull() const noexcept {
+    return type_ == RespType::kNull ||
+           type_ == RespType::kNullBulkString ||
+           type_ == RespType::kNullArray;
+  }
+  bool IsSimpleString() const noexcept { return type_ == RespType::kSimpleString; }
+  bool IsError() const noexcept { return type_ == RespType::kError; }
+  bool IsInteger() const noexcept { return type_ == RespType::kInteger; }
+  bool IsBulkString() const noexcept { return type_ == RespType::kBulkString; }
+  bool IsArray() const noexcept { return type_ == RespType::kArray; }
   
   // Accessors
-  const std::string& AsString() const {
+  const std::string& AsString() const noexcept {
+    if (!std::holds_alternative<std::string>(value_)) {
+      // Return empty string for wrong type (fallback)
+      static const std::string empty_str;
+      return empty_str;
+    }
     return absl::get<std::string>(value_);
   }
   
-  int64_t AsInteger() const {
+  int64_t AsInteger() const noexcept {
+    if (!std::holds_alternative<int64_t>(value_)) {
+      return 0;
+    }
     return absl::get<int64_t>(value_);
   }
   
-  double AsDouble() const {
+  double AsDouble() const noexcept {
+    if (!std::holds_alternative<double>(value_)) {
+      return 0.0;
+    }
     return absl::get<double>(value_);
   }
   
-  bool AsBoolean() const {
+  bool AsBoolean() const noexcept {
+    if (!std::holds_alternative<bool>(value_)) {
+      return false;
+    }
     return absl::get<bool>(value_);
   }
   
-  const std::vector<RespValue>& AsArray() const {
+  const std::vector<RespValue>& AsArray() const noexcept {
+    if (!std::holds_alternative<std::vector<RespValue>>(value_)) {
+      static const std::vector<RespValue> empty_arr;
+      return empty_arr;
+    }
     return absl::get<std::vector<RespValue>>(value_);
   }
   
-  const std::map<std::string, RespValue>& AsMap() const {
-    return absl::get<std::map<std::string, RespValue>>(value_);
+  const absl::flat_hash_map<std::string, RespValue>& AsMap() const {
+    if (!std::holds_alternative<absl::flat_hash_map<std::string, RespValue>>(value_)) {
+      static const absl::flat_hash_map<std::string, RespValue> empty_map;
+      return empty_map;
+    }
+    return absl::get<absl::flat_hash_map<std::string, RespValue>>(value_);
   }
   
   // Setters
-  void SetString(std::string str) {
-    type_ = RespType::kBulkString;
+  void SetString(std::string str, RespType type = RespType::kBulkString) noexcept {
+    type_ = type;
     value_ = std::move(str);
   }
   
-  void SetInteger(int64_t num) {
+  void SetInteger(int64_t num) noexcept {
     type_ = RespType::kInteger;
     value_ = num;
   }
   
-  void SetArray(std::vector<RespValue> arr) {
+  void SetArray(std::vector<RespValue> arr) noexcept {
     type_ = RespType::kArray;
     value_ = std::move(arr);
   }
   
   // Size helpers
-  size_t ArraySize() const {
+  size_t ArraySize() const noexcept {
     if (!IsArray()) return 0;
     return AsArray().size();
   }
   
-  bool IsEmpty() const {
+  bool IsEmpty() const noexcept {
     if (IsNull()) return true;
     if (IsBulkString()) return AsString().empty();
     if (IsArray()) return AsArray().empty();
@@ -130,7 +156,7 @@ class RespValue {
  private:
   RespType type_;
   absl::variant<std::monostate, std::string, int64_t, double, bool,
-                 std::vector<RespValue>, std::map<std::string, RespValue>> value_;
+                 std::vector<RespValue>, absl::flat_hash_map<std::string, RespValue>> value_;
 };
 
 // Command: Parsed command with arguments

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <absl/base/log_severity.h>
 #include <absl/base/thread_annotations.h>
 #include <absl/types/span.h>
 #include <cstddef>
@@ -156,8 +157,7 @@ inline void* Arena::Allocate(size_t bytes) {
 }
 
 inline void* Arena::AllocateAligned(size_t bytes, size_t alignment) {
-  DCHECK(alignment > 0 && (alignment & (alignment - 1)) == 0)
-      << "Alignment must be a power of 2";
+  assert(alignment > 0 && (alignment & (alignment - 1)) == 0);
 
   // Round up bytes to alignment
   size_t aligned_bytes = (bytes + alignment - 1) & ~(alignment - 1);

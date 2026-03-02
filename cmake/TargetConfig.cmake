@@ -45,7 +45,9 @@ file(
 # Main Executable
 # ==============================================================================
 
-add_executable(astradb ${ASTRADB_SOURCES} ${ASTRADB_HEADERS})
+# Note: The main executable is now defined in the root CMakeLists.txt
+# to avoid duplicate target issues
+# add_executable(astradb ${ASTRADB_SOURCES} ${ASTRADB_HEADERS})
 
 # ==============================================================================
 # Include Directories

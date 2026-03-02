@@ -1,0 +1,309 @@
+// Copyright 2026 AstraDB Project
+// Licensed under the Apache License, Version 2.0
+
+#include "server.hpp"
+#include "astra/commands/string_commands.hpp"
+#include "astra/commands/hash_commands.hpp"
+#include "astra/commands/set_commands.hpp"
+#include "astra/commands/zset_commands.hpp"
+#include "astra/commands/admin_commands.hpp"
+#include "astra/base/logging.hpp"
+
+namespace astra::server {
+
+using astra::commands::RoutingStrategy;
+
+Server::Server(const ServerConfig& config)
+    : config_(config),
+      shard_manager_(config.num_shards),
+      connection_pool_(io_context_, config.max_connections),
+      running_(false),
+      total_commands_(0) {
+  
+  // Register all commands
+  RegisterStringCommands(registry_);
+  RegisterHashCommands(registry_);
+  RegisterSetCommands(registry_);
+  RegisterZSetCommands(registry_);
+  RegisterAdminCommands(registry_);
+  
+  ASTRADB_LOG_INFO("Server configured: host={}, port={}, threads={}, max_connections={}, databases={}",
+                   config_.host, config_.port, config_.thread_count,
+                   config_.max_connections, config_.num_databases);
+}
+
+Server::~Server() {
+  Stop();
+}
+
+void Server::Run() {
+  running_ = true;
+  
+  // Determine number of threads
+  size_t num_threads = config_.thread_count;
+  if (num_threads == 0) {
+    num_threads = std::thread::hardware_concurrency();
+    if (num_threads == 0) {
+      num_threads = 4;
+    }
+  }
+  
+  ASTRADB_LOG_INFO("Starting server with {} threads", num_threads);
+  
+  // Create acceptor
+  asio::ip::tcp::endpoint endpoint(asio::ip::make_address(config_.host), config_.port);
+  acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(io_context_, endpoint);
+  
+  acceptor_->listen(asio::socket_base::max_listen_connections);
+  
+    ASTRADB_LOG_INFO("Server listening on {}:{}", config_.host, config_.port);
+  
+    // Create work guard to keep io_context running
+      ASTRADB_LOG_INFO("Creating work guard...");
+      work_guard_ = std::make_unique<asio::executor_work_guard<asio::io_context::executor_type>>(
+          io_context_.get_executor());
+      ASTRADB_LOG_INFO("Work guard created successfully");  
+    // Start accepting connections
+    DoAccept();
+  
+    // Create IO threads
+      io_threads_.reserve(num_threads);
+      for (size_t i = 0; i < num_threads; ++i) {
+        io_threads_.emplace_back([this, i]() {
+          ASTRADB_LOG_INFO("IO thread {} started", i);
+          spdlog::default_logger()->flush();
+          io_context_.run();
+          ASTRADB_LOG_INFO("IO thread {} exited", i);
+        });
+      }
+      
+      ASTRADB_LOG_INFO("Created {} IO threads, waiting for them to run", num_threads);
+      spdlog::default_logger()->flush();    
+    // Wait for all threads to finish
+    for (auto& thread : io_threads_) {
+      thread.join();
+    }  
+  ASTRADB_LOG_INFO("Server stopped");
+}
+
+void Server::Start() {
+  running_ = true;
+  
+  // Determine number of threads
+  size_t num_threads = config_.thread_count;
+  if (num_threads == 0) {
+    num_threads = std::thread::hardware_concurrency();
+    if (num_threads == 0) {
+      num_threads = 4;
+    }
+  }
+  
+  ASTRADB_LOG_INFO("Starting server with {} threads", num_threads);
+  
+  // Create acceptor
+  asio::ip::tcp::endpoint endpoint(asio::ip::make_address(config_.host), config_.port);
+  acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(io_context_, endpoint);
+  
+  acceptor_->listen(asio::socket_base::max_listen_connections);
+  
+  ASTRADB_LOG_INFO("Server listening on {}:{}", config_.host, config_.port);
+  
+  // Start accepting connections
+  DoAccept();
+  
+  // Create IO threads
+  io_threads_.reserve(num_threads);
+  for (size_t i = 0; i < num_threads; ++i) {
+    io_threads_.emplace_back([this, i]() {
+      ASTRADB_LOG_INFO("IO thread {} started", i);
+      spdlog::default_logger()->flush();  // Force flush
+      io_context_.run();
+      ASTRADB_LOG_INFO("IO thread {} exited", i);
+    });
+  }
+  
+  ASTRADB_LOG_INFO("Created {} IO threads, waiting for them to run", num_threads);
+  spdlog::default_logger()->flush();  // Force flush
+}
+
+void Server::Stop() {
+  if (!running_) {
+    return;
+  }
+  
+  ASTRADB_LOG_INFO("Stopping server...");
+  running_ = false;
+  
+  // Stop accepting new connections
+  if (acceptor_) {
+    asio::error_code ec;
+    acceptor_->close(ec);
+  }
+  
+  // Destroy work guard to allow io_context to exit
+  work_guard_.reset();
+  
+  // Stop the IO context
+  io_context_.stop();
+  
+  // Wait for all threads to finish
+  for (auto& thread : io_threads_) {
+    if (thread.joinable()) {
+      thread.join();
+    }
+  }
+  
+  ASTRADB_LOG_INFO("Server stopped, total commands processed: {}", total_commands_.load());
+}
+
+void Server::DoAccept() {
+  acceptor_->async_accept(
+    [this](asio::error_code ec, asio::ip::tcp::socket socket) {
+      OnAccept(ec, std::move(socket));
+    });
+}
+
+void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
+  if (ec) {
+    if (running_) {
+      ASTRADB_LOG_ERROR("Accept error: {}", ec.message());
+    }
+    return;
+  }
+  
+  // Create new connection
+  auto conn = connection_pool_.Create(std::move(socket));
+  if (!conn) {
+    ASTRADB_LOG_WARN("Connection rejected: max connections reached");
+    socket.close();
+    DoAccept();
+    return;
+  }
+  
+  ASTRADB_LOG_INFO("New client connected: id={}, addr={}", 
+                   conn->GetId(), conn->GetRemoteAddress());
+  
+  // Set command callback
+  conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
+    HandleCommand(cmd, conn);
+  });
+  
+  // Start the connection
+  conn->Start();
+  
+  // Accept next connection
+  if (running_) {
+    DoAccept();
+  }
+}
+
+class ServerCommandContext : public commands::CommandContext {
+ public:
+  ServerCommandContext(commands::Database* db, int db_index = 0)
+      : db_(db), db_index_(db_index), authenticated_(true) {}
+  
+  commands::Database* GetDatabase() const override { return db_; }
+  int GetDBIndex() const override { return db_index_; }
+  bool IsAuthenticated() const override { return authenticated_; }
+  
+  void SetDBIndex(int index) override { db_index_ = index; }
+  void SetAuthenticated(bool auth) override { authenticated_ = auth; }
+  
+ private:
+  commands::Database* db_;
+  int db_index_;
+  bool authenticated_;
+};
+
+void Server::HandleCommand(const protocol::Command& cmd,
+                          std::shared_ptr<network::Connection> conn) {
+  total_commands_++;
+  
+  ASTRADB_LOG_DEBUG("Processing command: id={}, cmd={}, args={}", 
+                    conn->GetId(), cmd.name, cmd.ArgCount());
+  
+  // Get routing strategy for this command
+  auto routing = registry_.GetRoutingStrategy(cmd.name);
+  
+  Shard* shard = nullptr;
+  
+  // Route based on strategy
+  if (routing == RoutingStrategy::kByFirstKey && cmd.ArgCount() > 0) {
+    // Route based on first argument (key)
+    const auto& key_arg = cmd[0];
+    if (key_arg.IsBulkString()) {
+      shard = shard_manager_.GetShard(key_arg.AsString());
+    }
+  }
+  // TODO: Implement other routing strategies
+  
+  // Default to shard 0 for commands without routing strategy
+  if (!shard) {
+    shard = shard_manager_.GetShardByIndex(0);
+  }
+  
+  if (!shard) {
+    auto error_result = commands::CommandResult(false, "ERR shard not found");
+    SendResponse(conn, error_result);
+    return;
+  }
+  
+  // Create command context
+  ServerCommandContext context(shard->GetDatabase(), 0);
+  
+  // Execute command
+  auto result = registry_.Execute(cmd, &context);
+  
+  // Send response
+  SendResponse(conn, result);
+}
+
+void Server::SendResponse(std::shared_ptr<network::Connection> conn,
+                         const commands::CommandResult& result) {
+  // Convert CommandResult to RESP string
+  std::string response;
+  
+  if (!result.success) {
+    // Error response
+    response = "-" + result.error + "\r\n";
+  } else {
+    // Success response - convert RespValue to string
+    if (result.response.IsSimpleString()) {
+      response = "+" + result.response.AsString() + "\r\n";
+    } else if (result.response.IsBulkString()) {
+      const auto& str = result.response.AsString();
+      response = "$" + std::to_string(str.length()) + "\r\n" + str + "\r\n";
+    } else if (result.response.IsInteger()) {
+      response = ":" + std::to_string(result.response.AsInteger()) + "\r\n";
+    } else if (result.response.GetType() == protocol::RespType::kDouble) {
+      response = "," + std::to_string(result.response.AsDouble()) + "\r\n";
+    } else if (result.response.IsArray()) {
+      const auto& arr = result.response.AsArray();
+      response = "*" + std::to_string(arr.size()) + "\r\n";
+      for (const auto& elem : arr) {
+        if (elem.IsBulkString()) {
+          const auto& str = elem.AsString();
+          response += "$" + std::to_string(str.length()) + "\r\n" + str + "\r\n";
+        } else if (elem.IsInteger()) {
+          response += ":" + std::to_string(elem.AsInteger()) + "\r\n";
+        } else if (elem.IsNull()) {
+          response += "$-1\r\n";
+        } else {
+          // Fallback to simple string
+          response += "+" + elem.AsString() + "\r\n";
+        }
+      }
+    } else if (result.response.IsNull()) {
+      response = "$-1\r\n";
+    } else {
+      // For other types, just return OK
+      response = "+OK\r\n";
+    }
+  }
+  
+  // Send to client
+  ASTRADB_LOG_DEBUG("Sending response: id={}, len={}", conn->GetId(), response.length());
+  conn->Send(response);
+}
+
+}  // namespace astra::server

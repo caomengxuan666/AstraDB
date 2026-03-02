@@ -11,7 +11,7 @@ project(
   AstraDB
   VERSION 1.0.0
   DESCRIPTION "Ultra-high performance Redis-compatible database"
-  LANGUAGES CXX)
+  LANGUAGES CXX C)
 
 # ==============================================================================
 # Project Configuration
@@ -69,15 +69,34 @@ endif()
 # Define version string for the application
 add_definitions(-DASTRADB_VERSION_STRING="${PROJECT_VERSION}")
 
-add_executable(astradb
-  src/main.cpp
-  src/astra/base/logging.cpp
-)
+if(ASTRADB_BUILD_EXECUTABLE)
+  add_executable(astradb
+    src/main.cpp
+    src/astra/base/logging.cpp
+  )
 
-target_include_directories(astradb PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
-  ${CMAKE_CURRENT_BINARY_DIR}
-)
+  target_include_directories(astradb PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}
+  )
+
+  target_link_libraries(astradb PRIVATE
+    astra_server
+    astra_commands
+    astra_network
+    astra_base
+    astra_protocol
+    spdlog::spdlog
+    absl::base
+  )
+
+  # asio is header-only, just include directories
+  if(asio_SOURCE_DIR)
+    target_include_directories(astradb PRIVATE ${asio_SOURCE_DIR}/asio/include)
+  endif()
+
+  target_compile_features(astradb PRIVATE cxx_std_23)
+endif()
 
 # Add subdirectories
 add_subdirectory(src/astra)
@@ -147,8 +166,18 @@ endif()
 # Performance Optimizations
 # ==============================================================================
 
-if(ASTRADB_STATIC_BUILD)
+# Link mode-specific settings
+if(ASTRADB_LINK_MODE STREQUAL "FULL_STATIC")
+  # Fully static linking
   target_link_options(astradb PRIVATE -static -static-libgcc -static-libstdc++)
+  message(STATUS "Linker flags: -static -static-libgcc -static-libstdc++")
+elseif(ASTRADB_LINK_MODE STREQUAL "PARTIAL_STATIC")
+  # Partial static: static libraries, dynamic glibc
+  target_link_options(astradb PRIVATE -static-libgcc -static-libstdc++)
+  message(STATUS "Linker flags: -static-libgcc -static-libstdc++ (glibc dynamic)")
+else()
+  # Dynamic linking
+  message(STATUS "Linker flags: none (dynamic linking)")
 endif()
 
 # ==============================================================================

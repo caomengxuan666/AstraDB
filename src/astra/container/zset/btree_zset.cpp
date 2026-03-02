@@ -171,13 +171,26 @@ ZSet<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop, bool reverse, bo
   std::vector<std::pair<MemberType, ScoreType>> result;
   
   uint64_t size = Size();
+  if (size == 0) {
+    return result;
+  }
+  
+  // Handle negative indices for start (convert from int64_t to uint64_t)
+  // Note: The caller should have already converted negative indices to uint64_t
+  // For now, we assume start and stop are already in the correct range [0, size-1]
+  
+  // Clamp start and stop to valid range
   if (start >= size) {
     return result;
   }
   
-  // Clamp stop to size - 1
   if (stop >= size) {
     stop = size - 1;
+  }
+  
+  // Ensure start <= stop
+  if (start > stop) {
+    return result;
   }
   
   if (reverse) {
@@ -211,13 +224,14 @@ ZSet<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop, bool reverse, bo
 template <typename Key, typename Score>
 uint64_t ZSet<Key, Score>::CountRange(ScoreType min, ScoreType max) const {
   absl::ReaderMutexLock lock(&mutex_);
-  
+
   ElementType min_element(min, "");
-  ElementType max_element(max, "");
-  
+  // Use a very large string for max to include all elements with score == max
+  ElementType max_element(max, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+
   auto lower = ordered_set_.lower_bound(min_element);
   auto upper = ordered_set_.upper_bound(max_element);
-  
+
   return std::distance(lower, upper);
 }
 
@@ -242,28 +256,29 @@ bool ZSet<Key, Score>::Contains(const MemberType& member) const {
 template <typename Key, typename Score>
 uint64_t ZSet<Key, Score>::RemoveRangeByScore(ScoreType min, ScoreType max) {
   absl::MutexLock lock(&mutex_);
-  
+
   uint64_t count = 0;
-  
+
   ElementType min_element(min, "");
-  ElementType max_element(max, "");
-  
+  // Use a very large string for max to include all elements with score == max
+  ElementType max_element(max, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+
   auto lower = ordered_set_.lower_bound(min_element);
   auto upper = ordered_set_.upper_bound(max_element);
-  
+
   // Collect members to remove
   std::vector<MemberType> members_to_remove;
   for (auto it = lower; it != upper; ++it) {
     members_to_remove.push_back(it->first.member);
   }
-  
+
   // Remove them
   for (const auto& member : members_to_remove) {
     if (member_to_score_.erase(member) > 0) {
       ++count;
     }
   }
-  
+
   // Remove from ordered set
   ordered_set_.erase(lower, upper);
   

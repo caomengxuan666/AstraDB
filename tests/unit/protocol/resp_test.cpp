@@ -176,9 +176,9 @@ TEST(RespBuilderTest, BuildNullBulkString) {
 
 TEST(RespBuilderTest, BuildArray) {
   std::vector<RespValue> arr;
-  arr.emplace_back("foo");
-  arr.emplace_back("bar");
-  
+  arr.emplace_back(std::string("foo"));
+  arr.emplace_back(std::string("bar"));
+
   auto out = RespBuilder::BuildArray(arr);
   EXPECT_EQ(out, "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n");
 }
@@ -230,22 +230,22 @@ TEST(RespBuilderTest, RoundTripSimpleString) {
 }
 
 TEST(RespBuilderTest, RoundTripBulkString) {
-  RespValue original("world");
-  
+  RespValue original(std::string("world"));
+
   auto out = RespBuilder::Build(original);
   std::string_view data(out);
   auto parsed = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(parsed.has_value());
   EXPECT_EQ(parsed->AsString(), "world");
 }
 
 TEST(RespBuilderTest, RoundTripArray) {
   std::vector<RespValue> arr;
-  arr.emplace_back("foo");
-  arr.emplace_back("bar");
+  arr.emplace_back(std::string("foo"));
+  arr.emplace_back(std::string("bar"));
   arr.emplace_back(static_cast<int64_t>(42));
-  
+
   RespValue original(std::move(arr));
   
   auto out = RespBuilder::Build(original);

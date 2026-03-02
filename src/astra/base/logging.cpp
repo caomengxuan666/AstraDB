@@ -11,15 +11,20 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/async.h>
 
 namespace astra::base {
 
-void InitLogging(const std::string& log_file, spdlog::level::level_enum level) {
+void InitLogging(const std::string& log_file, spdlog::level::level_enum level, 
+               bool async, size_t queue_size) {
   try {
+    std::vector<spdlog::sink_ptr> sinks;
+    
     // Create console sink
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     console_sink->set_level(level);
     console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+    sinks.push_back(console_sink);
     
     // Create file sink if log_file is specified
     if (!log_file.empty()) {
@@ -33,14 +38,24 @@ void InitLogging(const std::string& log_file, spdlog::level::level_enum level) {
           log_file, 1024 * 1024 * 100, 3);  // 100MB, 3 files
       file_sink->set_level(level);
       file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v");
+      sinks.push_back(file_sink);
+    }
+    
+    if (async) {
+      // Initialize global thread pool for async logging
+      spdlog::init_thread_pool(queue_size, 1);
       
-      // Set both sinks
-      g_logger = std::make_shared<spdlog::logger>(
-          "astradb", spdlog::sinks_init_list{console_sink, file_sink});
+      // Create async logger
+      g_logger = std::make_shared<spdlog::async_logger>(
+          "astradb",
+          sinks.begin(),
+          sinks.end(),
+          spdlog::thread_pool(),
+          spdlog::async_overflow_policy::block);
     } else {
-      // Console only
+      // Use synchronous logger
       g_logger = std::make_shared<spdlog::logger>(
-          "astradb", console_sink);
+          "astradb", sinks.begin(), sinks.end());
     }
     
     g_logger->set_level(level);

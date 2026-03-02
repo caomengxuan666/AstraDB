@@ -11,6 +11,7 @@ target_include_directories(astra_engine INTERFACE
 
 target_link_libraries(astra_engine INTERFACE
   astra_container
+  astra_base
   leveldb
-  zstd::libzstd_static
+  zstd
 )

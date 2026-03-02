@@ -8,18 +8,21 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     executor_bench.cpp
     memory_bench.cpp
     zset_bench.cpp
+    simd_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
   )
   
   target_link_libraries(astradb_benchmarks PRIVATE
     benchmark::benchmark
-    benchmark::benchmark_main
     mimalloc-static
     spdlog::spdlog
+    astra_container
+    astra_base
   )
   
   # Link zset implementation

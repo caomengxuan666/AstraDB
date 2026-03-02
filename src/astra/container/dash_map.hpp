@@ -67,7 +67,7 @@ class DashMap {
   using MapType = absl::flat_hash_map<Key, Value, DashHash, EqualType>;
   
   explicit DashMap(size_t num_shards = 16)
-      : shards_(num_shards), size_(0) {
+      : size_(0) {
     shards_.reserve(num_shards);
     for (size_t i = 0; i < num_shards; ++i) {
       shards_.push_back(std::make_unique<Shard>());
@@ -154,6 +154,19 @@ class DashMap {
       shard->map.clear();
     }
     size_.store(0, std::memory_order_relaxed);
+  }
+  
+  // Get all keys
+  std::vector<Key> GetAllKeys() const {
+    std::vector<Key> keys;
+    for (auto& shard : shards_) {
+      absl::ReaderMutexLock lock(&shard->mutex);
+      keys.reserve(keys.size() + shard->map.size());
+      for (const auto& [key, _] : shard->map) {
+        keys.push_back(key);
+      }
+    }
+    return keys;
   }
   
   // Get total number of shards
@@ -251,6 +264,10 @@ class DashSet {
   
   void Clear() {
     map_.Clear();
+  }
+  
+  std::vector<Key> GetAll() const {
+    return map_.GetAllKeys();
   }
   
  private:
