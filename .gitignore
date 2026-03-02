@@ -73,3 +73,9 @@ test_registration.cpp
 
 # Lock files
 modules.json
+build-debug-optimized/
+build-release/
+build-release-debuginfo/
+_deps/
+compile_commands.json
+astradb.log
