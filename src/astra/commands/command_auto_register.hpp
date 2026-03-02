@@ -62,11 +62,8 @@ class RuntimeCommandRegistry {
   std::unordered_map<std::string, CommandMetadata> commands_;
 };
 
-// Helper macro for unique name generation
-#define ASTRADB_CONCAT_IMPL(x, y) x##y
-#define ASTRADB_CONCAT(x, y) ASTRADB_CONCAT_IMPL(x, y)
-
 // Macro for automatic command registration
+// Note: ASTRADB_CONCAT is defined in base/macros.hpp
 // Uses constructor-based registration that preserves function pointer references
 #define ASTRADB_REGISTER_COMMAND(Name, Arity, Flags, Routing, Handler) \
   namespace { \
