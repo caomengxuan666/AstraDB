@@ -18,6 +18,7 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
   )
   
   target_link_libraries(astradb_benchmarks PRIVATE
+    astra_core
     benchmark::benchmark
     mimalloc-static
     spdlog::spdlog
