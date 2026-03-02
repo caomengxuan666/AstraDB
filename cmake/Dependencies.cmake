@@ -250,36 +250,7 @@ CPMAddPackage(
   DOWNLOAD_ONLY
   YES)
 
-# libgossip - Gossip Protocol for Cluster Communication
-CPMAddPackage(
-  NAME
-  libgossip
-  VERSION
-  1.2.0
-  URL
-  https://github.com/caomengxuan666/libgossip/archive/master.tar.gz
-  OPTIONS
-  "BUILD_PYTHON_BINDINGS OFF"
-  "BUILD_EXAMPLES OFF"
-  "BUILD_TESTS OFF"
-  "BUILD_DOCS OFF"
-  "INSTALL OFF")
 
-# Inject nlohmann_json into libgossip's own third_party directory
-# libgossip expects JSON at ${libgossip_SOURCE_DIR}/third_party/json/single_include/nlohmann
-if(libgossip_ADDED AND nlohmann_json_ADDED)
-  set(LIBGOSSIP_JSON_DIR "${libgossip_SOURCE_DIR}/third_party/json/single_include/nlohmann")
-  file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_DIR}")
-
-  # Copy nlohmann header files to libgossip's third_party directory
-  file(COPY "${nlohmann_json_SOURCE_DIR}/single_include/nlohmann/"
-       DESTINATION "${LIBGOSSIP_JSON_DIR}/")
-
-  message(STATUS "✅ nlohmann_json injected to libgossip's third_party: ${LIBGOSSIP_JSON_DIR}")
-endif()
-
-# ==============================================================================
-# Network and Async Libraries
 # ==============================================================================
 
 # Asio - C++ Network Library with Coroutines
@@ -293,22 +264,68 @@ CPMAddPackage(
   OPTIONS
   "ASIO_STANDALONE ON")
 
-# ==============================================================================
-# Logging and Formatting
-# ==============================================================================
-
-# Asio - Asynchronous I/O (C++23 coroutines)
-CPMAddPackage(
-  NAME
-  asio
-  GITHUB_REPOSITORY
-  chriskohlhoff/asio
-  GIT_TAG
-  asio-1-30-8
-  DOWNLOAD_ONLY
-  YES)
+# Create asio interface target for main project
+if(asio_ADDED)
+  add_library(asio::asio INTERFACE IMPORTED)
+  target_include_directories(asio::asio INTERFACE
+    ${asio_SOURCE_DIR}/asio/include)
+  message(STATUS "✅ Created asio::asio target for main project")
+endif()
 
 # fmt - Formatting library (spdlog dependency)
+# libgossip - Gossip Protocol for Cluster Communication
+# First, download the package without adding it
+CPMAddPackage(
+  NAME
+  libgossip_download
+  VERSION
+  1.2.0
+  URL
+  https://github.com/caomengxuan666/libgossip/archive/master.tar.gz
+  DOWNLOAD_ONLY
+  YES)
+  # Set LIBGOSSIP_SOURCE variable
+  set(LIBGOSSIP_SOURCE "${libgossip_download_SOURCE_DIR}")
+  
+  # Inject asio immediately after setting source
+  if(asio_ADDED)
+    set(LIBGOSSIP_ASIO_TARGET "${LIBGOSSIP_SOURCE}/third_party/asio/asio/include")
+    file(MAKE_DIRECTORY "${LIBGOSSIP_ASIO_TARGET}")
+    
+    file(COPY "${asio_SOURCE_DIR}/asio/include/asio"
+        DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
+    file(COPY "${asio_SOURCE_DIR}/asio/include/asio.hpp"
+        DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
+    
+    message(STATUS "✅ ASIO injected to libgossip's third_party: ${LIBGOSSIP_ASIO_TARGET}")
+  
+    # Inject nlohmann_json immediately after asio
+    if(nlohmann_json_ADDED)
+      set(LIBGOSSIP_JSON_TARGET "${LIBGOSSIP_SOURCE}/third_party/json/single_include/nlohmann")
+      file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_TARGET}")
+      
+      file(COPY "${nlohmann_json_SOURCE_DIR}/single_include/nlohmann/"
+          DESTINATION "${LIBGOSSIP_JSON_TARGET}/")
+      
+      message(STATUS "✅ nlohmann_json injected to libgossip's third_party: ${LIBGOSSIP_JSON_TARGET}")
+    endif()
+  # Set options to skip third_party checks, tests, examples, and Python bindings
+  set(LIBGOSSIP_SKIP_THIRD_PARTY_CHECK ON CACHE BOOL "Skip third_party checks for libgossip" FORCE)
+  set(BUILD_TESTS OFF CACHE BOOL "Build tests for libgossip" FORCE)
+  set(BUILD_EXAMPLES OFF CACHE BOOL "Build examples for libgossip" FORCE)
+  set(BUILD_PYTHON_BINDINGS OFF CACHE BOOL "Build Python bindings for libgossip" FORCE)
+  
+  # Now add the patched directory
+  add_subdirectory("${LIBGOSSIP_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/libgossip")
+  
+  # Set the _ADDED variable manually
+  set(libgossip_ADDED ON)
+  set(libgossip_SOURCE_DIR "${LIBGOSSIP_SOURCE}")
+endif()
+
+# ==============================================================================
+
+# Network and Async Libraries
 CPMAddPackage(
   NAME
   fmt
@@ -401,34 +418,12 @@ if(leveldb_ADDED)
 endif()
 
 # ==============================================================================
+
 # Serialization and Networking
+
 # ==============================================================================
 
-# libgossip - Gossip Protocol for Cluster Communication
-# Note: We use CPM's SOURCE_DIR option to pre-populate the directory
-CPMAddPackage(
-  NAME
-  libgossip
-  VERSION
-  1.2.0
-  URL
-  https://github.com/caomengxuan666/libgossip/archive/master.tar.gz
-  OPTIONS
-  "BUILD_PYTHON_BINDINGS OFF"
-  "BUILD_EXAMPLES OFF"
-  "BUILD_TESTS OFF"
-  "BUILD_DOCS OFF"
-  "INSTALL OFF")
 
-# Inject nlohmann_json into libgossip's third_party directory immediately after download
-if(libgossip_ADDED AND nlohmann_json_ADDED)
-  set(LIBGOSSIP_JSON_DIR "${libgossip_SOURCE_DIR}/third_party/json")
-  file(MAKE_DIRECTORY "${LIBGOSSIP_JSON_DIR}")
-
-  # Copy the entire single_include directory
-  file(COPY "${nlohmann_json_SOURCE_DIR}/single_include/"
-       DESTINATION "${LIBGOSSIP_JSON_DIR}/")
-endif()
 
 # FlatBuffers - Zero-Copy Serialization
 CPMAddPackage(
@@ -482,21 +477,6 @@ if(benchmark_ADDED)
 endif()
 
 # ==============================================================================
-# Dependency Fixes
-# ==============================================================================
-
-# Inject ASIO into libgossip's third_party directory to fix asio.hpp not found
-if(libgossip_ADDED AND asio_ADDED)
-  set(LIBGOSSIP_ASIO_TARGET "${libgossip_SOURCE_DIR}/third_party/asio/asio/include")
-  file(MAKE_DIRECTORY "${LIBGOSSIP_ASIO_TARGET}")
-
-  file(COPY "${asio_SOURCE_DIR}/asio/include/asio"
-      DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
-  file(COPY "${asio_SOURCE_DIR}/asio/include/asio.hpp"
-      DESTINATION "${LIBGOSSIP_ASIO_TARGET}/")
-endif()
-
-# ==============================================================================
 # Optional High-Performance Libraries
 # ==============================================================================
 
@@ -528,3 +508,8 @@ endif()
 #   GITHUB_REPOSITORY abseil/abseil-cpp
 #   GIT_TAG 20240116.1
 # )
+
+# ==============================================================================
+# Post-Dependency Injection
+# ==============================================================================
+include(${CMAKE_CURRENT_LIST_DIR}/PostDependencies.cmake)

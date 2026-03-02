@@ -82,7 +82,6 @@ if(ASTRADB_BUILD_EXECUTABLE)
 
   target_link_libraries(astradb PRIVATE
     astra_server
-    astra_commands
     astra_network
     astra_base
     astra_protocol

@@ -2,6 +2,9 @@
 build/
 cmake-build-*/
 out/
+_build/
+build-*/
+gnu_*/
 
 # CMake
 CMakeCache.txt
@@ -13,25 +16,60 @@ Makefile
 *.cmake
 !cmake/**/*.cmake
 
+# CPM Cache
+.cpm-cache/
+_modules/
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-*
 
 # CMakeHub cache
 .cmakehub/
 
 # Other cache
 .cache/
-.cpm-cache/
 
 # Runtime data
 testdb/
 *.db
 *.log
+dump.rdb
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Dependencies
+third_party/
+.gitmodules
+
+# Binaries
+bin/
+lib/
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Profiling
+bpftrace.out
+mutex_trace.txt
+perf.data
+perf.data.old
+
+# Test outputs
+test_registration.cpp
+
+# Environment
+.env.local
+.env.*.local
+
+# Lock files
+modules.json
