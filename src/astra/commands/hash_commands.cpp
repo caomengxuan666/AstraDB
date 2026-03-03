@@ -10,9 +10,10 @@
 
 namespace astra::commands {
 
-// HSET key field value
+// HSET key field value [field value ...]
 CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext* context) {
-  if (command.ArgCount() != 3) {
+  // Need at least: key field value (3 args), plus pairs of field-value
+  if (command.ArgCount() < 3 || (command.ArgCount() - 1) % 2 != 0) {
     return CommandResult(false, "ERR wrong number of arguments for 'HSET' command");
   }
 
@@ -22,19 +23,31 @@ CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext
   }
 
   const auto& key_arg = command[0];
-  const auto& field_arg = command[1];
-  const auto& value_arg = command[2];
-
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !value_arg.IsBulkString()) {
-    return CommandResult(false, "ERR wrong type of argument");
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
   }
 
   std::string key = key_arg.AsString();
-  std::string field = field_arg.AsString();
-  std::string value = value_arg.AsString();
+  size_t added = 0;
 
-  bool is_new = db->HSet(key, field, value);
-  return CommandResult(RespValue(static_cast<int64_t>(is_new ? 1 : 0)));
+  // Process all field-value pairs
+  for (size_t i = 1; i < command.ArgCount(); i += 2) {
+    const auto& field_arg = command[i];
+    const auto& value_arg = command[i + 1];
+
+    if (!field_arg.IsBulkString() || !value_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of argument");
+    }
+
+    std::string field = field_arg.AsString();
+    std::string value = value_arg.AsString();
+
+    if (db->HSet(key, field, value)) {
+      ++added;
+    }
+  }
+
+  return CommandResult(RespValue(static_cast<int64_t>(added)));
 }
 
 // HGET key field

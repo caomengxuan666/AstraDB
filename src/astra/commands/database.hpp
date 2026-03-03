@@ -602,6 +602,22 @@ class Database {
     return strings_.Size();
   }
 
+  // Get key type
+  std::optional<astra::storage::KeyType> GetType(const std::string& key) {
+    return metadata_manager_.GetKeyType(key);
+  }
+
+  // Get all keys (for KEYS command)
+  std::vector<std::string> GetAllKeys() {
+    return metadata_manager_.GetAllKeys();
+  }
+
+  // Get database size (number of keys)
+  size_t DbSize() const {
+    return metadata_manager_.Size();
+  }
+
+  // Flush all data
   void Clear() {
     strings_.Clear();
     hashes_.Clear();

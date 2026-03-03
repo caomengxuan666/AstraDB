@@ -140,17 +140,18 @@ std::string key = key_arg.AsString();
   }
   
   // Log to AOF (zero-copy with absl::Span)
-  std::string px_str = std::to_string(*expire_time_ms);
-  std::array<absl::string_view, 4> aof_args_with_expire = {key, value, "PX", px_str};
-  std::array<absl::string_view, 2> aof_args_simple = {key, value};
-  
   if (expire_time_ms.has_value()) {
+    std::string px_str = std::to_string(*expire_time_ms);
+    std::array<absl::string_view, 4> aof_args_with_expire = {key, value, "PX", px_str};
     context->LogToAof("SET", absl::MakeSpan(aof_args_with_expire));
   } else {
+    std::array<absl::string_view, 2> aof_args_simple = {key, value};
     context->LogToAof("SET", absl::MakeSpan(aof_args_simple));
   }
   
-  return CommandResult(RespValue(RespType::kSimpleString));
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
 }
 
 // DEL key [key ...]
@@ -639,7 +640,7 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
     if (!arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
-    if (db->Get(arg.AsString()).has_value()) {
+    if (db->Exists(arg.AsString())) {
       ++count;
     }
   }
@@ -650,10 +651,10 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 1, "readonly", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -2, "write", RoutingStrategy::kByFirstKey, HandleSet);
-ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kNone, HandleDel);
-ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);
+ASTRADB_REGISTER_COMMAND(DEL, -1, "write", RoutingStrategy::kNone, HandleDel);
+ASTRADB_REGISTER_COMMAND(MGET, -1, "readonly", RoutingStrategy::kNone, HandleMGet);
 ASTRADB_REGISTER_COMMAND(MSET, -2, "write", RoutingStrategy::kNone, HandleMSet);
-ASTRADB_REGISTER_COMMAND(EXISTS, -2, "readonly", RoutingStrategy::kNone, HandleExists);
+ASTRADB_REGISTER_COMMAND(EXISTS, -1, "readonly", RoutingStrategy::kNone, HandleExists);
 
 // Increment/Decrement commands
 ASTRADB_REGISTER_COMMAND(INCR, 1, "write", RoutingStrategy::kByFirstKey, HandleIncr);

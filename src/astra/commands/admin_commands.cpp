@@ -6,6 +6,7 @@
 #include "astra/base/logging.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
+#include "astra/storage/key_metadata.hpp"
 #include <chrono>
 #include <ctime>
 #include <sstream>
@@ -71,10 +72,33 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
 
 // COMMAND - Redis command introspection
 CommandResult HandleCommand(const astra::protocol::Command& command, CommandContext* context) {
-  // Return basic command info
+  // COMMAND can be called with no args (returns all commands) or with subcommand
   std::vector<RespValue> result;
   
-  // For now, return empty array
+  if (command.ArgCount() == 0) {
+    // Return empty array for now - full implementation would list all commands
+    return CommandResult(RespValue(std::move(result)));
+  }
+  
+  const auto& subcommand = command[0].AsString();
+  
+  if (subcommand == "DOCS") {
+    // COMMAND DOCS - return command documentation
+    return CommandResult(RespValue(std::move(result)));
+  } else if (subcommand == "COUNT") {
+    // COMMAND COUNT - return number of commands
+    RespValue count;
+    count.SetInteger(64);  // Current command count
+    return CommandResult(count);
+  } else if (subcommand == "GETKEYS") {
+    // COMMAND GETKEYS - extract keys from a command
+    return CommandResult(false, "ERR COMMAND GETKEYS not implemented");
+  } else if (subcommand == "LIST") {
+    // COMMAND LIST - return list of command names
+    return CommandResult(RespValue(std::move(result)));
+  }
+  
+  // Return empty array for unknown subcommands
   return CommandResult(RespValue(std::move(result)));
 }
 
@@ -474,6 +498,114 @@ CommandResult HandleAsking(const astra::protocol::Command& command, CommandConte
   return CommandResult(response);
 }
 
+// TYPE key - Get key type
+CommandResult HandleType(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'type' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto type = db->GetType(key);
+  
+  std::string type_str = "none";
+  if (type.has_value()) {
+    switch (*type) {
+      case astra::storage::KeyType::kString: type_str = "string"; break;
+      case astra::storage::KeyType::kHash: type_str = "hash"; break;
+      case astra::storage::KeyType::kSet: type_str = "set"; break;
+      case astra::storage::KeyType::kZSet: type_str = "zset"; break;
+      case astra::storage::KeyType::kList: type_str = "list"; break;
+      case astra::storage::KeyType::kStream: type_str = "stream"; break;
+      default: type_str = "none"; break;
+    }
+  }
+  
+  RespValue response;
+  response.SetString(type_str, protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// KEYS pattern - Find all keys matching pattern
+CommandResult HandleKeys(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'keys' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& pattern_arg = command[0];
+  if (!pattern_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of pattern argument");
+  }
+
+  std::string pattern = pattern_arg.AsString();
+  auto all_keys = db->GetAllKeys();
+  
+  std::vector<RespValue> result;
+  for (const auto& key : all_keys) {
+    // Simple pattern matching: only support * wildcard
+    if (pattern == "*" || key.find(pattern.substr(1)) != std::string::npos) {
+      RespValue key_val;
+      key_val.SetString(key, protocol::RespType::kBulkString);
+      result.push_back(key_val);
+    }
+  }
+  
+  return CommandResult(RespValue(std::move(result)));
+}
+
+// DBSIZE - Return number of keys
+CommandResult HandleDbSize(const astra::protocol::Command& command, CommandContext* context) {
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  size_t size = db->DbSize();
+  return CommandResult(RespValue(static_cast<int64_t>(size)));
+}
+
+// FLUSHDB - Clear current database
+CommandResult HandleFlushDb(const astra::protocol::Command& command, CommandContext* context) {
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  db->Clear();
+  
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// FLUSHALL - Clear all databases
+CommandResult HandleFlushAll(const astra::protocol::Command& command, CommandContext* context) {
+  // For now, just clear current database
+  // TODO: Implement multi-database support
+  Database* db = context->GetDatabase();
+  if (db) {
+    db->Clear();
+  }
+  
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 0, "fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 0, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -485,5 +617,10 @@ ASTRADB_REGISTER_COMMAND(ASKING, 0, "fast", RoutingStrategy::kNone, HandleAsking
 ASTRADB_REGISTER_COMMAND(BGSAVE, 0, "admin", RoutingStrategy::kNone, HandleBgSave);
 ASTRADB_REGISTER_COMMAND(LASTSAVE, 0, "readonly", RoutingStrategy::kNone, HandleLastSave);
 ASTRADB_REGISTER_COMMAND(SAVE, 0, "admin", RoutingStrategy::kNone, HandleSave);
+ASTRADB_REGISTER_COMMAND(TYPE, 1, "readonly", RoutingStrategy::kByFirstKey, HandleType);
+ASTRADB_REGISTER_COMMAND(KEYS, 1, "readonly", RoutingStrategy::kNone, HandleKeys);
+ASTRADB_REGISTER_COMMAND(DBSIZE, 0, "readonly", RoutingStrategy::kNone, HandleDbSize);
+ASTRADB_REGISTER_COMMAND(FLUSHDB, 0, "write", RoutingStrategy::kNone, HandleFlushDb);
+ASTRADB_REGISTER_COMMAND(FLUSHALL, 0, "write", RoutingStrategy::kNone, HandleFlushAll);
 
 }  // namespace astra::commands

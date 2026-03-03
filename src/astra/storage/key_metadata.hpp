@@ -195,6 +195,11 @@ class KeyMetadataManager {
     return metadata_map_.Size();
   }
 
+  // Get all keys (for KEYS command)
+  std::vector<std::string> GetAllKeys() {
+    return metadata_map_.GetAllKeys();
+  }
+
   // Clear all metadata
   void Clear() {
     metadata_map_.Clear();
