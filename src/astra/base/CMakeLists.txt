@@ -19,12 +19,6 @@ if(TARGET mimalloc-static)
   target_link_libraries(astra_base PUBLIC mimalloc-static)
 endif()
 
-if(TARGET xxHash::xxhash)
-  target_link_libraries(astra_base PUBLIC xxHash::xxhash)
-elseif(TARGET xxhash)
-  target_link_libraries(astra_base PUBLIC xxhash)
-endif()
-
 if(TARGET spdlog::spdlog)
   target_link_libraries(astra_base PUBLIC spdlog::spdlog)
 elseif(TARGET spdlog)

@@ -27,23 +27,6 @@ CPMAddPackage(
   "MI_BUILD_OBJECT OFF"
   "MI_BUILD_TESTS OFF")
 
-# xxHash - Ultra-fast hash algorithm
-# Usage: Dashtable hashing, key sharding, CRC calculations
-# Benefits: 10-100x faster than std::hash, essential for performance
-CPMAddPackage(
-  NAME
-  xxhash
-  VERSION
-  0.8.2
-  GITHUB_REPOSITORY
-  Cyan4973/xxHash
-  GIT_TAG
-  v0.8.2
-  OPTIONS
-  "XXHASH_BUILD_TESTS OFF"
-  "XXHASH_BUILD_CLI OFF"
-  "XXHASH_BUILD_INSTALL OFF")
-
 # zstd - Fast compression algorithm
 # Usage: AOF file compression, RDB snapshot compression
 # Benefits: Similar compression ratio to gzip, 3-5x faster

@@ -34,6 +34,11 @@ target_link_libraries(astra_commands PUBLIC
   tomlplusplus::tomlplusplus
 )
 
+# Link TBB for parallel operations
+if(TARGET TBB::tbb)
+  target_link_libraries(astra_commands PUBLIC TBB::tbb)
+endif()
+
 # Add libgossip include paths for cluster commands
 if(TARGET libgossip)
   target_include_directories(astra_commands PRIVATE

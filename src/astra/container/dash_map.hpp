@@ -16,7 +16,7 @@
 
 namespace astra::container {
 
-// Hash function using xxHash (via Abseil)
+// Hash function using Abseil (SwissTable hash)
 struct DashHash {
   using is_transparent = void;
   

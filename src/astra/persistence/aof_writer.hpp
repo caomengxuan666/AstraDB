@@ -16,6 +16,8 @@
 #include <absl/synchronization/mutex.h>
 #include <absl/time/time.h>
 
+#include <zstd.h>
+
 #include <memory>
 #include <string>
 #include <atomic>
@@ -25,6 +27,7 @@
 #include <queue>
 #include <functional>
 #include <filesystem>
+#include <vector>
 
 #include "astra/base/macros.hpp"
 #include "astra/base/logging.hpp"
@@ -46,6 +49,10 @@ struct AofOptions {
   size_t rewrite_min_size = 64 * 1024 * 1024;  // 64MB
   double rewrite_growth_factor = 1.0;  // Rewrite when size doubles
   size_t buffer_size = 4 * 1024 * 1024;  // 4MB write buffer
+  
+  // Compression options
+  bool compress = false;  // Enable zstd compression
+  int compression_level = 3;  // zstd compression level (1-22, default 3)
 };
 
 // AOF entry representing a write command
@@ -229,7 +236,42 @@ class AofWriter {
       return true;
     }
     
-    file_.write(buffer_.data(), buffer_.size());
+    if (options_.compress) {
+      // Compress with zstd
+      return FlushCompressed();
+    } else {
+      // Write uncompressed
+      file_.write(buffer_.data(), buffer_.size());
+      file_.flush();
+      buffer_.clear();
+      buffer_size_.store(0, std::memory_order_relaxed);
+      return file_.good();
+    }
+  }
+  
+  // Flush with zstd compression
+  bool FlushCompressed() noexcept {
+    // Reserve space for compressed data
+    size_t bound = ZSTD_compressBound(buffer_.size());
+    compress_buffer_.resize(bound);
+    
+    // Compress
+    size_t compressed_size = ZSTD_compress(
+        compress_buffer_.data(), compress_buffer_.size(),
+        buffer_.data(), buffer_.size(),
+        options_.compression_level);
+    
+    if (ZSTD_isError(compressed_size)) {
+      ASTRADB_LOG_ERROR("zstd compression failed: {}", ZSTD_getErrorName(compressed_size));
+      // Fallback to uncompressed
+      file_.write(buffer_.data(), buffer_.size());
+    } else {
+      // Write compressed block: [size(4 bytes)][compressed data]
+      uint32_t size = static_cast<uint32_t>(compressed_size);
+      file_.write(reinterpret_cast<const char*>(&size), sizeof(size));
+      file_.write(reinterpret_cast<const char*>(compress_buffer_.data()), compressed_size);
+    }
+    
     file_.flush();
     buffer_.clear();
     buffer_size_.store(0, std::memory_order_relaxed);
@@ -312,6 +354,7 @@ class AofWriter {
   AofOptions options_;
   std::ofstream file_;
   std::string buffer_;
+  std::vector<char> compress_buffer_;  // For zstd compression
   absl::Mutex buffer_mutex_;
   std::atomic<size_t> buffer_size_{0};
   std::atomic<bool> initialized_{false};

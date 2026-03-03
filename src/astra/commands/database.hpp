@@ -10,6 +10,8 @@
 #include <optional>
 #include <vector>
 #include <memory>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #include "astra/container/dash_map.hpp"
 #include "astra/container/zset/btree_zset.hpp"
 #include "astra/container/linked_list.hpp"
@@ -77,13 +79,28 @@ class Database {
   }
 
   size_t Del(const std::vector<std::string>& keys) {
-    size_t count = 0;
-    for (const auto& key : keys) {
-      if (Del(key)) {
-        ++count;
+    std::atomic<size_t> count{0};
+    
+    // Use TBB parallel_for for large key sets
+    if (keys.size() > 100) {
+      tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+          for (size_t i = range.begin(); i != range.end(); ++i) {
+            if (Del(keys[i])) {
+              count.fetch_add(1, std::memory_order_relaxed);
+            }
+          }
+        });
+    } else {
+      // Sequential for small key sets
+      for (const auto& key : keys) {
+        if (Del(key)) {
+          ++count;
+        }
       }
     }
-    return count;
+    
+    return count.load();
   }
 
   bool Exists(const std::string& key) {
@@ -91,16 +108,33 @@ class Database {
   }
 
   std::vector<std::optional<std::string>> MGet(const std::vector<std::string>& keys) {
-    std::vector<std::optional<std::string>> results;
-    results.reserve(keys.size());
-    for (const auto& key : keys) {
-      auto value = Get(key);
-      if (value.has_value()) {
-        results.push_back(value->value);
-      } else {
-        results.push_back(std::nullopt);
+    std::vector<std::optional<std::string>> results(keys.size());
+    
+    // Use TBB parallel_for for large key sets
+    if (keys.size() > 100) {
+      tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+          for (size_t i = range.begin(); i != range.end(); ++i) {
+            auto value = Get(keys[i]);
+            if (value.has_value()) {
+              results[i] = value->value;
+            } else {
+              results[i] = std::nullopt;
+            }
+          }
+        });
+    } else {
+      // Sequential for small key sets
+      for (size_t i = 0; i < keys.size(); ++i) {
+        auto value = Get(keys[i]);
+        if (value.has_value()) {
+          results[i] = value->value;
+        } else {
+          results[i] = std::nullopt;
+        }
       }
     }
+    
     return results;
   }
 
