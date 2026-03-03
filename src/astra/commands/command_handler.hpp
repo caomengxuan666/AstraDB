@@ -143,6 +143,9 @@ class CommandRegistry {
   
   // Get all command names
   std::vector<std::string> GetCommandNames() const noexcept;
+  
+  // Get number of registered commands
+  size_t Size() const noexcept { return commands_.size(); }
 
  private:
   struct CommandEntry {

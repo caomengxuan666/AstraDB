@@ -148,11 +148,71 @@ CommandResult HandleSCard(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
+// SPOP key [count]
+CommandResult HandleSPop(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SPOP' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  
+  // For now, only support popping one element
+  auto member = db->SPop(key);
+  if (!member.has_value()) {
+    return CommandResult(RespValue());  // nil
+  }
+  
+  // Log to AOF
+  std::array<absl::string_view, 1> aof_args = {key};
+  context->LogToAof("SPOP", aof_args);
+  
+  return CommandResult(RespValue(std::move(*member)));
+}
+
+// SRANDMEMBER key [count]
+CommandResult HandleSRandMember(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SRANDMEMBER' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  
+  // For now, only support getting one random element
+  auto member = db->SRandMember(key);
+  if (!member.has_value()) {
+    return CommandResult(RespValue());  // nil
+  }
+  
+  return CommandResult(RespValue(std::move(*member)));
+}
+
 // Auto-register all set commands
 ASTRADB_REGISTER_COMMAND(SADD, -3, "write", RoutingStrategy::kByFirstKey, HandleSAdd);
 ASTRADB_REGISTER_COMMAND(SREM, -3, "write", RoutingStrategy::kByFirstKey, HandleSRem);
 ASTRADB_REGISTER_COMMAND(SMEMBERS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSMembers);
 ASTRADB_REGISTER_COMMAND(SISMEMBER, 3, "readonly", RoutingStrategy::kByFirstKey, HandleSIsMember);
 ASTRADB_REGISTER_COMMAND(SCARD, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSCard);
+ASTRADB_REGISTER_COMMAND(SPOP, 2, "write", RoutingStrategy::kByFirstKey, HandleSPop);
+ASTRADB_REGISTER_COMMAND(SRANDMEMBER, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSRandMember);
 
 }  // namespace astra::commands

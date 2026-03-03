@@ -231,6 +231,100 @@ CommandResult HandleZCount(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
+// ZINCRBY key increment member
+CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZINCRBY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& incr_arg = command[1];
+  const auto& member_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !incr_arg.IsBulkString() || !member_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string member = member_arg.AsString();
+  double increment;
+  
+  try {
+    increment = std::stod(incr_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not a valid float");
+  }
+
+  double new_score = db->ZIncrBy(key, increment, member);
+  
+  // Log to AOF
+  std::array<absl::string_view, 3> aof_args = {key, incr_arg.AsString(), member};
+  context->LogToAof("ZINCRBY", aof_args);
+  
+  return CommandResult(RespValue(new_score));
+}
+
+// ZRANK key member
+CommandResult HandleZRank(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZRANK' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& member_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !member_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string member = member_arg.AsString();
+  
+  auto rank = db->ZRank(key, member, false);
+  if (!rank.has_value()) {
+    return CommandResult(RespValue());  // nil
+  }
+  return CommandResult(RespValue(static_cast<int64_t>(*rank)));
+}
+
+// ZREVRANK key member
+CommandResult HandleZRevRank(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZREVRANK' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& member_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !member_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string member = member_arg.AsString();
+  
+  auto rank = db->ZRank(key, member, true);  // reverse = true
+  if (!rank.has_value()) {
+    return CommandResult(RespValue());  // nil
+  }
+  return CommandResult(RespValue(static_cast<int64_t>(*rank)));
+}
+
 // Auto-register all zset commands
 ASTRADB_REGISTER_COMMAND(ZADD, -4, "write", RoutingStrategy::kByFirstKey, HandleZAdd);
 ASTRADB_REGISTER_COMMAND(ZRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRange);
@@ -238,5 +332,8 @@ ASTRADB_REGISTER_COMMAND(ZREM, -3, "write", RoutingStrategy::kByFirstKey, Handle
 ASTRADB_REGISTER_COMMAND(ZSCORE, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZScore);
 ASTRADB_REGISTER_COMMAND(ZCARD, 2, "readonly", RoutingStrategy::kByFirstKey, HandleZCard);
 ASTRADB_REGISTER_COMMAND(ZCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey, HandleZCount);
+ASTRADB_REGISTER_COMMAND(ZINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleZIncrBy);
+ASTRADB_REGISTER_COMMAND(ZRANK, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZRank);
+ASTRADB_REGISTER_COMMAND(ZREVRANK, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRank);
 
 }  // namespace astra::commands

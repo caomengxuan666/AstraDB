@@ -12,6 +12,7 @@
 #include <memory>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <absl/random/random.h>
 #include "astra/container/dash_map.hpp"
 #include "astra/container/zset/btree_zset.hpp"
 #include "astra/container/linked_list.hpp"
@@ -232,6 +233,81 @@ class Database {
     return hash->Size();
   }
 
+  // HINCRBY key field increment
+  int64_t HIncrBy(const std::string& key, const std::string& field, int64_t increment) {
+    auto hash = GetHash(key);
+    if (!hash) {
+      hash = std::make_shared<HashType>(16);
+      hashes_.Insert(key, hash);
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
+    }
+    
+    std::string value;
+    int64_t int_value = 0;
+    if (hash->Get(field, &value)) {
+      // Parse existing value as integer
+      try {
+        size_t pos;
+        int_value = std::stoll(value, &pos);
+        if (pos != value.size()) {
+          throw std::invalid_argument("not an integer");
+        }
+      } catch (...) {
+        return 0;  // Will be handled by command
+      }
+    }
+    
+    int_value += increment;
+    hash->Insert(field, std::to_string(int_value));
+    return int_value;
+  }
+
+  // HSETNX key field value - Set only if field doesn't exist
+  bool HSetNx(const std::string& key, const std::string& field, const std::string& value) {
+    auto hash = GetHash(key);
+    if (!hash) {
+      hash = std::make_shared<HashType>(16);
+      hashes_.Insert(key, hash);
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
+      hash->Insert(field, value);
+      return true;
+    }
+    
+    // Check if field already exists
+    if (hash->Contains(field)) {
+      return false;
+    }
+    
+    hash->Insert(field, value);
+    return true;
+  }
+
+  // HMGET key field [field ...]
+  std::vector<std::optional<std::string>> HMGet(const std::string& key, const std::vector<std::string>& fields) {
+    std::vector<std::optional<std::string>> results;
+    
+    if (!metadata_manager_.IsValid(key)) {
+      results.resize(fields.size());
+      return results;
+    }
+    
+    auto hash = GetHash(key);
+    if (!hash) {
+      results.resize(fields.size());
+      return results;
+    }
+    
+    for (const auto& field : fields) {
+      std::string value;
+      if (hash->Get(field, &value)) {
+        results.emplace_back(value);
+      } else {
+        results.emplace_back(std::nullopt);
+      }
+    }
+    return results;
+  }
+
   // ========== Set Operations ==========
 
   bool SAdd(const std::string& key, const std::string& member) {
@@ -290,6 +366,52 @@ class Database {
       return 0;
     }
     return set->Size();
+  }
+
+  std::optional<std::string> SPop(const std::string& key) {
+    if (!metadata_manager_.IsValid(key)) {
+      return std::nullopt;
+    }
+    
+    auto set = GetSet(key);
+    if (!set || set->Empty()) {
+      return std::nullopt;
+    }
+    
+    // Get a random member and remove it
+    auto members = set->GetAll();
+    if (members.empty()) {
+      return std::nullopt;
+    }
+    
+    // Use absl::BitGen for random selection
+    static absl::BitGen bitgen;
+    size_t idx = absl::Uniform<size_t>(bitgen, 0, members.size());
+    std::string member = members[idx];
+    set->Remove(member);
+    return member;
+  }
+
+  std::optional<std::string> SRandMember(const std::string& key) {
+    if (!metadata_manager_.IsValid(key)) {
+      return std::nullopt;
+    }
+    
+    auto set = GetSet(key);
+    if (!set || set->Empty()) {
+      return std::nullopt;
+    }
+    
+    // Get a random member without removing
+    auto members = set->GetAll();
+    if (members.empty()) {
+      return std::nullopt;
+    }
+    
+    // Use absl::BitGen for random selection
+    static absl::BitGen bitgen;
+    size_t idx = absl::Uniform<size_t>(bitgen, 0, members.size());
+    return members[idx];
   }
 
   // ========== Sorted Set Operations ==========
@@ -394,6 +516,32 @@ class Database {
       return 0;
     }
     return zset->CountRange(min, max);
+  }
+
+  double ZIncrBy(const std::string& key, double increment, const std::string& member) {
+    auto zset = GetZSet(key);
+    if (!zset) {
+      zset = std::make_shared<ZSetType>(1024);
+      zsets_.Insert(key, zset);
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kZSet);
+    }
+    
+    auto current_score = zset->GetScore(member);
+    double new_score = current_score.value_or(0.0) + increment;
+    zset->Add(member, new_score);
+    return new_score;
+  }
+
+  std::optional<uint64_t> ZRank(const std::string& key, const std::string& member, bool reverse = false) {
+    if (!metadata_manager_.IsValid(key)) {
+      return std::nullopt;
+    }
+    
+    auto zset = GetZSet(key);
+    if (!zset) {
+      return std::nullopt;
+    }
+    return zset->GetRank(member, reverse);
   }
 
   // ========== List Operations ==========

@@ -32,6 +32,7 @@ target_link_libraries(astra_commands PUBLIC
   astra_protocol
   cxxopts::cxxopts
   tomlplusplus::tomlplusplus
+  absl::random_random
 )
 
 # Link TBB for parallel operations

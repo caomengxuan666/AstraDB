@@ -242,6 +242,106 @@ CommandResult HandleHVals(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(std::move(array)));
 }
 
+// HINCRBY key field increment
+CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HINCRBY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+  const auto& incr_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !incr_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+  int64_t increment;
+
+  try {
+    increment = std::stoll(incr_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  int64_t result = db->HIncrBy(key, field, increment);
+  return CommandResult(RespValue(result));
+}
+
+// HSETNX key field value
+CommandResult HandleHSetNx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HSETNX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  bool result = db->HSetNx(key, field, value);
+  return CommandResult(RespValue(static_cast<int64_t>(result ? 1 : 0)));
+}
+
+// HMGET key field [field ...]
+CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HMGET' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::vector<std::string> fields;
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    if (!command[i].IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of field argument");
+    }
+    fields.push_back(command[i].AsString());
+  }
+
+  auto results = db->HMGet(key, fields);
+  std::vector<RespValue> array;
+  array.reserve(results.size());
+  for (const auto& val : results) {
+    if (val.has_value()) {
+      array.emplace_back(RespValue(val.value()));
+    } else {
+      // Default constructed RespValue is null
+      array.emplace_back(RespValue());
+    }
+  }
+
+  return CommandResult(RespValue(std::move(array)));
+}
+
 // Auto-register all hash commands
 ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
 ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
@@ -251,5 +351,8 @@ ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey, H
 ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
 ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHKeys);
 ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHVals);
+ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrBy);
+ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey, HandleHSetNx);
+ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHMGet);
 
 }  // namespace astra::commands

@@ -88,7 +88,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
   } else if (subcommand == "COUNT") {
     // COMMAND COUNT - return number of commands
     RespValue count;
-    count.SetInteger(64);  // Current command count
+    count.SetInteger(static_cast<int64_t>(RuntimeCommandRegistry::Instance().GetCommandCount()));
     return CommandResult(count);
   } else if (subcommand == "GETKEYS") {
     // COMMAND GETKEYS - extract keys from a command
