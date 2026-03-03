@@ -16,6 +16,7 @@
 #include "astra/persistence/aof_writer.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
+#include "astra/core/metrics.hpp"
 #include "shard.hpp"
 
 namespace astra::server {
@@ -44,6 +45,13 @@ struct ClusterConfig {
   uint32_t shard_count = 256;      // Number of hash slots / shard count
 };
 
+// Metrics configuration
+struct MetricsConfig {
+  bool enabled = true;
+  std::string bind_addr = "0.0.0.0";
+  uint16_t port = 9090;  // Prometheus metrics port
+};
+
 // Server configuration
 struct ServerConfig {
   std::string host = "0.0.0.0";
@@ -54,6 +62,7 @@ struct ServerConfig {
   size_t num_shards = 16;  // Number of database shards
   PersistenceConfig persistence;
   ClusterConfig cluster;
+  MetricsConfig metrics;
 };
 
 // Redis-compatible server

@@ -41,13 +41,21 @@ Server::Server(const ServerConfig& config)
     }
   }
   
+  // Initialize metrics
+  astra::metrics::MetricsConfig metrics_config;
+  metrics_config.enabled = config_.metrics.enabled;
+  metrics_config.bind_addr = config_.metrics.bind_addr;
+  metrics_config.port = config_.metrics.port;
+  astra::metrics::AstraMetrics::Instance().Init(metrics_config);
+  
   ASTRADB_LOG_INFO("Server configured: host={}, port={}, max_connections={}, databases={}, shards={}, commands={}"
-                   "{}, {}",
+                   "{}, {}{}",
                    config_.host, config_.port,
                    config_.max_connections, config_.num_databases, config_.num_shards,
                    RuntimeCommandRegistry::Instance().GetCommandCount(),
                    config_.persistence.enabled ? ", persistence=enabled" : "",
-                   config_.cluster.enabled ? ", cluster=enabled" : "");
+                   config_.cluster.enabled ? ", cluster=enabled" : "",
+                   config_.metrics.enabled ? ", metrics=enabled" : "");
 }
 
 Server::~Server() {
@@ -194,6 +202,9 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   ASTRADB_LOG_INFO("New client connected: id={}, addr={}", 
                    conn->GetId(), conn->GetRemoteAddress());
   
+  // Update metrics
+  astra::metrics::AstraMetrics::Instance().IncrementConnections();
+  
   // Set command callback
   conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
     HandleCommand(cmd, conn);
@@ -284,6 +295,9 @@ void Server::HandleCommand(const protocol::Command& cmd,
   
   ASTRADB_LOG_DEBUG("Processing command: id={}, cmd={}, args={}", 
                     conn->GetId(), cmd.name, cmd.ArgCount());
+  
+  // Start metrics timer (using absl::Time)
+  auto start_time = absl::Now();
   
   // Get routing strategy for this command
   auto routing = registry_.GetRoutingStrategy(cmd.name);
@@ -387,12 +401,17 @@ void Server::HandleCommand(const protocol::Command& cmd,
   }
   
   // Post command execution to the shard's IO context
-  shard->Post([this, cmd, conn, shard]() {
+  shard->Post([this, cmd, conn, shard, start_time]() {
     // Create command context
     ServerCommandContext context(shard->GetDatabase(), 0, this);
     
     // Execute command
     auto result = registry_.Execute(cmd, &context);
+    
+    // Record metrics (using absl::Duration)
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
     
     // Persist if enabled and command was successful
     if (config_.persistence.enabled && persistence_ && result.success) {
