@@ -607,20 +607,20 @@ CommandResult HandleFlushAll(const astra::protocol::Command& command, CommandCon
 }
 
 // Auto-register all admin commands
-ASTRADB_REGISTER_COMMAND(PING, 0, "fast", RoutingStrategy::kNone, HandlePing);
-ASTRADB_REGISTER_COMMAND(INFO, 0, "readonly", RoutingStrategy::kNone, HandleInfo);
-ASTRADB_REGISTER_COMMAND(COMMAND, -1, "readonly", RoutingStrategy::kNone, HandleCommand);
+ASTRADB_REGISTER_COMMAND(PING, 1, "fast", RoutingStrategy::kNone, HandlePing);
+ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
+ASTRADB_REGISTER_COMMAND(COMMAND, 0, "readonly", RoutingStrategy::kNone, HandleCommand);
 ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug);
 ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
 ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, HandleMigrate);
-ASTRADB_REGISTER_COMMAND(ASKING, 0, "fast", RoutingStrategy::kNone, HandleAsking);
-ASTRADB_REGISTER_COMMAND(BGSAVE, 0, "admin", RoutingStrategy::kNone, HandleBgSave);
-ASTRADB_REGISTER_COMMAND(LASTSAVE, 0, "readonly", RoutingStrategy::kNone, HandleLastSave);
-ASTRADB_REGISTER_COMMAND(SAVE, 0, "admin", RoutingStrategy::kNone, HandleSave);
-ASTRADB_REGISTER_COMMAND(TYPE, 1, "readonly", RoutingStrategy::kByFirstKey, HandleType);
-ASTRADB_REGISTER_COMMAND(KEYS, 1, "readonly", RoutingStrategy::kNone, HandleKeys);
-ASTRADB_REGISTER_COMMAND(DBSIZE, 0, "readonly", RoutingStrategy::kNone, HandleDbSize);
-ASTRADB_REGISTER_COMMAND(FLUSHDB, 0, "write", RoutingStrategy::kNone, HandleFlushDb);
-ASTRADB_REGISTER_COMMAND(FLUSHALL, 0, "write", RoutingStrategy::kNone, HandleFlushAll);
+ASTRADB_REGISTER_COMMAND(ASKING, 1, "fast", RoutingStrategy::kNone, HandleAsking);
+ASTRADB_REGISTER_COMMAND(BGSAVE, 1, "admin", RoutingStrategy::kNone, HandleBgSave);
+ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, HandleLastSave);
+ASTRADB_REGISTER_COMMAND(SAVE, 1, "admin", RoutingStrategy::kNone, HandleSave);
+ASTRADB_REGISTER_COMMAND(TYPE, 2, "readonly", RoutingStrategy::kByFirstKey, HandleType);
+ASTRADB_REGISTER_COMMAND(KEYS, 2, "readonly", RoutingStrategy::kNone, HandleKeys);
+ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly", RoutingStrategy::kNone, HandleDbSize);
+ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
+ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
 
 }  // namespace astra::commands

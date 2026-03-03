@@ -448,8 +448,8 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all script commands
-ASTRADB_REGISTER_COMMAND(EVAL, -2, "write", RoutingStrategy::kByFirstKey, HandleEval);
-ASTRADB_REGISTER_COMMAND(EVALSHA, -2, "write", RoutingStrategy::kByFirstKey, HandleEvalSha);
+ASTRADB_REGISTER_COMMAND(EVAL, -3, "write", RoutingStrategy::kByFirstKey, HandleEval);
+ASTRADB_REGISTER_COMMAND(EVALSHA, -3, "write", RoutingStrategy::kByFirstKey, HandleEvalSha);
 ASTRADB_REGISTER_COMMAND(SCRIPT, -2, "write", RoutingStrategy::kNone, HandleScript);
 
 }  // namespace astra::commands

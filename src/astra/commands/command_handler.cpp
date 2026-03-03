@@ -56,26 +56,32 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
   const auto& entry = it->second;
 
   // Check arity
-  if (entry.info.arity >= 0) {
-    // Fixed arity
-    if (static_cast<int>(command.ArgCount()) != entry.info.arity) {
+  // Redis arity includes command name, but ArgCount() returns only arguments
+  // So we compare: ArgCount() + 1 (for command name) vs arity
+  // arity = 0 means unlimited arguments (no check needed)
+  // arity > 0 means exact number of total args (command + arguments)
+  // arity < 0 means at least |arity| total args
+  int total_args = static_cast<int>(command.ArgCount()) + 1;
+  
+  if (entry.info.arity > 0) {
+    // Fixed arity - exact number required
+    if (total_args != entry.info.arity) {
       std::ostringstream oss;
       oss << "ERR wrong number of arguments for '" << upper_name
-          << "' command, expected " << entry.info.arity
-          << ", got " << command.ArgCount();
+          << "' command";
       return CommandResult(false, oss.str());
     }
-  } else {
-    // Variable arity (negative means at least |arity| arguments)
+  } else if (entry.info.arity < 0) {
+    // Variable arity - at least |arity| args required
     int min_args = -entry.info.arity;
-    if (static_cast<int>(command.ArgCount()) < min_args) {
+    if (total_args < min_args) {
       std::ostringstream oss;
       oss << "ERR wrong number of arguments for '" << upper_name
-          << "' command, expected at least " << min_args
-          << ", got " << command.ArgCount();
+          << "' command";
       return CommandResult(false, oss.str());
     }
   }
+  // arity == 0 means unlimited, no check needed
 
   // Execute handler
   try {

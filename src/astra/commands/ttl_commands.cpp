@@ -284,12 +284,12 @@ CommandResult HandlePersist(const astra::protocol::Command& command, CommandCont
 }
 
 // Auto-register all TTL commands
-ASTRADB_REGISTER_COMMAND(EXPIRE, 2, "write", RoutingStrategy::kByFirstKey, HandleExpire);
-ASTRADB_REGISTER_COMMAND(EXPIREAT, 2, "write", RoutingStrategy::kByFirstKey, HandleExpireAt);
-ASTRADB_REGISTER_COMMAND(PEXPIRE, 2, "write", RoutingStrategy::kByFirstKey, HandlePExpire);
-ASTRADB_REGISTER_COMMAND(PEXPIREAT, 2, "write", RoutingStrategy::kByFirstKey, HandlePExpireAt);
-ASTRADB_REGISTER_COMMAND(TTL, 1, "readonly", RoutingStrategy::kByFirstKey, HandleTTL);
-ASTRADB_REGISTER_COMMAND(PTTL, 1, "readonly", RoutingStrategy::kByFirstKey, HandlePTTL);
-ASTRADB_REGISTER_COMMAND(PERSIST, 1, "write", RoutingStrategy::kByFirstKey, HandlePersist);
+ASTRADB_REGISTER_COMMAND(EXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandleExpire);
+ASTRADB_REGISTER_COMMAND(EXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandleExpireAt);
+ASTRADB_REGISTER_COMMAND(PEXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpire);
+ASTRADB_REGISTER_COMMAND(PEXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpireAt);
+ASTRADB_REGISTER_COMMAND(TTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleTTL);
+ASTRADB_REGISTER_COMMAND(PTTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandlePTTL);
+ASTRADB_REGISTER_COMMAND(PERSIST, 2, "write", RoutingStrategy::kByFirstKey, HandlePersist);
 
 }  // namespace astra::commands

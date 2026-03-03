@@ -149,10 +149,10 @@ CommandResult HandleSCard(const astra::protocol::Command& command, CommandContex
 }
 
 // Auto-register all set commands
-ASTRADB_REGISTER_COMMAND(SADD, -2, "write", RoutingStrategy::kByFirstKey, HandleSAdd);
-ASTRADB_REGISTER_COMMAND(SREM, -2, "write", RoutingStrategy::kByFirstKey, HandleSRem);
-ASTRADB_REGISTER_COMMAND(SMEMBERS, 1, "readonly", RoutingStrategy::kByFirstKey, HandleSMembers);
-ASTRADB_REGISTER_COMMAND(SISMEMBER, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSIsMember);
-ASTRADB_REGISTER_COMMAND(SCARD, 1, "readonly", RoutingStrategy::kByFirstKey, HandleSCard);
+ASTRADB_REGISTER_COMMAND(SADD, -3, "write", RoutingStrategy::kByFirstKey, HandleSAdd);
+ASTRADB_REGISTER_COMMAND(SREM, -3, "write", RoutingStrategy::kByFirstKey, HandleSRem);
+ASTRADB_REGISTER_COMMAND(SMEMBERS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSMembers);
+ASTRADB_REGISTER_COMMAND(SISMEMBER, 3, "readonly", RoutingStrategy::kByFirstKey, HandleSIsMember);
+ASTRADB_REGISTER_COMMAND(SCARD, 2, "readonly", RoutingStrategy::kByFirstKey, HandleSCard);
 
 }  // namespace astra::commands

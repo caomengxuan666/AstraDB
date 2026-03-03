@@ -232,11 +232,11 @@ CommandResult HandleZCount(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all zset commands
-ASTRADB_REGISTER_COMMAND(ZADD, -3, "write", RoutingStrategy::kByFirstKey, HandleZAdd);
-ASTRADB_REGISTER_COMMAND(ZRANGE, -3, "readonly", RoutingStrategy::kByFirstKey, HandleZRange);
-ASTRADB_REGISTER_COMMAND(ZREM, -2, "write", RoutingStrategy::kByFirstKey, HandleZRem);
-ASTRADB_REGISTER_COMMAND(ZSCORE, 2, "readonly", RoutingStrategy::kByFirstKey, HandleZScore);
-ASTRADB_REGISTER_COMMAND(ZCARD, 1, "readonly", RoutingStrategy::kByFirstKey, HandleZCard);
-ASTRADB_REGISTER_COMMAND(ZCOUNT, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZCount);
+ASTRADB_REGISTER_COMMAND(ZADD, -4, "write", RoutingStrategy::kByFirstKey, HandleZAdd);
+ASTRADB_REGISTER_COMMAND(ZRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRange);
+ASTRADB_REGISTER_COMMAND(ZREM, -3, "write", RoutingStrategy::kByFirstKey, HandleZRem);
+ASTRADB_REGISTER_COMMAND(ZSCORE, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZScore);
+ASTRADB_REGISTER_COMMAND(ZCARD, 2, "readonly", RoutingStrategy::kByFirstKey, HandleZCard);
+ASTRADB_REGISTER_COMMAND(ZCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey, HandleZCount);
 
 }  // namespace astra::commands

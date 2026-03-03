@@ -254,7 +254,9 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
   }
   context->LogToAof("MSET", absl::MakeSpan(aof_args));
 
-  return CommandResult(RespValue(RespType::kSimpleString));
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
 }
 
 // INCR key
@@ -585,7 +587,9 @@ CommandResult HandleSetEx(const astra::protocol::Command& command, CommandContex
   std::array<absl::string_view, 3> aof_args = {key, seconds_arg.AsString(), value};
   context->LogToAof("SETEX", aof_args);
   
-  return CommandResult(RespValue(RespType::kSimpleString));
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
 }
 
 // SETNX key value
@@ -640,7 +644,9 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
     if (!arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
-    if (db->Exists(arg.AsString())) {
+    // Create a copy of the key string (same pattern as TYPE command)
+    std::string key = arg.AsString();
+    if (db->GetType(key).has_value()) {
       ++count;
     }
   }
@@ -649,24 +655,24 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all string commands
-ASTRADB_REGISTER_COMMAND(GET, 1, "readonly", RoutingStrategy::kByFirstKey, HandleGet);
-ASTRADB_REGISTER_COMMAND(SET, -2, "write", RoutingStrategy::kByFirstKey, HandleSet);
-ASTRADB_REGISTER_COMMAND(DEL, -1, "write", RoutingStrategy::kNone, HandleDel);
-ASTRADB_REGISTER_COMMAND(MGET, -1, "readonly", RoutingStrategy::kNone, HandleMGet);
-ASTRADB_REGISTER_COMMAND(MSET, -2, "write", RoutingStrategy::kNone, HandleMSet);
-ASTRADB_REGISTER_COMMAND(EXISTS, -1, "readonly", RoutingStrategy::kNone, HandleExists);
+ASTRADB_REGISTER_COMMAND(GET, 2, "readonly", RoutingStrategy::kByFirstKey, HandleGet);
+ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
+ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kByFirstKey, HandleDel);
+ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);
+ASTRADB_REGISTER_COMMAND(MSET, -3, "write", RoutingStrategy::kNone, HandleMSet);
+ASTRADB_REGISTER_COMMAND(EXISTS, -2, "readonly", RoutingStrategy::kByFirstKey, HandleExists);
 
 // Increment/Decrement commands
-ASTRADB_REGISTER_COMMAND(INCR, 1, "write", RoutingStrategy::kByFirstKey, HandleIncr);
-ASTRADB_REGISTER_COMMAND(DECR, 1, "write", RoutingStrategy::kByFirstKey, HandleDecr);
-ASTRADB_REGISTER_COMMAND(INCRBY, 2, "write", RoutingStrategy::kByFirstKey, HandleIncrBy);
-ASTRADB_REGISTER_COMMAND(DECRBY, 2, "write", RoutingStrategy::kByFirstKey, HandleDecrBy);
+ASTRADB_REGISTER_COMMAND(INCR, 2, "write", RoutingStrategy::kByFirstKey, HandleIncr);
+ASTRADB_REGISTER_COMMAND(DECR, 2, "write", RoutingStrategy::kByFirstKey, HandleDecr);
+ASTRADB_REGISTER_COMMAND(INCRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleIncrBy);
+ASTRADB_REGISTER_COMMAND(DECRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleDecrBy);
 
 // String manipulation commands
-ASTRADB_REGISTER_COMMAND(APPEND, 2, "write", RoutingStrategy::kByFirstKey, HandleAppend);
-ASTRADB_REGISTER_COMMAND(STRLEN, 1, "readonly", RoutingStrategy::kByFirstKey, HandleStrlen);
-ASTRADB_REGISTER_COMMAND(GETSET, 2, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
-ASTRADB_REGISTER_COMMAND(SETEX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
-ASTRADB_REGISTER_COMMAND(SETNX, 2, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
+ASTRADB_REGISTER_COMMAND(APPEND, 3, "write", RoutingStrategy::kByFirstKey, HandleAppend);
+ASTRADB_REGISTER_COMMAND(STRLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleStrlen);
+ASTRADB_REGISTER_COMMAND(GETSET, 3, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
+ASTRADB_REGISTER_COMMAND(SETEX, 4, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
+ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
 
 }  // namespace astra::commands

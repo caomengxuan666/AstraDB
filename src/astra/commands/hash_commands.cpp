@@ -187,11 +187,11 @@ CommandResult HandleHLen(const astra::protocol::Command& command, CommandContext
 }
 
 // Auto-register all hash commands
-ASTRADB_REGISTER_COMMAND(HSET, -3, "write", RoutingStrategy::kByFirstKey, HandleHSet);
-ASTRADB_REGISTER_COMMAND(HGET, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
-ASTRADB_REGISTER_COMMAND(HDEL, -2, "write", RoutingStrategy::kByFirstKey, HandleHDel);
-ASTRADB_REGISTER_COMMAND(HEXISTS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
-ASTRADB_REGISTER_COMMAND(HGETALL, 1, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
-ASTRADB_REGISTER_COMMAND(HLEN, 1, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
+ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
+ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
+ASTRADB_REGISTER_COMMAND(HDEL, -3, "write", RoutingStrategy::kByFirstKey, HandleHDel);
+ASTRADB_REGISTER_COMMAND(HEXISTS, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
+ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
+ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
 
 }  // namespace astra::commands

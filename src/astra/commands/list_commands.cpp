@@ -491,17 +491,17 @@ CommandResult HandleRPopLPush(const astra::protocol::Command& command, CommandCo
 }
 
 // Auto-register all list commands
-ASTRADB_REGISTER_COMMAND(LPUSH, -2, "write", RoutingStrategy::kByFirstKey, HandleLPush);
-ASTRADB_REGISTER_COMMAND(RPUSH, -2, "write", RoutingStrategy::kByFirstKey, HandleRPush);
-ASTRADB_REGISTER_COMMAND(LPOP, 1, "write", RoutingStrategy::kByFirstKey, HandleLPop);
-ASTRADB_REGISTER_COMMAND(RPOP, 1, "write", RoutingStrategy::kByFirstKey, HandleRPop);
-ASTRADB_REGISTER_COMMAND(LLEN, 1, "readonly", RoutingStrategy::kByFirstKey, HandleLLen);
-ASTRADB_REGISTER_COMMAND(LINDEX, 2, "readonly", RoutingStrategy::kByFirstKey, HandleLIndex);
-ASTRADB_REGISTER_COMMAND(LSET, 3, "write", RoutingStrategy::kByFirstKey, HandleLSet);
-ASTRADB_REGISTER_COMMAND(LRANGE, 3, "readonly", RoutingStrategy::kByFirstKey, HandleLRange);
-ASTRADB_REGISTER_COMMAND(LTRIM, 3, "write", RoutingStrategy::kByFirstKey, HandleLTrim);
-ASTRADB_REGISTER_COMMAND(LREM, 3, "write", RoutingStrategy::kByFirstKey, HandleLRem);
-ASTRADB_REGISTER_COMMAND(LINSERT, 4, "write", RoutingStrategy::kByFirstKey, HandleLInsert);
-ASTRADB_REGISTER_COMMAND(RPOPLPUSH, 2, "write", RoutingStrategy::kByFirstKey, HandleRPopLPush);
+ASTRADB_REGISTER_COMMAND(LPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleLPush);
+ASTRADB_REGISTER_COMMAND(RPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleRPush);
+ASTRADB_REGISTER_COMMAND(LPOP, 2, "write", RoutingStrategy::kByFirstKey, HandleLPop);
+ASTRADB_REGISTER_COMMAND(RPOP, 2, "write", RoutingStrategy::kByFirstKey, HandleRPop);
+ASTRADB_REGISTER_COMMAND(LLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleLLen);
+ASTRADB_REGISTER_COMMAND(LINDEX, 3, "readonly", RoutingStrategy::kByFirstKey, HandleLIndex);
+ASTRADB_REGISTER_COMMAND(LSET, 4, "write", RoutingStrategy::kByFirstKey, HandleLSet);
+ASTRADB_REGISTER_COMMAND(LRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleLRange);
+ASTRADB_REGISTER_COMMAND(LTRIM, 4, "write", RoutingStrategy::kByFirstKey, HandleLTrim);
+ASTRADB_REGISTER_COMMAND(LREM, 4, "write", RoutingStrategy::kByFirstKey, HandleLRem);
+ASTRADB_REGISTER_COMMAND(LINSERT, 5, "write", RoutingStrategy::kByFirstKey, HandleLInsert);
+ASTRADB_REGISTER_COMMAND(RPOPLPUSH, 3, "write", RoutingStrategy::kByFirstKey, HandleRPopLPush);
 
 }  // namespace astra::commands
