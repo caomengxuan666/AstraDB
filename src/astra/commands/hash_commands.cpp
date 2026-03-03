@@ -136,6 +136,44 @@ CommandResult HandleHExists(const astra::protocol::Command& command, CommandCont
   return CommandResult(RespValue(static_cast<int64_t>(exists ? 1 : 0)));
 }
 
+// HINCRBYFLOAT key field increment
+CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HINCRBYFLOAT' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+  const auto& incr_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !incr_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+  double increment;
+  
+  try {
+    increment = std::stod(incr_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not a valid float");
+  }
+
+  double new_value = db->HIncrByFloat(key, field, increment);
+  
+  // Log to AOF
+  std::array<absl::string_view, 3> aof_args = {key, field, incr_arg.AsString()};
+  context->LogToAof("HINCRBYFLOAT", aof_args);
+  
+  return CommandResult(RespValue(new_value));
+}
+
 // HGETALL key
 CommandResult HandleHGetAll(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() != 1) {
@@ -352,6 +390,7 @@ ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, Hand
 ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHKeys);
 ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHVals);
 ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrBy);
+ASTRADB_REGISTER_COMMAND(HINCRBYFLOAT, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrByFloat);
 ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey, HandleHSetNx);
 ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHMGet);
 

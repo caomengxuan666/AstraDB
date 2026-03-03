@@ -10,6 +10,8 @@
 #include <optional>
 #include <vector>
 #include <memory>
+#include <sstream>
+#include <iomanip>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #include <absl/random/random.h>
@@ -69,6 +71,57 @@ class Database {
       return value;
     }
     return std::nullopt;
+  }
+
+  // GETRANGE key start end - Get substring of string value
+  std::string GetRange(const std::string& key, int64_t start, int64_t end) {
+    auto value = Get(key);
+    if (!value.has_value()) {
+      return "";
+    }
+    
+    const std::string& str = value->value;
+    int64_t len = static_cast<int64_t>(str.size());
+    
+    // Handle negative indices
+    if (start < 0) start = len + start;
+    if (end < 0) end = len + end;
+    
+    // Clamp to valid range
+    if (start < 0) start = 0;
+    if (end >= len) end = len - 1;
+    
+    if (start > end || start >= len) {
+      return "";
+    }
+    
+    return str.substr(start, end - start + 1);
+  }
+
+  // SETRANGE key offset value - Overwrite part of string
+  size_t SetRange(const std::string& key, int64_t offset, const std::string& value) {
+    auto existing = Get(key);
+    std::string str;
+    
+    if (existing.has_value()) {
+      str = existing->value;
+    }
+    
+    // Extend string if needed
+    if (offset < 0) {
+      return str.size();  // Invalid offset
+    }
+    
+    size_t new_len = offset + value.size();
+    if (new_len > str.size()) {
+      str.resize(new_len, '\0');
+    }
+    
+    // Copy value at offset
+    std::copy(value.begin(), value.end(), str.begin() + offset);
+    
+    Set(key, str);
+    return str.size();
   }
 
   bool Del(const std::string& key) {
@@ -260,6 +313,49 @@ class Database {
     int_value += increment;
     hash->Insert(field, std::to_string(int_value));
     return int_value;
+  }
+
+  // HINCRBYFLOAT key field increment
+  double HIncrByFloat(const std::string& key, const std::string& field, double increment) {
+    auto hash = GetHash(key);
+    if (!hash) {
+      hash = std::make_shared<HashType>(16);
+      hashes_.Insert(key, hash);
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
+    }
+    
+    std::string value;
+    double float_value = 0.0;
+    if (hash->Get(field, &value)) {
+      try {
+        float_value = std::stod(value);
+      } catch (...) {
+        return 0.0;  // Will be handled by command
+      }
+    }
+    
+    float_value += increment;
+    
+    // Format without trailing zeros
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(17) << float_value;
+    std::string str_value = oss.str();
+    
+    // Remove trailing zeros
+    size_t dot_pos = str_value.find('.');
+    if (dot_pos != std::string::npos) {
+      size_t last_non_zero = str_value.find_last_not_of('0');
+      if (last_non_zero != std::string::npos && last_non_zero > dot_pos) {
+        str_value = str_value.substr(0, last_non_zero + 1);
+      }
+      // Remove trailing dot
+      if (str_value.back() == '.') {
+        str_value.pop_back();
+      }
+    }
+    
+    hash->Insert(field, str_value);
+    return float_value;
   }
 
   // HSETNX key field value - Set only if field doesn't exist

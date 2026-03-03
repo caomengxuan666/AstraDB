@@ -627,6 +627,80 @@ CommandResult HandleSetNx(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(static_cast<int64_t>(1)));
 }
 
+// GETRANGE key start end
+CommandResult HandleGetRange(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETRANGE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& start_arg = command[1];
+  const auto& end_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() || !end_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  int64_t start, end;
+  
+  try {
+    start = std::stoll(start_arg.AsString());
+    end = std::stoll(end_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  std::string result = db->GetRange(key, start, end);
+  return CommandResult(RespValue(std::move(result)));
+}
+
+// SETRANGE key offset value
+CommandResult HandleSetRange(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SETRANGE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& offset_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !offset_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string value = value_arg.AsString();
+  int64_t offset;
+  
+  try {
+    offset = std::stoll(offset_arg.AsString());
+    if (offset < 0) {
+      return CommandResult(false, "ERR offset is out of range");
+    }
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  size_t new_len = db->SetRange(key, offset, value);
+  
+  // Log to AOF
+  std::array<absl::string_view, 3> aof_args = {key, offset_arg.AsString(), value};
+  context->LogToAof("SETRANGE", aof_args);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(new_len)));
+}
+
 // EXISTS key [key ...]
 CommandResult HandleExists(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() == 0) {
@@ -674,5 +748,7 @@ ASTRADB_REGISTER_COMMAND(STRLEN, 2, "readonly", RoutingStrategy::kByFirstKey, Ha
 ASTRADB_REGISTER_COMMAND(GETSET, 3, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
 ASTRADB_REGISTER_COMMAND(SETEX, 4, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
 ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
+ASTRADB_REGISTER_COMMAND(GETRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleGetRange);
+ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, HandleSetRange);
 
 }  // namespace astra::commands
