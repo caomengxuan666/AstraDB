@@ -256,6 +256,372 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
   return CommandResult(RespValue(RespType::kSimpleString));
 }
 
+// INCR key
+CommandResult HandleIncr(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'INCR' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto value = db->Get(key);
+  
+  int64_t int_value = 0;
+  if (value.has_value()) {
+    // Try to parse as integer
+    try {
+      size_t pos;
+      int_value = std::stoll(value->value, &pos);
+      // Check if entire string was consumed (no trailing chars)
+      if (pos != value->value.size()) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    } catch (...) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+  }
+  
+  // Increment
+  int_value++;
+  
+  // Store back
+  db->Set(key, std::to_string(int_value));
+  
+  // Log to AOF
+  std::array<absl::string_view, 1> aof_args = {key};
+  context->LogToAof("INCR", aof_args);
+  
+  return CommandResult(RespValue(int_value));
+}
+
+// DECR key
+CommandResult HandleDecr(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'DECR' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto value = db->Get(key);
+  
+  int64_t int_value = 0;
+  if (value.has_value()) {
+    try {
+      size_t pos;
+      int_value = std::stoll(value->value, &pos);
+      if (pos != value->value.size()) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    } catch (...) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+  }
+  
+  int_value--;
+  db->Set(key, std::to_string(int_value));
+  
+  std::array<absl::string_view, 1> aof_args = {key};
+  context->LogToAof("DECR", aof_args);
+  
+  return CommandResult(RespValue(int_value));
+}
+
+// INCRBY key increment
+CommandResult HandleIncrBy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'INCRBY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& incr_arg = command[1];
+  
+  if (!key_arg.IsBulkString() || !incr_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  int64_t increment;
+  
+  try {
+    increment = std::stoll(incr_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  auto value = db->Get(key);
+  
+  int64_t int_value = 0;
+  if (value.has_value()) {
+    try {
+      size_t pos;
+      int_value = std::stoll(value->value, &pos);
+      if (pos != value->value.size()) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    } catch (...) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+  }
+  
+  int_value += increment;
+  db->Set(key, std::to_string(int_value));
+  
+  std::array<absl::string_view, 2> aof_args = {key, incr_arg.AsString()};
+  context->LogToAof("INCRBY", aof_args);
+  
+  return CommandResult(RespValue(int_value));
+}
+
+// DECRBY key decrement
+CommandResult HandleDecrBy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'DECRBY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& decr_arg = command[1];
+  
+  if (!key_arg.IsBulkString() || !decr_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  int64_t decrement;
+  
+  try {
+    decrement = std::stoll(decr_arg.AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  auto value = db->Get(key);
+  
+  int64_t int_value = 0;
+  if (value.has_value()) {
+    try {
+      size_t pos;
+      int_value = std::stoll(value->value, &pos);
+      if (pos != value->value.size()) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    } catch (...) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+  }
+  
+  int_value -= decrement;
+  db->Set(key, std::to_string(int_value));
+  
+  std::array<absl::string_view, 2> aof_args = {key, decr_arg.AsString()};
+  context->LogToAof("DECRBY", aof_args);
+  
+  return CommandResult(RespValue(int_value));
+}
+
+// APPEND key value
+CommandResult HandleAppend(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'APPEND' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& value_arg = command[1];
+  
+  if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string append_value = value_arg.AsString();
+  
+  auto existing = db->Get(key);
+  std::string new_value;
+  
+  if (existing.has_value()) {
+    new_value = existing->value + append_value;
+  } else {
+    new_value = append_value;
+  }
+  
+  db->Set(key, new_value);
+  
+  std::array<absl::string_view, 2> aof_args = {key, append_value};
+  context->LogToAof("APPEND", aof_args);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(new_value.size())));
+}
+
+// STRLEN key
+CommandResult HandleStrlen(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'STRLEN' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto value = db->Get(key);
+  
+  if (value.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(value->value.size())));
+  } else {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+}
+
+// GETSET key value
+CommandResult HandleGetSet(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETSET' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& value_arg = command[1];
+  
+  if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string new_value = value_arg.AsString();
+  
+  auto old_value = db->Get(key);
+  db->Set(key, new_value);
+  
+  // Log to AOF
+  std::array<absl::string_view, 2> aof_args = {key, new_value};
+  context->LogToAof("GETSET", aof_args);
+  
+  if (old_value.has_value()) {
+    return CommandResult(RespValue(std::string(old_value->value)));
+  } else {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+}
+
+// SETEX key seconds value
+CommandResult HandleSetEx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SETEX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& seconds_arg = command[1];
+  const auto& value_arg = command[2];
+  
+  if (!key_arg.IsBulkString() || !seconds_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string value = value_arg.AsString();
+  
+  int64_t seconds;
+  try {
+    seconds = std::stoll(seconds_arg.AsString());
+    if (seconds < 0) {
+      return CommandResult(false, "ERR invalid expire time");
+    }
+  } catch (...) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+  
+  db->Set(key, value);
+  db->SetExpireSeconds(key, seconds);
+  
+  // Log to AOF
+  std::array<absl::string_view, 3> aof_args = {key, seconds_arg.AsString(), value};
+  context->LogToAof("SETEX", aof_args);
+  
+  return CommandResult(RespValue(RespType::kSimpleString));
+}
+
+// SETNX key value
+CommandResult HandleSetNx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SETNX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& value_arg = command[1];
+  
+  if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string value = value_arg.AsString();
+  
+  // Check if key already exists
+  if (db->Get(key).has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+  
+  db->Set(key, value);
+  
+  // Log to AOF
+  std::array<absl::string_view, 2> aof_args = {key, value};
+  context->LogToAof("SETNX", aof_args);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+}
+
 // EXISTS key [key ...]
 CommandResult HandleExists(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() == 0) {
@@ -288,5 +654,18 @@ ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kNone, HandleDel);
 ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);
 ASTRADB_REGISTER_COMMAND(MSET, -2, "write", RoutingStrategy::kNone, HandleMSet);
 ASTRADB_REGISTER_COMMAND(EXISTS, -2, "readonly", RoutingStrategy::kNone, HandleExists);
+
+// Increment/Decrement commands
+ASTRADB_REGISTER_COMMAND(INCR, 1, "write", RoutingStrategy::kByFirstKey, HandleIncr);
+ASTRADB_REGISTER_COMMAND(DECR, 1, "write", RoutingStrategy::kByFirstKey, HandleDecr);
+ASTRADB_REGISTER_COMMAND(INCRBY, 2, "write", RoutingStrategy::kByFirstKey, HandleIncrBy);
+ASTRADB_REGISTER_COMMAND(DECRBY, 2, "write", RoutingStrategy::kByFirstKey, HandleDecrBy);
+
+// String manipulation commands
+ASTRADB_REGISTER_COMMAND(APPEND, 2, "write", RoutingStrategy::kByFirstKey, HandleAppend);
+ASTRADB_REGISTER_COMMAND(STRLEN, 1, "readonly", RoutingStrategy::kByFirstKey, HandleStrlen);
+ASTRADB_REGISTER_COMMAND(GETSET, 2, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
+ASTRADB_REGISTER_COMMAND(SETEX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
+ASTRADB_REGISTER_COMMAND(SETNX, 2, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
 
 }  // namespace astra::commands
