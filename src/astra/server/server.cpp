@@ -270,6 +270,7 @@ void Server::HandleCommand(const protocol::Command& cmd,
   
   Shard* shard = nullptr;
   bool need_redirect = false;
+  bool ask_redirect = false;
   std::string redirect_addr;
   uint16_t redirect_slot = 0;
   
@@ -286,11 +287,15 @@ void Server::HandleCommand(const protocol::Command& cmd,
         redirect_slot = slot;
         auto shard_id = cluster_shard_manager_->GetShardForSlot(slot);
         
+        // Check migration state
+        bool is_migrating = cluster_shard_manager_->IsMigrating(shard_id);
+        bool is_importing = cluster_shard_manager_->IsImporting(shard_id);
+        
         // Check if this slot is served by this node
         auto primary_node = cluster_shard_manager_->GetPrimaryNode(shard_id);
         auto self = gossip_manager_ ? gossip_manager_->GetSelf() : cluster::AstraNodeView{};
         
-        if (primary_node != self.id) {
+        if (primary_node != self.id && !is_importing) {
           // Slot is served by another node - need MOVED redirect
           need_redirect = true;
           // Find the node that owns this slot
@@ -300,8 +305,31 @@ void Server::HandleCommand(const protocol::Command& cmd,
               redirect_addr = owner->ip + ":" + std::to_string(owner->port);
             }
           }
+        } else if (is_migrating) {
+          // Slot is being migrated from this node
+          // Check if key exists locally
+          auto* local_shard = local_shard_manager_.GetShardByIndex(shard_id % local_shard_manager_.GetShardCount());
+          bool key_exists = false;
+          if (local_shard && local_shard->GetDatabase()) {
+            key_exists = local_shard->GetDatabase()->Exists(key);
+          }
+          
+          if (!key_exists) {
+            // Key already migrated - ASK redirect to target
+            ask_redirect = true;
+            auto target = cluster_shard_manager_->GetMigrationTarget(shard_id);
+            if (gossip_manager_) {
+              auto target_node = gossip_manager_->FindNode(target);
+              if (target_node) {
+                redirect_addr = target_node->ip + ":" + std::to_string(target_node->port);
+              }
+            }
+          } else {
+            // Key still here - serve it
+            shard = local_shard;
+          }
         } else {
-          // Slot is served by this node
+          // Slot is served by this node (stable or importing)
           shard = local_shard_manager_.GetShardByIndex(shard_id % local_shard_manager_.GetShardCount());
         }
       } else {
@@ -315,6 +343,14 @@ void Server::HandleCommand(const protocol::Command& cmd,
   if (need_redirect) {
     std::string moved_error = "MOVED " + std::to_string(redirect_slot) + " " + redirect_addr;
     auto error_result = commands::CommandResult(false, moved_error);
+    SendResponse(conn, error_result);
+    return;
+  }
+  
+  // Handle ASK redirect
+  if (ask_redirect) {
+    std::string ask_error = "ASK " + std::to_string(redirect_slot) + " " + redirect_addr;
+    auto error_result = commands::CommandResult(false, ask_error);
     SendResponse(conn, error_result);
     return;
   }

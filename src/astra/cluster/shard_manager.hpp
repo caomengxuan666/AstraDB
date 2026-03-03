@@ -313,6 +313,71 @@ class ShardManager {
     return true;
   }
 
+  // ========== Importing (for target node during migration) ==========
+
+  // Start importing a shard (called on target node)
+  bool StartImport(ShardId shard, const NodeId& source) noexcept {
+    if (shard >= shards_.size()) {
+      return false;
+    }
+    
+    auto& config = shards_[shard];
+    config.state = ShardConfig::State::kImporting;
+    config.migration_target = source;  // Store source node during import
+    
+    ASTRADB_LOG_INFO("Started import of shard {} from {}", shard, 
+                 GossipManager::NodeIdToString(source));
+    return true;
+  }
+
+  // Complete import
+  bool CompleteImport(ShardId shard) noexcept {
+    if (shard >= shards_.size()) {
+      return false;
+    }
+    
+    auto& config = shards_[shard];
+    config.state = ShardConfig::State::kStable;
+    config.migration_target = NodeId{};
+    
+    ASTRADB_LOG_INFO("Completed import of shard {}", shard);
+    return true;
+  }
+
+  // ========== Migration Status Checks ==========
+
+  // Check if shard is being migrated (source side)
+  bool IsMigrating(ShardId shard) const noexcept {
+    if (shard >= shards_.size()) {
+      return false;
+    }
+    return shards_[shard].state == ShardConfig::State::kMigrating;
+  }
+
+  // Check if shard is being imported (target side)
+  bool IsImporting(ShardId shard) const noexcept {
+    if (shard >= shards_.size()) {
+      return false;
+    }
+    return shards_[shard].state == ShardConfig::State::kImporting;
+  }
+
+  // Get migration target for a shard (source side)
+  NodeId GetMigrationTarget(ShardId shard) const noexcept {
+    if (shard >= shards_.size()) {
+      return NodeId{};
+    }
+    return shards_[shard].migration_target;
+  }
+
+  // Get import source for a shard (target side)
+  NodeId GetImportSource(ShardId shard) const noexcept {
+    if (shard >= shards_.size()) {
+      return NodeId{};
+    }
+    return shards_[shard].migration_target;
+  }
+
   // ========== Replica Management ==========
 
   // Add replica to a shard

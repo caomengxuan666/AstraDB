@@ -22,6 +22,12 @@ CommandResult HandleDebug(const astra::protocol::Command& command, CommandContex
 // CLUSTER - Cluster management commands
 CommandResult HandleCluster(const astra::protocol::Command& command, CommandContext* context);
 
+// MIGRATE - Migrate key to another node
+CommandResult HandleMigrate(const astra::protocol::Command& command, CommandContext* context);
+
+// ASKING - Indicate client is asking for a key during migration
+CommandResult HandleAsking(const astra::protocol::Command& command, CommandContext* context);
+
 // BGSAVE - Background save (persistence)
 CommandResult HandleBgSave(const astra::protocol::Command& command, CommandContext* context);
 

@@ -146,5 +146,146 @@ TEST_F(ShardManagerTest, MultipleInitCalls) {
   EXPECT_EQ(manager_.GetShardCount(), 8);
 }
 
+// ========== Migration Tests ==========
+
+TEST_F(ShardManagerTest, StartMigration) {
+  NodeId target_node;
+  std::fill(target_node.begin(), target_node.end(), 0x02);
+  
+  // Start migration of shard 0
+  EXPECT_TRUE(manager_.StartMigration(0, target_node));
+  
+  // Verify migration state
+  EXPECT_TRUE(manager_.IsMigrating(0));
+  EXPECT_FALSE(manager_.IsMigrating(1));
+  
+  // Verify migration target
+  EXPECT_EQ(manager_.GetMigrationTarget(0), target_node);
+}
+
+TEST_F(ShardManagerTest, CompleteMigration) {
+  NodeId target_node;
+  std::fill(target_node.begin(), target_node.end(), 0x02);
+  
+  manager_.StartMigration(0, target_node);
+  EXPECT_TRUE(manager_.IsMigrating(0));
+  
+  // Complete migration
+  EXPECT_TRUE(manager_.CompleteMigration(0));
+  
+  // Verify state changed to stable
+  EXPECT_FALSE(manager_.IsMigrating(0));
+  
+  // Verify ownership transferred
+  EXPECT_EQ(manager_.GetPrimaryNode(0), target_node);
+}
+
+TEST_F(ShardManagerTest, CancelMigration) {
+  NodeId target_node;
+  std::fill(target_node.begin(), target_node.end(), 0x02);
+  
+  NodeId original_owner = manager_.GetPrimaryNode(0);
+  
+  manager_.StartMigration(0, target_node);
+  EXPECT_TRUE(manager_.IsMigrating(0));
+  
+  // Cancel migration
+  EXPECT_TRUE(manager_.CancelMigration(0));
+  
+  // Verify state is stable
+  EXPECT_FALSE(manager_.IsMigrating(0));
+  
+  // Verify ownership unchanged
+  EXPECT_EQ(manager_.GetPrimaryNode(0), original_owner);
+}
+
+TEST_F(ShardManagerTest, StartImport) {
+  NodeId source_node;
+  std::fill(source_node.begin(), source_node.end(), 0x03);
+  
+  // Start importing shard 1
+  EXPECT_TRUE(manager_.StartImport(1, source_node));
+  
+  // Verify import state
+  EXPECT_TRUE(manager_.IsImporting(1));
+  EXPECT_FALSE(manager_.IsImporting(0));
+  
+  // Verify import source
+  EXPECT_EQ(manager_.GetImportSource(1), source_node);
+}
+
+TEST_F(ShardManagerTest, CompleteImport) {
+  NodeId source_node;
+  std::fill(source_node.begin(), source_node.end(), 0x03);
+  
+  manager_.StartImport(1, source_node);
+  EXPECT_TRUE(manager_.IsImporting(1));
+  
+  // Complete import
+  EXPECT_TRUE(manager_.CompleteImport(1));
+  
+  // Verify state is stable
+  EXPECT_FALSE(manager_.IsImporting(1));
+}
+
+TEST_F(ShardManagerTest, MigrationStateTransitions) {
+  NodeId target_node;
+  std::fill(target_node.begin(), target_node.end(), 0x02);
+  
+  // Initial state: stable
+  EXPECT_FALSE(manager_.IsMigrating(0));
+  EXPECT_FALSE(manager_.IsImporting(0));
+  
+  // Transition: stable -> migrating
+  manager_.StartMigration(0, target_node);
+  EXPECT_TRUE(manager_.IsMigrating(0));
+  EXPECT_FALSE(manager_.IsImporting(0));
+  
+  // Transition: migrating -> stable (complete)
+  manager_.CompleteMigration(0);
+  EXPECT_FALSE(manager_.IsMigrating(0));
+  EXPECT_FALSE(manager_.IsImporting(0));
+}
+
+TEST_F(ShardManagerTest, ImportStateTransitions) {
+  NodeId source_node;
+  std::fill(source_node.begin(), source_node.end(), 0x03);
+  
+  // Initial state: stable
+  EXPECT_FALSE(manager_.IsMigrating(1));
+  EXPECT_FALSE(manager_.IsImporting(1));
+  
+  // Transition: stable -> importing
+  manager_.StartImport(1, source_node);
+  EXPECT_FALSE(manager_.IsMigrating(1));
+  EXPECT_TRUE(manager_.IsImporting(1));
+  
+  // Transition: importing -> stable
+  manager_.CompleteImport(1);
+  EXPECT_FALSE(manager_.IsMigrating(1));
+  EXPECT_FALSE(manager_.IsImporting(1));
+}
+
+TEST_F(ShardManagerTest, InvalidMigrationOperations) {
+  // Try to migrate non-existent shard
+  NodeId target_node;
+  std::fill(target_node.begin(), target_node.end(), 0x02);
+  
+  EXPECT_FALSE(manager_.StartMigration(100, target_node));
+  EXPECT_FALSE(manager_.CompleteMigration(100));
+  EXPECT_FALSE(manager_.CancelMigration(100));
+  EXPECT_FALSE(manager_.IsMigrating(100));
+}
+
+TEST_F(ShardManagerTest, InvalidImportOperations) {
+  // Try to import non-existent shard
+  NodeId source_node;
+  std::fill(source_node.begin(), source_node.end(), 0x03);
+  
+  EXPECT_FALSE(manager_.StartImport(100, source_node));
+  EXPECT_FALSE(manager_.CompleteImport(100));
+  EXPECT_FALSE(manager_.IsImporting(100));
+}
+
 }  // namespace
 }  // namespace astra::cluster

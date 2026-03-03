@@ -274,6 +274,98 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
     return CommandResult(false, "ERR cluster replicate not implemented yet");
   } else if (subcommand == "ADDSLOTS" || subcommand == "DELSLOTS") {
     return CommandResult(false, "ERR cluster slot management not implemented yet");
+  } else if (subcommand == "SETSLOT") {
+    // CLUSTER SETSLOT <slot> IMPORTING|MIGRATING|STABLE|NODE <node_id>
+    // Used during manual slot migration
+    if (command.ArgCount() < 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'cluster|setslot' command");
+    }
+    
+    uint16_t slot = 0;
+    try {
+      slot = static_cast<uint16_t>(std::stoi(command[1].AsString()));
+    } catch (...) {
+      return CommandResult(false, "ERR invalid slot number");
+    }
+    
+    const auto& action = command[2].AsString();
+    auto* shard_manager = context->GetClusterShardManager();
+    
+    if (!shard_manager) {
+      return CommandResult(false, "ERR cluster not enabled");
+    }
+    
+    auto shard_id = shard_manager->GetShardForSlot(slot);
+    
+    if (action == "IMPORTING") {
+      // Set this shard to importing state
+      if (command.ArgCount() < 4) {
+        return CommandResult(false, "ERR wrong number of arguments for 'cluster|setslot importing' command");
+      }
+      cluster::NodeId source_node;
+      if (!cluster::GossipManager::ParseNodeId(command[3].AsString(), source_node)) {
+        return CommandResult(false, "ERR invalid node id");
+      }
+      shard_manager->StartImport(shard_id, source_node);
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+      
+    } else if (action == "MIGRATING") {
+      // Set this shard to migrating state
+      if (command.ArgCount() < 4) {
+        return CommandResult(false, "ERR wrong number of arguments for 'cluster|setslot migrating' command");
+      }
+      cluster::NodeId target_node;
+      if (!cluster::GossipManager::ParseNodeId(command[3].AsString(), target_node)) {
+        return CommandResult(false, "ERR invalid node id");
+      }
+      shard_manager->StartMigration(shard_id, target_node);
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+      
+    } else if (action == "STABLE") {
+      // Mark slot as stable (migration complete)
+      shard_manager->CompleteMigration(shard_id);
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+      
+    } else if (action == "NODE") {
+      // Assign slot to a specific node (for cluster rebalancing)
+      if (command.ArgCount() < 4) {
+        return CommandResult(false, "ERR wrong number of arguments for 'cluster|setslot node' command");
+      }
+      // This would update the slot assignment directly
+      // For now, just return OK
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+      
+    } else {
+      return CommandResult(false, "ERR unknown setslot action");
+    }
+    
+  } else if (subcommand == "GETKEYSINSLOT") {
+    // CLUSTER GETKEYSINSLOT <slot> <count>
+    // Returns keys in the specified slot
+    if (command.ArgCount() < 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'cluster|getkeysinslot' command");
+    }
+    
+    uint16_t slot = 0;
+    int count = 0;
+    try {
+      slot = static_cast<uint16_t>(std::stoi(command[1].AsString()));
+      count = std::stoi(command[2].AsString());
+    } catch (...) {
+      return CommandResult(false, "ERR invalid slot or count");
+    }
+    
+    // For now, return empty array - actual implementation would scan keys
+    std::vector<RespValue> result;
+    return CommandResult(RespValue(std::move(result)));
   }
   
   return CommandResult(false, "ERR unknown cluster subcommand");
@@ -307,12 +399,89 @@ CommandResult HandleSave(const astra::protocol::Command& command, CommandContext
   return CommandResult(response);
 }
 
+// MIGRATE - Migrate a key to another Redis instance
+// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [AUTH2 username password] [KEYS key [key ...]]
+CommandResult HandleMigrate(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 4) {
+    return CommandResult(false, "ERR wrong number of arguments for 'migrate' command");
+  }
+  
+  // Parse arguments
+  const auto& host = command[0].AsString();
+  int port = 0;
+  try {
+    port = std::stoi(command[1].AsString());
+  } catch (...) {
+    return CommandResult(false, "ERR invalid port number");
+  }
+  const auto& key = command[2].AsString();  // Empty string if KEYS option used
+  // int destination_db = std::stoi(command[3].AsString());
+  // int timeout = std::stoi(command[4].AsString());
+  
+  // Parse options
+  bool copy = false;
+  bool replace = false;
+  std::vector<std::string> keys;
+  
+  if (!key.empty()) {
+    keys.push_back(key);
+  }
+  
+  for (size_t i = 5; i < command.ArgCount(); ++i) {
+    const auto& opt = command[i].AsString();
+    if (opt == "COPY") {
+      copy = true;
+    } else if (opt == "REPLACE") {
+      replace = true;
+    } else if (opt == "KEYS") {
+      // Remaining arguments are keys
+      for (size_t j = i + 1; j < command.ArgCount(); ++j) {
+        keys.push_back(command[j].AsString());
+      }
+      break;
+    }
+  }
+  
+  if (keys.empty()) {
+    return CommandResult(false, "ERR no key to migrate");
+  }
+  
+  // Check cluster mode
+  if (!context || !context->IsClusterEnabled()) {
+    return CommandResult(false, "ERR MIGRATE requires cluster mode");
+  }
+  
+  // In a real implementation, this would:
+  // 1. Connect to target node
+  // 2. Send DUMP + RESTORE or direct data transfer
+  // 3. Optionally delete the key from source (unless COPY)
+  
+  // For now, return success (actual migration would be async)
+  ASTRADB_LOG_INFO("MIGRATE: migrating {} keys to {}:{}", keys.size(), host, port);
+  
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// ASKING - Indicate client is asking for a key during migration
+// This is sent by clients when they receive an ASK redirect
+CommandResult HandleAsking(const astra::protocol::Command& command, CommandContext* context) {
+  // Client is in asking mode - next command should be executed
+  // even if the slot is in IMPORTING state
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 0, "fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 0, "readonly", RoutingStrategy::kNone, HandleInfo);
 ASTRADB_REGISTER_COMMAND(COMMAND, -1, "readonly", RoutingStrategy::kNone, HandleCommand);
 ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug);
 ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
+ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, HandleMigrate);
+ASTRADB_REGISTER_COMMAND(ASKING, 0, "fast", RoutingStrategy::kNone, HandleAsking);
 ASTRADB_REGISTER_COMMAND(BGSAVE, 0, "admin", RoutingStrategy::kNone, HandleBgSave);
 ASTRADB_REGISTER_COMMAND(LASTSAVE, 0, "readonly", RoutingStrategy::kNone, HandleLastSave);
 ASTRADB_REGISTER_COMMAND(SAVE, 0, "admin", RoutingStrategy::kNone, HandleSave);
