@@ -13,6 +13,7 @@
 #include "astra/network/connection.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/persistence/leveldb_adapter.hpp"
+#include "astra/persistence/aof_writer.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "shard.hpp"
@@ -26,6 +27,11 @@ struct PersistenceConfig {
   bool sync_writes = false;
   size_t write_buffer_size = 4 * 1024 * 1024;  // 4MB
   size_t cache_size = 256 * 1024 * 1024;        // 256MB
+  
+  // AOF configuration
+  bool aof_enabled = false;
+  std::string aof_path = "./data/aof/appendonly.aof";
+  bool aof_sync_everysec = true;  // true = everysec, false = always
 };
 
 // Cluster configuration
@@ -89,6 +95,12 @@ class Server {
   // Check if persistence is enabled
   bool IsPersistenceEnabled() const { return config_.persistence.enabled; }
   
+  // Check if AOF is enabled
+  bool IsAofEnabled() const { return aof_writer_ != nullptr; }
+  
+  // Get AOF writer (for internal use)
+  persistence::AofWriter* GetAofWriter() { return aof_writer_.get(); }
+  
   // Cluster operations
   bool ClusterMeet(const std::string& ip, int port);
   cluster::GossipManager* GetGossipManagerMutable() { return gossip_manager_.get(); }
@@ -118,6 +130,7 @@ class Server {
   
   // Persistence layer (optional)
   std::unique_ptr<persistence::LevelDBAdapter> persistence_;
+  std::unique_ptr<persistence::AofWriter> aof_writer_;
   
   // Cluster management (optional)
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;

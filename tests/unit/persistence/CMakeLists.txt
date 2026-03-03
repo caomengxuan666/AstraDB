@@ -4,6 +4,8 @@
 
 target_sources(astradb_tests PRIVATE
   leveldb_test.cpp
+  aof_test.cpp
+  snapshot_test.cpp
 )
 
 target_include_directories(astradb_tests PRIVATE

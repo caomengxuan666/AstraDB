@@ -23,7 +23,11 @@ struct AstraNodeView;
 
 namespace astra::persistence {
 class LevelDBAdapter;
+class AofWriter;
 }
+
+// AOF callback type for logging write commands
+using AofCallback = std::function<void(const std::string& command, const std::vector<std::string>& args)>;
 
 namespace astra::commands {
 
@@ -61,6 +65,17 @@ class CommandContext {
   // Persistence operations (optional - return nullptr/false if not available)
   virtual bool IsPersistenceEnabled() const { return false; }
   virtual persistence::LevelDBAdapter* GetPersistence() const { return nullptr; }
+  
+  // AOF logging callback
+  virtual void SetAofCallback(AofCallback callback) { aof_callback_ = std::move(callback); }
+  virtual void LogToAof(const std::string& command, const std::vector<std::string>& args) {
+    if (aof_callback_) {
+      aof_callback_(command, args);
+    }
+  }
+  
+ protected:
+  AofCallback aof_callback_;
 };
 
 // Command result

@@ -139,6 +139,14 @@ std::string key = key_arg.AsString();
     db->SetExpireMs(key, *expire_time_ms);
   }
   
+  // Log to AOF
+  std::vector<std::string> aof_args = {key, value};
+  if (expire_time_ms.has_value()) {
+    aof_args.push_back("PX");
+    aof_args.push_back(std::to_string(*expire_time_ms));
+  }
+  context->LogToAof("SET", aof_args);
+  
   return CommandResult(RespValue(RespType::kSimpleString));
 }
 
@@ -164,6 +172,10 @@ CommandResult HandleDel(const astra::protocol::Command& command, CommandContext*
   }
 
   size_t count = db->Del(keys);
+  
+  // Log to AOF
+  context->LogToAof("DEL", keys);
+  
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
@@ -224,6 +236,14 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
 
     db->Set(key_arg.AsString(), StringValue(value_arg.AsString()));
   }
+
+  // Log to AOF - rebuild command args
+  std::vector<std::string> aof_args;
+  aof_args.reserve(command.ArgCount());
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    aof_args.push_back(command[i].AsString());
+  }
+  context->LogToAof("MSET", aof_args);
 
   return CommandResult(RespValue(RespType::kSimpleString));
 }

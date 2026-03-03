@@ -212,7 +212,23 @@ class ServerCommandContext : public commands::CommandContext {
  public:
   ServerCommandContext(commands::Database* db, int db_index = 0,
                        Server* server = nullptr)
-      : db_(db), db_index_(db_index), authenticated_(true), server_(server) {}
+      : db_(db), db_index_(db_index), authenticated_(true), server_(server) {
+    // Set AOF callback if AOF is enabled
+    if (server_ && server_->IsAofEnabled()) {
+      SetAofCallback([this](const std::string& command, const std::vector<std::string>& args) {
+        if (server_ && server_->IsAofEnabled()) {
+          // Format as RESP command
+          std::string resp_cmd;
+          resp_cmd += "*" + std::to_string(args.size() + 1) + "\r\n";
+          resp_cmd += "$" + std::to_string(command.size()) + "\r\n" + command + "\r\n";
+          for (const auto& arg : args) {
+            resp_cmd += "$" + std::to_string(arg.size()) + "\r\n" + arg + "\r\n";
+          }
+          server_->GetAofWriter()->Append(resp_cmd);
+        }
+      });
+    }
+  }
   
   commands::Database* GetDatabase() const override { return db_; }
   int GetDBIndex() const override { return db_index_; }
@@ -486,10 +502,32 @@ bool Server::InitPersistence() noexcept {
     
     ASTRADB_LOG_INFO("Persistence initialized: path={}, cache_size={}MB",
                      options.db_path, options.cache_size / (1024 * 1024));
+    
+    // Initialize AOF if enabled
+    if (config_.persistence.aof_enabled) {
+      aof_writer_ = std::make_unique<persistence::AofWriter>();
+      
+      persistence::AofOptions aof_options;
+      aof_options.aof_path = config_.persistence.aof_path;
+      aof_options.sync_policy = config_.persistence.aof_sync_everysec 
+          ? persistence::AofSyncPolicy::kEverySec 
+          : persistence::AofSyncPolicy::kAlways;
+      
+      if (!aof_writer_->Init(aof_options)) {
+        ASTRADB_LOG_ERROR("Failed to initialize AOF writer at: {}", aof_options.aof_path);
+        aof_writer_.reset();
+      } else {
+        ASTRADB_LOG_INFO("AOF initialized: path={}, sync={}",
+                         aof_options.aof_path,
+                         config_.persistence.aof_sync_everysec ? "everysec" : "always");
+      }
+    }
+    
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Persistence initialization exception: {}", e.what());
     persistence_.reset();
+    aof_writer_.reset();
     return false;
   }
 }
