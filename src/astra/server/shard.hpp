@@ -7,6 +7,7 @@
 #include "astra/commands/command_handler.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/core/async/thread_pool.hpp"
+#include "astra/persistence/leveldb_adapter.hpp"
 #include <memory>
 #include <string>
 
@@ -25,12 +26,12 @@ class Shard {
   // Get the shard's IO context index (for routing to thread pool)
   size_t GetIOContextIndex() const { return io_context_index_; }
   
-// Post work directly to main thread's io_context (simplest implementation)
-template <typename F>
-void Post(F&& work) {
-  // Direct posting to main thread's io_context - no thread pool overhead
-  astra::core::async::PostToMainIOContext(std::forward<F>(work));
-}
+  // Post work directly to main thread's io_context (simplest implementation)
+  template <typename F>
+  void Post(F&& work) {
+    // Direct posting to main thread's io_context - no thread pool overhead
+    astra::core::async::PostToMainIOContext(std::forward<F>(work));
+  }
   
  private:
   int shard_id_;
@@ -38,11 +39,11 @@ void Post(F&& work) {
   astra::commands::Database database_;
 };
 
-// ShardManager - Manages multiple database shards
-class ShardManager {
+// LocalShardManager - Manages local database shards (renamed to avoid conflict with cluster::ShardManager)
+class LocalShardManager {
  public:
-  explicit ShardManager(size_t num_shards = 16);
-  ~ShardManager() = default;
+  explicit LocalShardManager(size_t num_shards = 16);
+  ~LocalShardManager() = default;
   
   // Get shard by key (consistent hashing)
   Shard* GetShard(const std::string& key);

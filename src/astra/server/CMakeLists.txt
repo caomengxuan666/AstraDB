@@ -20,6 +20,8 @@ target_link_libraries(astra_server PUBLIC
   astra_base
   astra_core
   astra_protocol
+  astra_persistence
+  astra_cluster
 )
 
 # Link asio if available

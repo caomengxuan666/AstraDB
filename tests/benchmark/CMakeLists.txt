@@ -10,6 +10,7 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     zset_bench.cpp
     simd_bench.cpp
     persistence_bench.cpp
+    cluster_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE

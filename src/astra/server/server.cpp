@@ -13,7 +13,7 @@ using astra::commands::RuntimeCommandRegistry;
 
 Server::Server(const ServerConfig& config)
     : config_(config),
-      shard_manager_(config.num_shards),
+      local_shard_manager_(config.num_shards),
       connection_pool_(io_context_, config.max_connections),
       running_(false),
       cleaner_running_(false),
@@ -27,14 +27,45 @@ Server::Server(const ServerConfig& config)
   // Auto-register all commands (commands are registered via static initializers)
   RuntimeCommandRegistry::Instance().ApplyToRegistry(registry_);
   
-  ASTRADB_LOG_INFO("Server configured: host={}, port={}, max_connections={}, databases={}, shards={}, commands={}",
+  // Initialize persistence if enabled
+  if (config_.persistence.enabled) {
+    if (!InitPersistence()) {
+      ASTRADB_LOG_WARN("Persistence initialization failed, running without persistence");
+    }
+  }
+  
+  // Initialize cluster if enabled
+  if (config_.cluster.enabled) {
+    if (!InitCluster()) {
+      ASTRADB_LOG_WARN("Cluster initialization failed, running in standalone mode");
+    }
+  }
+  
+  ASTRADB_LOG_INFO("Server configured: host={}, port={}, max_connections={}, databases={}, shards={}, commands={}"
+                   "{}, {}",
                    config_.host, config_.port,
                    config_.max_connections, config_.num_databases, config_.num_shards,
-                   RuntimeCommandRegistry::Instance().GetCommandCount());
+                   RuntimeCommandRegistry::Instance().GetCommandCount(),
+                   config_.persistence.enabled ? ", persistence=enabled" : "",
+                   config_.cluster.enabled ? ", cluster=enabled" : "");
 }
 
 Server::~Server() {
   Stop();
+  
+  // Cleanup cluster
+  if (gossip_manager_) {
+    gossip_manager_->Stop();
+    gossip_manager_.reset();
+  }
+  cluster_shard_manager_.reset();
+  
+  // Cleanup persistence
+  if (persistence_) {
+    persistence_->Close();
+    persistence_.reset();
+  }
+  
   astra::core::async::g_post_to_main_io_context_func = nullptr;
 }
 
@@ -54,6 +85,11 @@ void Server::Run() {
   // Create work guard to keep main IO context running (for accept loop only)
   work_guard_ = std::make_unique<asio::executor_work_guard<asio::io_context::executor_type>>(
       io_context_.get_executor());
+  
+  // Start gossip tick thread if cluster is enabled
+  if (config_.cluster.enabled && gossip_manager_) {
+    StartGossipTick();
+  }
   
   // Start accepting connections
   DoAccept();
@@ -76,6 +112,11 @@ void Server::Start() {
   acceptor_->listen(asio::socket_base::max_listen_connections);
   
   ASTRADB_LOG_INFO("Server listening on {}:{}", config_.host, config_.port);
+  
+  // Start gossip tick thread if cluster is enabled
+  if (config_.cluster.enabled && gossip_manager_) {
+    StartGossipTick();
+  }
   
   // Start accepting connections
   DoAccept();
@@ -103,6 +144,12 @@ void Server::Stop() {
   
   // Stop the IO context
     io_context_.stop();
+    
+    // Stop gossip tick thread
+    gossip_running_ = false;
+    if (gossip_tick_thread_.joinable()) {
+      gossip_tick_thread_.join();
+    }
     
     // Stop expiration cleaner thread
     cleaner_running_ = false;
@@ -163,8 +210,9 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
 
 class ServerCommandContext : public commands::CommandContext {
  public:
-  ServerCommandContext(commands::Database* db, int db_index = 0)
-      : db_(db), db_index_(db_index), authenticated_(true) {}
+  ServerCommandContext(commands::Database* db, int db_index = 0,
+                       Server* server = nullptr)
+      : db_(db), db_index_(db_index), authenticated_(true), server_(server) {}
   
   commands::Database* GetDatabase() const override { return db_; }
   int GetDBIndex() const override { return db_index_; }
@@ -173,10 +221,41 @@ class ServerCommandContext : public commands::CommandContext {
   void SetDBIndex(int index) override { db_index_ = index; }
   void SetAuthenticated(bool auth) override { authenticated_ = auth; }
   
+  // Cluster operations
+  bool IsClusterEnabled() const override {
+    return server_ ? server_->IsClusterEnabled() : false;
+  }
+  
+  bool ClusterMeet(const std::string& ip, int port) override {
+    return server_ ? server_->ClusterMeet(ip, port) : false;
+  }
+  
+  cluster::GossipManager* GetGossipManager() const override {
+    return server_ ? server_->GetGossipManager() : nullptr;
+  }
+  
+  cluster::GossipManager* GetGossipManagerMutable() override {
+    return server_ ? server_->GetGossipManagerMutable() : nullptr;
+  }
+  
+  cluster::ShardManager* GetClusterShardManager() const override {
+    return server_ ? server_->GetClusterShardManager() : nullptr;
+  }
+  
+  // Persistence operations
+  bool IsPersistenceEnabled() const override {
+    return server_ ? server_->IsPersistenceEnabled() : false;
+  }
+  
+  persistence::LevelDBAdapter* GetPersistence() const override {
+    return server_ ? server_->GetPersistence() : nullptr;
+  }
+  
  private:
   commands::Database* db_;
   int db_index_;
   bool authenticated_;
+  Server* server_;
 };
 
 void Server::HandleCommand(const protocol::Command& cmd,
@@ -190,19 +269,59 @@ void Server::HandleCommand(const protocol::Command& cmd,
   auto routing = registry_.GetRoutingStrategy(cmd.name);
   
   Shard* shard = nullptr;
+  bool need_redirect = false;
+  std::string redirect_addr;
+  uint16_t redirect_slot = 0;
   
   // Route based on strategy
   if (routing == RoutingStrategy::kByFirstKey && cmd.ArgCount() > 0) {
     // Route based on first argument (key)
     const auto& key_arg = cmd[0];
     if (key_arg.IsBulkString()) {
-      shard = shard_manager_.GetShard(key_arg.AsString());
+      const auto& key = key_arg.AsString();
+      
+      // In cluster mode, check if key belongs to this node
+      if (config_.cluster.enabled && cluster_shard_manager_) {
+        auto slot = cluster::HashSlotCalculator::Calculate(key);
+        redirect_slot = slot;
+        auto shard_id = cluster_shard_manager_->GetShardForSlot(slot);
+        
+        // Check if this slot is served by this node
+        auto primary_node = cluster_shard_manager_->GetPrimaryNode(shard_id);
+        auto self = gossip_manager_ ? gossip_manager_->GetSelf() : cluster::AstraNodeView{};
+        
+        if (primary_node != self.id) {
+          // Slot is served by another node - need MOVED redirect
+          need_redirect = true;
+          // Find the node that owns this slot
+          if (gossip_manager_) {
+            auto owner = gossip_manager_->FindNode(primary_node);
+            if (owner) {
+              redirect_addr = owner->ip + ":" + std::to_string(owner->port);
+            }
+          }
+        } else {
+          // Slot is served by this node
+          shard = local_shard_manager_.GetShardByIndex(shard_id % local_shard_manager_.GetShardCount());
+        }
+      } else {
+        // Standalone mode - use local shard manager
+        shard = local_shard_manager_.GetShard(key);
+      }
     }
+  }
+  
+  // Handle MOVED redirect
+  if (need_redirect) {
+    std::string moved_error = "MOVED " + std::to_string(redirect_slot) + " " + redirect_addr;
+    auto error_result = commands::CommandResult(false, moved_error);
+    SendResponse(conn, error_result);
+    return;
   }
   
   // Default to shard 0 for commands without routing strategy
   if (!shard) {
-    shard = shard_manager_.GetShardByIndex(0);
+    shard = local_shard_manager_.GetShardByIndex(0);
   }
   
   if (!shard) {
@@ -214,10 +333,15 @@ void Server::HandleCommand(const protocol::Command& cmd,
   // Post command execution to the shard's IO context
   shard->Post([this, cmd, conn, shard]() {
     // Create command context
-    ServerCommandContext context(shard->GetDatabase(), 0);
+    ServerCommandContext context(shard->GetDatabase(), 0, this);
     
     // Execute command
     auto result = registry_.Execute(cmd, &context);
+    
+    // Persist if enabled and command was successful
+    if (config_.persistence.enabled && persistence_ && result.success) {
+      // TODO: Add persistence logic for write commands
+    }
     
     // Send response back on connection's thread
     asio::post(io_context_, [this, conn, result]() {
@@ -294,7 +418,7 @@ void Server::StartExpirationCleaner() {
 void Server::CleanupExpiredKeys() {
   // Iterate through all shards and clean up expired keys
   for (size_t shard_index = 0; shard_index < config_.num_shards; ++shard_index) {
-    auto* shard = shard_manager_.GetShardByIndex(shard_index);
+    auto* shard = local_shard_manager_.GetShardByIndex(shard_index);
     if (shard) {
       auto* db = shard->GetDatabase();
       if (db) {
@@ -306,6 +430,136 @@ void Server::CleanupExpiredKeys() {
       }
     }
   }
+}
+
+bool Server::InitPersistence() noexcept {
+  try {
+    persistence_ = std::make_unique<persistence::LevelDBAdapter>();
+    
+    persistence::LevelDBOptions options;
+    options.db_path = config_.persistence.data_dir;
+    options.write_buffer_size = config_.persistence.write_buffer_size;
+    options.cache_size = config_.persistence.cache_size;
+    // Note: sync_writes is handled via WriteOptions per-operation, not in LevelDBOptions
+    
+    if (!persistence_->Open(options)) {
+      ASTRADB_LOG_ERROR("Failed to open LevelDB at: {}", options.db_path);
+      persistence_.reset();
+      return false;
+    }
+    
+    ASTRADB_LOG_INFO("Persistence initialized: path={}, cache_size={}MB",
+                     options.db_path, options.cache_size / (1024 * 1024));
+    return true;
+  } catch (const std::exception& e) {
+    ASTRADB_LOG_ERROR("Persistence initialization exception: {}", e.what());
+    persistence_.reset();
+    return false;
+  }
+}
+
+bool Server::InitCluster() noexcept {
+  try {
+    // Initialize cluster shard manager
+    cluster_shard_manager_ = std::make_unique<cluster::ShardManager>();
+    
+    // Generate or use provided node ID
+    cluster::NodeId node_id{};
+    if (!config_.cluster.node_id.empty()) {
+      // Parse hex string to NodeId
+      cluster::GossipManager::ParseNodeId(config_.cluster.node_id, node_id);
+    } else {
+      // Generate random node ID
+      cluster::GossipManager::GenerateNodeId(node_id);
+    }
+    
+    if (!cluster_shard_manager_->Init(config_.cluster.shard_count, node_id)) {
+      ASTRADB_LOG_ERROR("Failed to initialize cluster shard manager");
+      cluster_shard_manager_.reset();
+      return false;
+    }
+    
+    // Initialize gossip manager
+    gossip_manager_ = std::make_unique<cluster::GossipManager>();
+    
+    cluster::ClusterConfig gossip_config;
+    gossip_config.node_id = cluster::GossipManager::NodeIdToString(node_id);
+    gossip_config.bind_ip = config_.cluster.bind_addr;
+    gossip_config.gossip_port = config_.cluster.gossip_port;
+    gossip_config.shard_count = config_.cluster.shard_count;
+    
+    if (!gossip_manager_->Init(gossip_config)) {
+      ASTRADB_LOG_ERROR("Failed to initialize gossip manager");
+      gossip_manager_.reset();
+      cluster_shard_manager_.reset();
+      return false;
+    }
+    
+    // Start the gossip service
+    if (!gossip_manager_->Start()) {
+      ASTRADB_LOG_ERROR("Failed to start gossip manager");
+      gossip_manager_.reset();
+      cluster_shard_manager_.reset();
+      return false;
+    }
+    
+    // Add seed nodes if provided
+    for (const auto& seed : config_.cluster.seeds) {
+      // Parse seed format: "ip:port"
+      size_t colon_pos = seed.find(':');
+      if (colon_pos != std::string::npos) {
+        std::string ip = seed.substr(0, colon_pos);
+        int port = std::stoi(seed.substr(colon_pos + 1));
+        gossip_manager_->MeetNode(ip, port);
+      }
+    }
+    
+    ASTRADB_LOG_INFO("Cluster initialized: node_id={}, shards={}, gossip_port={}",
+                     gossip_config.node_id.substr(0, 8),
+                     config_.cluster.shard_count,
+                     config_.cluster.gossip_port);
+    return true;
+  } catch (const std::exception& e) {
+    ASTRADB_LOG_ERROR("Cluster initialization exception: {}", e.what());
+    cluster_shard_manager_.reset();
+    gossip_manager_.reset();
+    return false;
+  }
+}
+
+void Server::StartGossipTick() {
+  if (!config_.cluster.enabled || !gossip_manager_) {
+    return;
+  }
+  
+  gossip_running_ = true;
+  gossip_tick_thread_ = std::thread([this]() {
+    ASTRADB_LOG_INFO("Gossip tick thread started");
+    
+    while (gossip_running_) {
+      // Drive gossip protocol tick
+      gossip_manager_->Tick();
+      
+      // Sleep for 100ms (typical gossip interval)
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    ASTRADB_LOG_INFO("Gossip tick thread stopped");
+  });
+}
+
+void Server::GossipTickLoop() {
+  // This is now handled by StartGossipTick
+}
+
+bool Server::ClusterMeet(const std::string& ip, int port) {
+  if (!config_.cluster.enabled || !gossip_manager_) {
+    ASTRADB_LOG_WARN("Cluster not enabled, cannot meet node");
+    return false;
+  }
+  
+  ASTRADB_LOG_INFO("CLUSTER MEET: {}:{}", ip, port);
+  return gossip_manager_->MeetNode(ip, port);
 }
 
 }  // namespace astra::server

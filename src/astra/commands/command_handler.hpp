@@ -14,6 +14,17 @@
 #include "astra/protocol/resp/resp_types.hpp"
 #include "database.hpp"
 
+// Forward declarations for optional types
+namespace astra::cluster {
+class GossipManager;
+class ShardManager;
+struct AstraNodeView;
+}
+
+namespace astra::persistence {
+class LevelDBAdapter;
+}
+
 namespace astra::commands {
 
 using astra::protocol::RespValue;
@@ -39,6 +50,17 @@ class CommandContext {
 
   // Set authentication status
   virtual void SetAuthenticated(bool auth) = 0;
+  
+  // Cluster operations (optional - return nullptr/false if not available)
+  virtual bool IsClusterEnabled() const { return false; }
+  virtual bool ClusterMeet(const std::string& ip, int port) { return false; }
+  virtual cluster::GossipManager* GetGossipManager() const { return nullptr; }
+  virtual cluster::GossipManager* GetGossipManagerMutable() { return nullptr; }
+  virtual cluster::ShardManager* GetClusterShardManager() const { return nullptr; }
+  
+  // Persistence operations (optional - return nullptr/false if not available)
+  virtual bool IsPersistenceEnabled() const { return false; }
+  virtual persistence::LevelDBAdapter* GetPersistence() const { return nullptr; }
 };
 
 // Command result

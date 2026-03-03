@@ -11,7 +11,7 @@ Shard::Shard(int shard_id, size_t io_context_index)
   ASTRADB_LOG_INFO("Shard {} created (IO context index: {})", shard_id, io_context_index);
 }
 
-ShardManager::ShardManager(size_t num_shards) {
+LocalShardManager::LocalShardManager(size_t num_shards) {
   auto& pool = astra::core::async::GetGlobalThreadPool();
   size_t pool_size = pool.Size();
   
@@ -21,17 +21,17 @@ ShardManager::ShardManager(size_t num_shards) {
     size_t io_context_index = i % pool_size;
     shards_.push_back(std::make_unique<Shard>(static_cast<int>(i), io_context_index));
   }
-  ASTRADB_LOG_INFO("ShardManager created with {} shards (distributed across {} IO contexts)",
+  ASTRADB_LOG_INFO("LocalShardManager created with {} shards (distributed across {} IO contexts)",
                   num_shards, pool_size);
 }
 
-Shard* ShardManager::GetShard(const std::string& key) {
+Shard* LocalShardManager::GetShard(const std::string& key) {
   size_t hash_value = absl::Hash<std::string>{}(key);
   size_t shard_index = hash_value % shards_.size();
   return shards_[shard_index].get();
 }
 
-Shard* ShardManager::GetShardByIndex(size_t index) {
+Shard* LocalShardManager::GetShardByIndex(size_t index) {
   if (index >= shards_.size()) {
     return nullptr;
   }

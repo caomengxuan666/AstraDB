@@ -119,10 +119,10 @@ class HashSlotCalculator {
 // ==============================================================================
 
 struct ShardConfig {
-  ShardId id;
-  HashSlot slot_start;
-  HashSlot slot_end;
-  NodeId primary_node;         // Primary node ID
+  ShardId id = 0;
+  HashSlot slot_start = 0;
+  HashSlot slot_end = 0;
+  NodeId primary_node{};         // Primary node ID
   std::vector<NodeId> replicas; // Replica node IDs
   
   // Status
@@ -134,7 +134,7 @@ struct ShardConfig {
   State state = State::kStable;
   
   // Migration target (if migrating)
-  NodeId migration_target;
+  NodeId migration_target{};
 };
 
 // ==============================================================================

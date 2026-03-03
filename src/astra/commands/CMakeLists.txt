@@ -34,6 +34,16 @@ target_link_libraries(astra_commands PUBLIC
   tomlplusplus::tomlplusplus
 )
 
+# Add libgossip include paths for cluster commands
+if(TARGET libgossip)
+  target_include_directories(astra_commands PRIVATE
+    ${libgossip_download_SOURCE_DIR}/include
+    ${libgossip_download_SOURCE_DIR}/third_party
+    ${libgossip_download_SOURCE_DIR}/third_party/json/single_include
+  )
+  target_link_libraries(astra_commands PUBLIC libgossip)
+endif()
+
 # Link Lua library
 if(TARGET lua::lua)
   target_link_libraries(astra_commands PUBLIC lua::lua)

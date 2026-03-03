@@ -180,6 +180,21 @@ int main(int argc, char** argv) {
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
   
+  // Copy persistence config
+  server_config.persistence.enabled = config.persistence.enabled;
+  server_config.persistence.data_dir = config.persistence.data_dir;
+  server_config.persistence.write_buffer_size = config.persistence.write_buffer_size;
+  server_config.persistence.cache_size = config.persistence.cache_size;
+  server_config.persistence.sync_writes = config.persistence.sync_writes;
+  
+  // Copy cluster config
+  server_config.cluster.enabled = config.cluster.enabled;
+  server_config.cluster.node_id = config.cluster.node_id;
+  server_config.cluster.bind_addr = config.cluster.bind_addr;
+  server_config.cluster.gossip_port = config.cluster.gossip_port;
+  server_config.cluster.shard_count = config.cluster.shard_count;
+  server_config.cluster.seeds = config.cluster.seeds;
+  
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
   ASTRADB_LOG_INFO("  Port: {}", server_config.port);
@@ -190,6 +205,15 @@ int main(int argc, char** argv) {
                   config.log_level, 
                   config.log_async ? "async, " : "sync, ",
                   config.log_queue_size);
+  
+  if (config.persistence.enabled) {
+    ASTRADB_LOG_INFO("  Persistence: enabled (dir: {})", config.persistence.data_dir);
+  }
+  
+  if (config.cluster.enabled) {
+    ASTRADB_LOG_INFO("  Cluster: enabled (gossip port: {}, shards: {})", 
+                    config.cluster.gossip_port, config.cluster.shard_count);
+  }
   
   ASTRADB_LOG_INFO("========================================");
   ASTRADB_LOG_INFO("Starting AstraDB server...");

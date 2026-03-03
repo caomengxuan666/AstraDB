@@ -8,9 +8,29 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include <toml++/toml.hpp>
 
 namespace astra::base {
+
+// Persistence configuration
+struct PersistenceConfig {
+  bool enabled = false;
+  std::string data_dir = "./data/astradb";
+  size_t write_buffer_size = 4 * 1024 * 1024;  // 4MB
+  size_t cache_size = 256 * 1024 * 1024;        // 256MB
+  bool sync_writes = false;
+};
+
+// Cluster configuration
+struct ClusterConfig {
+  bool enabled = false;
+  std::string node_id;
+  std::string bind_addr = "0.0.0.0";
+  uint16_t gossip_port = 7946;
+  uint32_t shard_count = 256;
+  std::vector<std::string> seeds;
+};
 
 struct ServerConfig {
   // Network
@@ -32,6 +52,12 @@ struct ServerConfig {
   // Performance
   bool enable_pipeline = true;
   bool enable_compression = false;
+  
+  // Persistence (LevelDB)
+  PersistenceConfig persistence;
+  
+  // Cluster
+  ClusterConfig cluster;
   
   // Load from TOML file
   static ServerConfig LoadFromFile(const std::string& config_file);

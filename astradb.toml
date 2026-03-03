@@ -26,3 +26,36 @@ queue_size = 8192
 enable_pipeline = true
 # Enable response compression (not implemented yet)
 enable_compression = false
+
+# =============================================================================
+# Persistence Configuration (LevelDB)
+# =============================================================================
+[persistence]
+# Enable persistence (RDB-like snapshots + AOF-like WAL via LevelDB)
+enabled = false
+# Data directory for LevelDB storage
+data_dir = "./data/astradb"
+# Write buffer size (4MB default)
+write_buffer_size = 4194304
+# LRU cache size (256MB default)
+cache_size = 268435456
+# Sync writes to disk (slower but more durable)
+sync_writes = false
+
+# =============================================================================
+# Cluster Configuration (Redis Cluster Compatible)
+# =============================================================================
+[cluster]
+# Enable cluster mode
+enabled = false
+# Unique node ID (32 hex characters, auto-generated if empty)
+node_id = ""
+# Bind address for gossip protocol
+bind_addr = "0.0.0.0"
+# Gossip protocol port (default: 7946, Redis uses 16379 for cluster bus)
+gossip_port = 7946
+# Number of hash slots / shards (16384 total slots, Redis compatible)
+shard_count = 256
+# Seed nodes for cluster join (format: "ip:port")
+# Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
+seeds = []

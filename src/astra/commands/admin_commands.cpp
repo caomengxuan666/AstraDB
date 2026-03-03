@@ -3,6 +3,13 @@
 
 #include "admin_commands.hpp"
 #include "command_auto_register.hpp"
+#include "astra/base/logging.hpp"
+#include "astra/cluster/gossip_manager.hpp"
+#include "astra/cluster/shard_manager.hpp"
+#include <chrono>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 
 namespace astra::commands {
 
@@ -15,36 +22,299 @@ CommandResult HandlePing(const astra::protocol::Command& command, CommandContext
 
 // INFO
 CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext* context) {
+  std::ostringstream oss;
+  
+  // Server section
+  oss << "# Server\r\n";
+  oss << "version=1.0.0\r\n";
+  oss << "os=Linux\r\n";
+  oss << "arch=x86_64\r\n";
+  oss << "\r\n";
+  
+  // Clients section
+  oss << "# Clients\r\n";
+  oss << "connected_clients=1\r\n";
+  oss << "\r\n";
+  
+  // Memory section
+  oss << "# Memory\r\n";
+  oss << "used_memory_human=unknown\r\n";
+  oss << "\r\n";
+  
+  // Persistence section
+  oss << "# Persistence\r\n";
+  if (context && context->IsPersistenceEnabled()) {
+    oss << "enabled:yes\r\n";
+    oss << "last_save:0\r\n";
+  } else {
+    oss << "enabled:no\r\n";
+    oss << "last_save:0\r\n";
+  }
+  oss << "\r\n";
+  
+  // Cluster section
+  oss << "# Cluster\r\n";
+  if (context && context->IsClusterEnabled()) {
+    oss << "cluster_enabled:1\r\n";
+    auto* gossip = context->GetGossipManager();
+    if (gossip) {
+      oss << "cluster_known_nodes:" << gossip->GetNodeCount() << "\r\n";
+    }
+  } else {
+    oss << "cluster_enabled:0\r\n";
+  }
+  
+  RespValue response;
+  response.SetString(oss.str(), protocol::RespType::kBulkString);
+  return CommandResult(response);
+}
+
+// COMMAND - Redis command introspection
+CommandResult HandleCommand(const astra::protocol::Command& command, CommandContext* context) {
+  // Return basic command info
   std::vector<RespValue> result;
   
-  RespValue line1, line2, line3, line4, line5, line6, line7, line8, line9, line10;
-  line1.SetString("# Server", protocol::RespType::kSimpleString);
-  line2.SetString("version=1.0.0");
-  line3.SetString("os=Linux");
-  line4.SetString("arch=x86_64");
-  line5.SetString("");  // Empty line
-  line6.SetString("# Clients", protocol::RespType::kSimpleString);
-  line7.SetString("connected_clients=1");
-  line8.SetString("");  // Empty line
-  line9.SetString("# Memory", protocol::RespType::kSimpleString);
-  line10.SetString("used_memory_human=unknown");
-  
-  result.push_back(line1);
-  result.push_back(line2);
-  result.push_back(line3);
-  result.push_back(line4);
-  result.push_back(line5);
-  result.push_back(line6);
-  result.push_back(line7);
-  result.push_back(line8);
-  result.push_back(line9);
-  result.push_back(line10);
-  
+  // For now, return empty array
   return CommandResult(RespValue(std::move(result)));
+}
+
+// DEBUG - Debug commands
+CommandResult HandleDebug(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'debug' command");
+  }
+  
+  const auto& subcommand = command[0].AsString();
+  
+  if (subcommand == "SEGFAULT") {
+    // Intentionally crash (for testing)
+    ASTRADB_LOG_WARN("DEBUG SEGFAULT requested");
+    return CommandResult(false, "ERR SEGFAULT not implemented for safety");
+  } else if (subcommand == "SLEEP") {
+    // Sleep for specified seconds
+    return CommandResult(false, "ERR SLEEP not implemented for safety");
+  }
+  
+  return CommandResult(false, "ERR unknown debug subcommand");
+}
+
+// Helper function to format node ID as hex string
+static std::string FormatNodeId(const cluster::NodeId& id) {
+  return cluster::GossipManager::NodeIdToString(id);
+}
+
+// CLUSTER - Cluster management commands
+CommandResult HandleCluster(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'cluster' command");
+  }
+  
+  const auto& subcommand = command[0].AsString();
+  
+  if (!context || !context->IsClusterEnabled()) {
+    // Return error for cluster commands when cluster is not enabled
+    if (subcommand == "INFO") {
+      std::string info = 
+          "cluster_state:down\r\n"
+          "cluster_slots_assigned:0\r\n"
+          "cluster_slots_ok:0\r\n"
+          "cluster_slots_pfail:0\r\n"
+          "cluster_slots_fail:0\r\n"
+          "cluster_known_nodes:0\r\n"
+          "cluster_size:0\r\n";
+      
+      RespValue response;
+      response.SetString(info, protocol::RespType::kBulkString);
+      return CommandResult(response);
+    }
+    return CommandResult(false, "ERR This instance has cluster support disabled");
+  }
+  
+  auto* gossip = context->GetGossipManagerMutable();
+  
+  if (subcommand == "INFO") {
+    // Return real cluster info
+    auto stats = gossip ? gossip->GetStats() : cluster::GossipManager::GossipStats{};
+    
+    std::ostringstream oss;
+    oss << "cluster_state:ok\r\n";
+    oss << "cluster_slots_assigned:16384\r\n";
+    oss << "cluster_slots_ok:16384\r\n";
+    oss << "cluster_slots_pfail:0\r\n";
+    oss << "cluster_slots_fail:0\r\n";
+    oss << "cluster_known_nodes:" << stats.known_nodes << "\r\n";
+    oss << "cluster_size:1\r\n";
+    oss << "cluster_current_epoch:1\r\n";
+    oss << "cluster_my_epoch:1\r\n";
+    oss << "cluster_stats_messages_sent:" << stats.sent_messages << "\r\n";
+    oss << "cluster_stats_messages_received:" << stats.received_messages << "\r\n";
+    
+    RespValue response;
+    response.SetString(oss.str(), protocol::RespType::kBulkString);
+    return CommandResult(response);
+    
+  } else if (subcommand == "NODES") {
+    // Return real node info
+    std::ostringstream oss;
+    auto* shard_manager = context->GetClusterShardManager();
+    
+    if (gossip) {
+      auto nodes = gossip->GetNodes();
+      auto self = gossip->GetSelf();
+      
+      for (const auto& node : nodes) {
+        // Format: <node_id> <ip:port@cport> <flags> <master> <ping_sent> <pong_recv> <config_epoch> <link_state> <slots>
+        std::string node_id = FormatNodeId(node.id);
+        std::string flags;
+        
+        // Determine flags
+        if (node.status == cluster::NodeStatus::online) {
+          flags = "master";
+        } else if (node.status == cluster::NodeStatus::suspect) {
+          flags = "master?,fail?";
+        } else if (node.status == cluster::NodeStatus::failed) {
+          flags = "master,fail";
+        } else {
+          flags = "master";
+        }
+        
+        // Mark self
+        if (self.id == node.id) {
+          if (!flags.empty()) flags += ",";
+          flags += "myself";
+        }
+        
+        oss << node_id << " ";
+        oss << node.ip << ":" << node.port << "@" << (node.port + 1000) << " ";
+        oss << flags << " ";
+        oss << "- ";  // master (empty for masters)
+        oss << "0 ";  // ping_sent
+        oss << "0 ";  // pong_recv
+        oss << node.config_epoch << " ";
+        oss << "connected ";  // link_state
+        
+        // Add slots for self
+        if (self.id == node.id && shard_manager) {
+          oss << "0-16383";
+        }
+        oss << "\r\n";
+      }
+      
+      // If no nodes, add self
+      if (nodes.empty()) {
+        std::string node_id = FormatNodeId(self.id);
+        oss << node_id << " ";
+        oss << self.ip << ":" << self.port << "@" << (self.port + 1000) << " ";
+        oss << "myself,master ";
+        oss << "- 0 0 1 connected 0-16383\r\n";
+      }
+    }
+    
+    RespValue response;
+    response.SetString(oss.str(), protocol::RespType::kBulkString);
+    return CommandResult(response);
+    
+  } else if (subcommand == "MEET") {
+    // CLUSTER MEET <ip> <port>
+    if (command.ArgCount() < 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'cluster|meet' command");
+    }
+    
+    const auto& ip = command[1].AsString();
+    int port = 0;
+    try {
+      port = std::stoi(command[2].AsString());
+    } catch (...) {
+      return CommandResult(false, "ERR invalid port number");
+    }
+    
+    if (context->ClusterMeet(ip, port)) {
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+    } else {
+      return CommandResult(false, "ERR failed to meet node");
+    }
+    
+  } else if (subcommand == "SLOTS") {
+    // Return slot distribution
+    std::vector<RespValue> result;
+    
+    auto* shard_manager = context->GetClusterShardManager();
+    if (gossip && shard_manager) {
+      auto self = gossip->GetSelf();
+      std::string node_id = FormatNodeId(self.id);
+      
+      // Single slot range for now (all slots on this node)
+      std::vector<RespValue> slot_info;
+      
+      RespValue start_slot, end_slot;
+      start_slot.SetInteger(0);
+      end_slot.SetInteger(16383);
+      slot_info.push_back(start_slot);
+      slot_info.push_back(end_slot);
+      
+      // Add node info: ip, port, node_id
+      RespValue ip_val, port_val, node_id_val;
+      ip_val.SetString(self.ip, protocol::RespType::kBulkString);
+      port_val.SetInteger(self.port);
+      node_id_val.SetString(node_id, protocol::RespType::kBulkString);
+      slot_info.push_back(ip_val);
+      slot_info.push_back(port_val);
+      slot_info.push_back(node_id_val);
+      
+      result.push_back(RespValue(std::move(slot_info)));
+    }
+    
+    return CommandResult(RespValue(std::move(result)));
+    
+  } else if (subcommand == "FORGET") {
+    return CommandResult(false, "ERR cluster forget not implemented yet");
+  } else if (subcommand == "REPLICATE") {
+    return CommandResult(false, "ERR cluster replicate not implemented yet");
+  } else if (subcommand == "ADDSLOTS" || subcommand == "DELSLOTS") {
+    return CommandResult(false, "ERR cluster slot management not implemented yet");
+  }
+  
+  return CommandResult(false, "ERR unknown cluster subcommand");
+}
+
+// BGSAVE - Background save (persistence)
+CommandResult HandleBgSave(const astra::protocol::Command& command, CommandContext* context) {
+  // TODO: Implement actual background save
+  RespValue response;
+  response.SetString("Background saving started", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// LASTSAVE - Last save timestamp
+CommandResult HandleLastSave(const astra::protocol::Command& command, CommandContext* context) {
+  // Return Unix timestamp of last save
+  auto now = std::chrono::system_clock::now();
+  auto epoch = now.time_since_epoch();
+  auto seconds = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+  
+  RespValue response;
+  response.SetInteger(static_cast<int64_t>(seconds));
+  return CommandResult(response);
+}
+
+// SAVE - Synchronous save (persistence)
+CommandResult HandleSave(const astra::protocol::Command& command, CommandContext* context) {
+  // TODO: Implement actual save
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
 }
 
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 0, "fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 0, "readonly", RoutingStrategy::kNone, HandleInfo);
+ASTRADB_REGISTER_COMMAND(COMMAND, -1, "readonly", RoutingStrategy::kNone, HandleCommand);
+ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug);
+ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
+ASTRADB_REGISTER_COMMAND(BGSAVE, 0, "admin", RoutingStrategy::kNone, HandleBgSave);
+ASTRADB_REGISTER_COMMAND(LASTSAVE, 0, "readonly", RoutingStrategy::kNone, HandleLastSave);
+ASTRADB_REGISTER_COMMAND(SAVE, 0, "admin", RoutingStrategy::kNone, HandleSave);
 
 }  // namespace astra::commands
