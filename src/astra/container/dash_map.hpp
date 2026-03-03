@@ -169,6 +169,19 @@ class DashMap {
     return keys;
   }
   
+  // Get all key-value pairs
+  std::vector<std::pair<Key, Value>> GetAllKeyValuePairs() const {
+    std::vector<std::pair<Key, Value>> pairs;
+    for (auto& shard : shards_) {
+      absl::ReaderMutexLock lock(&shard->mutex);
+      pairs.reserve(pairs.size() + shard->map.size());
+      for (const auto& [key, value] : shard->map) {
+        pairs.emplace_back(key, value);
+      }
+    }
+    return pairs;
+  }
+  
   // Get total number of shards
   size_t NumShards() const {
     return shards_.size();

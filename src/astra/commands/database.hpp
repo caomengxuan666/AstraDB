@@ -217,9 +217,7 @@ class Database {
     if (!hash) {
       return {};
     }
-    // Need to iterate through hash and get all field-value pairs
-    // For now, return empty - will need to implement proper iteration
-    return {};
+    return hash->GetAllKeyValuePairs();
   }
 
   size_t HLen(const std::string& key) {

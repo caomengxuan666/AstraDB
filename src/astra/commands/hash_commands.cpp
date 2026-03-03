@@ -186,6 +186,62 @@ CommandResult HandleHLen(const astra::protocol::Command& command, CommandContext
   return CommandResult(RespValue(static_cast<int64_t>(len)));
 }
 
+// HKEYS key - Get all field names in a hash
+CommandResult HandleHKeys(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HKEYS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto hash = db->HGetAll(key);
+
+  std::vector<RespValue> array;
+  array.reserve(hash.size());
+  for (const auto& [field, _] : hash) {
+    array.emplace_back(RespValue(std::string(field)));
+  }
+
+  return CommandResult(RespValue(std::move(array)));
+}
+
+// HVALS key - Get all values in a hash
+CommandResult HandleHVals(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HVALS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto hash = db->HGetAll(key);
+
+  std::vector<RespValue> array;
+  array.reserve(hash.size());
+  for (const auto& [_, value] : hash) {
+    array.emplace_back(RespValue(std::string(value)));
+  }
+
+  return CommandResult(RespValue(std::move(array)));
+}
+
 // Auto-register all hash commands
 ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
 ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
@@ -193,5 +249,7 @@ ASTRADB_REGISTER_COMMAND(HDEL, -3, "write", RoutingStrategy::kByFirstKey, Handle
 ASTRADB_REGISTER_COMMAND(HEXISTS, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
 ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
 ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
+ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHKeys);
+ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHVals);
 
 }  // namespace astra::commands
