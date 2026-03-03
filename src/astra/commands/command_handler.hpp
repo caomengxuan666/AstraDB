@@ -7,6 +7,8 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/strings/string_view.h>
+#include <absl/types/span.h>
 #include <functional>
 #include <string>
 #include <vector>
@@ -26,8 +28,8 @@ class LevelDBAdapter;
 class AofWriter;
 }
 
-// AOF callback type for logging write commands
-using AofCallback = std::function<void(const std::string& command, const std::vector<std::string>& args)>;
+// AOF callback type for logging write commands (zero-copy with absl::Span)
+using AofCallback = std::function<void(absl::string_view command, absl::Span<const absl::string_view> args)>;
 
 namespace astra::commands {
 
@@ -66,9 +68,9 @@ class CommandContext {
   virtual bool IsPersistenceEnabled() const { return false; }
   virtual persistence::LevelDBAdapter* GetPersistence() const { return nullptr; }
   
-  // AOF logging callback
+  // AOF logging callback (zero-copy)
   virtual void SetAofCallback(AofCallback callback) { aof_callback_ = std::move(callback); }
-  virtual void LogToAof(const std::string& command, const std::vector<std::string>& args) {
+  virtual void LogToAof(absl::string_view command, absl::Span<const absl::string_view> args) {
     if (aof_callback_) {
       aof_callback_(command, args);
     }

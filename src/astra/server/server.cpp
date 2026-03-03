@@ -215,14 +215,18 @@ class ServerCommandContext : public commands::CommandContext {
       : db_(db), db_index_(db_index), authenticated_(true), server_(server) {
     // Set AOF callback if AOF is enabled
     if (server_ && server_->IsAofEnabled()) {
-      SetAofCallback([this](const std::string& command, const std::vector<std::string>& args) {
+      SetAofCallback([this](absl::string_view command, absl::Span<const absl::string_view> args) {
         if (server_ && server_->IsAofEnabled()) {
           // Format as RESP command
           std::string resp_cmd;
           resp_cmd += "*" + std::to_string(args.size() + 1) + "\r\n";
-          resp_cmd += "$" + std::to_string(command.size()) + "\r\n" + command + "\r\n";
+          resp_cmd += "$" + std::to_string(command.size()) + "\r\n";
+          resp_cmd.append(command.data(), command.size());
+          resp_cmd += "\r\n";
           for (const auto& arg : args) {
-            resp_cmd += "$" + std::to_string(arg.size()) + "\r\n" + arg + "\r\n";
+            resp_cmd += "$" + std::to_string(arg.size()) + "\r\n";
+            resp_cmd.append(arg.data(), arg.size());
+            resp_cmd += "\r\n";
           }
           server_->GetAofWriter()->Append(resp_cmd);
         }

@@ -139,13 +139,16 @@ std::string key = key_arg.AsString();
     db->SetExpireMs(key, *expire_time_ms);
   }
   
-  // Log to AOF
-  std::vector<std::string> aof_args = {key, value};
+  // Log to AOF (zero-copy with absl::Span)
+  std::string px_str = std::to_string(*expire_time_ms);
+  std::array<absl::string_view, 4> aof_args_with_expire = {key, value, "PX", px_str};
+  std::array<absl::string_view, 2> aof_args_simple = {key, value};
+  
   if (expire_time_ms.has_value()) {
-    aof_args.push_back("PX");
-    aof_args.push_back(std::to_string(*expire_time_ms));
+    context->LogToAof("SET", absl::MakeSpan(aof_args_with_expire));
+  } else {
+    context->LogToAof("SET", absl::MakeSpan(aof_args_simple));
   }
-  context->LogToAof("SET", aof_args);
   
   return CommandResult(RespValue(RespType::kSimpleString));
 }
@@ -173,8 +176,13 @@ CommandResult HandleDel(const astra::protocol::Command& command, CommandContext*
 
   size_t count = db->Del(keys);
   
-  // Log to AOF
-  context->LogToAof("DEL", keys);
+  // Log to AOF (convert to string_view span)
+  std::vector<absl::string_view> key_views;
+  key_views.reserve(keys.size());
+  for (const auto& k : keys) {
+    key_views.emplace_back(k);
+  }
+  context->LogToAof("DEL", absl::MakeSpan(key_views));
   
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
@@ -237,13 +245,13 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
     db->Set(key_arg.AsString(), StringValue(value_arg.AsString()));
   }
 
-  // Log to AOF - rebuild command args
-  std::vector<std::string> aof_args;
+  // Log to AOF (zero-copy with string_view from const std::string&)
+  std::vector<absl::string_view> aof_args;
   aof_args.reserve(command.ArgCount());
   for (size_t i = 0; i < command.ArgCount(); ++i) {
-    aof_args.push_back(command[i].AsString());
+    aof_args.emplace_back(command[i].AsString());
   }
-  context->LogToAof("MSET", aof_args);
+  context->LogToAof("MSET", absl::MakeSpan(aof_args));
 
   return CommandResult(RespValue(RespType::kSimpleString));
 }
