@@ -6,14 +6,16 @@
 // Design Principles:
 // - noexcept for all performance-critical paths
 // - Abseil containers instead of STL
-// - Integration with libgossip for SWIM protocol
+// - Use libgossip's network layer (transport_factory)
+// - Use AstraDB logging macros
 // - Cross-platform: Linux/Windows/macOS
 // ==============================================================================
 
 #pragma once
 
-#include <libgossip/core/gossip_core.hpp>
-#include <libgossip/net/gossip_net.h>
+#include "core/gossip_core.hpp"
+#include "net/transport_factory.hpp"
+#include "net/json_serializer.hpp"
 
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
@@ -28,7 +30,7 @@
 #include <atomic>
 
 #include "astra/base/macros.hpp"
-#include <spdlog/spdlog.h>
+#include "astra/base/logging.hpp"
 
 namespace astra::cluster {
 
@@ -74,6 +76,9 @@ struct ClusterConfig {
   // Gossip configuration
   int gossip_nodes = 3;         // Number of nodes to gossip with per tick
   int sync_nodes = 2;           // Number of nodes to sync per message
+  
+  // Transport type
+  bool use_tcp = false;         // false = UDP, true = TCP
   
   // Cluster settings
   std::string region;           // Geographic region
@@ -135,7 +140,7 @@ class GossipManager {
     
     // Create gossip core with callbacks
     try {
-      gossip_core_ = std::make_unique<libgossip::gossip_core>(
+      gossip_core_ = std::make_shared<libgossip::gossip_core>(
           self_view,
           [this](const libgossip::gossip_message& msg, const libgossip::node_view& target) {
             OnSendMessage(msg, target);
@@ -145,25 +150,53 @@ class GossipManager {
           }
       );
     } catch (const std::exception& e) {
-      spdlog::error("Failed to create gossip core: {}", e.what());
+      ASTRADB_LOG_ERROR("Failed to create gossip core: {}", e.what());
       return false;
     }
     
+    // Create transport using libgossip's transport factory
+    auto transport_type = config.use_tcp 
+        ? gossip::net::transport_type::tcp 
+        : gossip::net::transport_type::udp;
+    
+    transport_ = gossip::net::transport_factory::create_transport(
+        transport_type, config.bind_ip, static_cast<uint16_t>(config.gossip_port));
+    
+    if (!transport_) {
+      ASTRADB_LOG_ERROR("Failed to create transport on {}:{}", 
+                        config.bind_ip, config.gossip_port);
+      return false;
+    }
+    
+    // Create JSON serializer
+    auto serializer = std::make_unique<gossip::net::json_serializer>();
+    transport_->set_serializer(std::move(serializer));
+    
+    // Set gossip core for transport (for receiving messages)
+    transport_->set_gossip_core(gossip_core_);
+    
     initialized_.store(true, std::memory_order_release);
-    spdlog::info("GossipManager initialized: node_id={}, ip={}:{}", 
-                 NodeIdToString(self_id_), config.bind_ip, config.gossip_port);
+    ASTRADB_LOG_INFO("GossipManager initialized: node_id={}, ip={}:{}", 
+                     NodeIdToString(self_id_), config.bind_ip, config.gossip_port);
     return true;
   }
 
   // Start the gossip service
   bool Start() noexcept {
     if (ASTRADB_UNLIKELY(!initialized_.load(std::memory_order_acquire))) {
-      spdlog::error("GossipManager not initialized");
+      ASTRADB_LOG_ERROR("GossipManager not initialized");
+      return false;
+    }
+    
+    // Start the transport
+    auto result = transport_->start();
+    if (result != gossip::net::error_code::success) {
+      ASTRADB_LOG_ERROR("Failed to start transport");
       return false;
     }
     
     running_.store(true, std::memory_order_release);
-    spdlog::info("GossipManager started");
+    ASTRADB_LOG_INFO("GossipManager started");
     return true;
   }
 
@@ -173,8 +206,14 @@ class GossipManager {
       return;  // Already stopped
     }
     
+    if (transport_) {
+      transport_->stop();
+    }
+    
     gossip_core_.reset();
-    spdlog::info("GossipManager stopped");
+    transport_.reset();
+    
+    ASTRADB_LOG_INFO("GossipManager stopped");
   }
 
   // Drive one gossip tick (should be called periodically, e.g., every 100ms)
@@ -213,7 +252,7 @@ class GossipManager {
     node.status = libgossip::node_status::unknown;
     
     gossip_core_->meet(node);
-    spdlog::info("Meeting node: {}:{}", ip, port);
+    ASTRADB_LOG_INFO("Meeting node: {}:{}", ip, port);
     return true;
   }
 
@@ -228,7 +267,7 @@ class GossipManager {
     node.port = port;
     
     gossip_core_->join(node);
-    spdlog::info("Joining cluster via: {}:{}", ip, port);
+    ASTRADB_LOG_INFO("Joining cluster via: {}:{}", ip, port);
     return true;
   }
 
@@ -237,7 +276,7 @@ class GossipManager {
     if (gossip_core_) {
       gossip_core_->leave(self_id_);
     }
-    spdlog::info("Leaving cluster");
+    ASTRADB_LOG_INFO("Leaving cluster");
   }
 
   // Get all known nodes
@@ -403,13 +442,19 @@ class GossipManager {
     return view;
   }
 
-  // Callback: send message to target node
+  // Callback: send message to target node via transport
   void OnSendMessage(const libgossip::gossip_message& msg,
                      const libgossip::node_view& target) noexcept {
-    // In production, this would use the network transport (TCP/UDP)
-    // to send the serialized message to the target node
-    spdlog::debug("Sending message to {}:{}", target.ip, target.port);
-    (void)msg;  // TODO: Implement network sending
+    if (ASTRADB_UNLIKELY(!transport_)) {
+      ASTRADB_LOG_WARN("Transport not available for sending message");
+      return;
+    }
+    
+    // Use libgossip's transport to send message
+    auto result = transport_->send_message(msg, target);
+    if (result != gossip::net::error_code::success) {
+      ASTRADB_LOG_DEBUG("Failed to send message to {}:{}", target.ip, target.port);
+    }
   }
 
   // Callback: node status changed
@@ -437,17 +482,18 @@ class GossipManager {
         break;
     }
     
-    spdlog::info("Node event: {} (status: {} -> {})", 
-                 NodeIdToString(node.id),
-                 libgossip::to_string(old_status),
-                 libgossip::to_string(node.status));
+    ASTRADB_LOG_INFO("Node event: {} (status: {} -> {})", 
+                     NodeIdToString(node.id),
+                     libgossip::to_string(old_status),
+                     libgossip::to_string(node.status));
     
     (void)event;  // TODO: Notify event callbacks
   }
 
   ClusterConfig config_;
   NodeId self_id_{};
-  std::unique_ptr<libgossip::gossip_core> gossip_core_;
+  std::shared_ptr<libgossip::gossip_core> gossip_core_;
+  std::unique_ptr<gossip::net::transport> transport_;
   
   std::atomic<bool> initialized_{false};
   std::atomic<bool> running_{false};

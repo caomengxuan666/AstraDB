@@ -28,7 +28,7 @@
 #include <atomic>
 
 #include "astra/base/macros.hpp"
-#include <spdlog/spdlog.h>
+#include "astra/base/logging.hpp"
 
 namespace astra::persistence {
 
@@ -130,11 +130,11 @@ class LevelDBAdapter {
         cache_(other.cache_),
         filter_policy_(other.filter_policy_),
         options_(std::move(other.options_)),
-        is_open_(other.is_open_) {
+        is_open_(other.is_open_.load(std::memory_order_relaxed)) {
     other.db_ = nullptr;
     other.cache_ = nullptr;
     other.filter_policy_ = nullptr;
-    other.is_open_ = false;
+    other.is_open_.store(false, std::memory_order_relaxed);
   }
 
   LevelDBAdapter& operator=(LevelDBAdapter&& other) noexcept {
@@ -144,11 +144,11 @@ class LevelDBAdapter {
       cache_ = other.cache_;
       filter_policy_ = other.filter_policy_;
       options_ = std::move(other.options_);
-      is_open_ = other.is_open_;
+      is_open_.store(other.is_open_.load(std::memory_order_relaxed), std::memory_order_relaxed);
       other.db_ = nullptr;
       other.cache_ = nullptr;
       other.filter_policy_ = nullptr;
-      other.is_open_ = false;
+      other.is_open_.store(false, std::memory_order_relaxed);
     }
     return *this;
   }
@@ -186,12 +186,12 @@ class LevelDBAdapter {
     leveldb::Status status = leveldb::DB::Open(ldb_options, options.db_path, &db_);
     
     if (!status.ok()) {
-      spdlog::error("Failed to open LevelDB at {}: {}", options.db_path, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to open LevelDB at {}: {}", options.db_path, status.ToString());
       return false;
     }
 
     is_open_.store(true, std::memory_order_release);
-    spdlog::info("LevelDB opened successfully at {}", options.db_path);
+    ASTRADB_LOG_INFO("LevelDB opened successfully at {}", options.db_path);
     return true;
   }
 
@@ -241,7 +241,7 @@ class LevelDBAdapter {
     
     leveldb::Status status = db_->Put(write_options, key_slice, value_slice);
     if (ASTRADB_UNLIKELY(!status.ok())) {
-      spdlog::error("Failed to put key '{}': {}", key, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to put key '{}': {}", key, status.ToString());
       return false;
     }
     return true;
@@ -265,7 +265,7 @@ class LevelDBAdapter {
     }
     
     if (ASTRADB_UNLIKELY(!status.ok())) {
-      spdlog::error("Failed to get key '{}': {}", key, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to get key '{}': {}", key, status.ToString());
       return Result<std::string>::NotFound();
     }
     
@@ -283,7 +283,7 @@ class LevelDBAdapter {
     leveldb::Status status = db_->Delete(write_options, key_slice);
     
     if (ASTRADB_UNLIKELY(!status.ok())) {
-      spdlog::error("Failed to delete key '{}': {}", key, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to delete key '{}': {}", key, status.ToString());
       return false;
     }
     return true;
@@ -334,7 +334,7 @@ class LevelDBAdapter {
     
     leveldb::Status status = db_->Write(write_options, &batch.batch_);
     if (ASTRADB_UNLIKELY(!status.ok())) {
-      spdlog::error("Failed to write batch: {}", status.ToString());
+      ASTRADB_LOG_ERROR("Failed to write batch: {}", status.ToString());
       return false;
     }
     return true;
@@ -377,7 +377,7 @@ class LevelDBAdapter {
     }
     
     if (ASTRADB_UNLIKELY(!it->status().ok())) {
-      spdlog::error("Iterator error: {}", it->status().ToString());
+      ASTRADB_LOG_ERROR("Iterator error: {}", it->status().ToString());
     }
   }
 
@@ -518,7 +518,7 @@ class LevelDBAdapter {
   void Compact() noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return;
     db_->CompactRange(nullptr, nullptr);
-    spdlog::info("Database compaction completed");
+    ASTRADB_LOG_INFO("Database compaction completed");
   }
 
   // Compact a key range

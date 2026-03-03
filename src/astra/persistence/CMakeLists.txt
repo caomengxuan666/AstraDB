@@ -1,5 +1,5 @@
 # ==============================================================================
-# astra_persistence - Persistence layer
+# astra_persistence - Persistence layer (header-only)
 # ==============================================================================
 
 add_library(astra_persistence INTERFACE)
@@ -12,10 +12,10 @@ target_include_directories(astra_persistence INTERFACE
 # Link dependencies
 target_link_libraries(astra_persistence INTERFACE
   astra_engine
-  leveldb::leveldb
+  leveldb
   absl::strings
   absl::time
-  absl::container
+  absl::flat_hash_map
   spdlog::spdlog
 )
 

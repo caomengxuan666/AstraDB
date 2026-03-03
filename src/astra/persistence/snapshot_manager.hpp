@@ -27,7 +27,7 @@
 #include <filesystem>
 
 #include "astra/base/macros.hpp"
-#include <spdlog/spdlog.h>
+#include "astra/base/logging.hpp"
 
 namespace astra::persistence {
 
@@ -83,7 +83,7 @@ class SnapshotManager {
     std::error_code ec;
     std::filesystem::create_directories(options.snapshot_dir, ec);
     if (ec) {
-      spdlog::error("Failed to create snapshot directory: {}", ec.message());
+      ASTRADB_LOG_ERROR("Failed to create snapshot directory: {}", ec.message());
       return false;
     }
     
@@ -95,7 +95,7 @@ class SnapshotManager {
   bool CreateSnapshot(LevelDBAdapter& adapter,
                       const std::string& name = "") noexcept {
     if (ASTRADB_UNLIKELY(!initialized_.load(std::memory_order_acquire))) {
-      spdlog::error("SnapshotManager not initialized");
+      ASTRADB_LOG_ERROR("SnapshotManager not initialized");
       return false;
     }
 
@@ -107,12 +107,12 @@ class SnapshotManager {
     std::string snapshot_name = name.empty() ? GenerateSnapshotName() : name;
     std::string snapshot_path = absl::StrCat(options_.snapshot_dir, "/", snapshot_name, ".snap");
 
-    spdlog::info("Creating snapshot: {}", snapshot_path);
+    ASTRADB_LOG_INFO("Creating snapshot: {}", snapshot_path);
 
     // Open snapshot file
     std::ofstream ofs(snapshot_path, std::ios::binary);
     if (ASTRADB_UNLIKELY(!ofs.is_open())) {
-      spdlog::error("Failed to create snapshot file: {}", snapshot_path);
+      ASTRADB_LOG_ERROR("Failed to create snapshot file: {}", snapshot_path);
       return false;
     }
 
@@ -161,7 +161,7 @@ class SnapshotManager {
     const auto duration = absl::Now() - start_time;
     const auto duration_ms = absl::ToInt64Milliseconds(duration);
 
-    spdlog::info("Snapshot created: {} keys in {}ms", key_count, duration_ms);
+    ASTRADB_LOG_INFO("Snapshot created: {} keys in {}ms", key_count, duration_ms);
 
     // Cleanup old snapshots
     CleanupOldSnapshots();
@@ -173,7 +173,7 @@ class SnapshotManager {
   bool RestoreSnapshot(LevelDBAdapter& adapter,
                        const std::string& name = "") noexcept {
     if (ASTRADB_UNLIKELY(!initialized_.load(std::memory_order_acquire))) {
-      spdlog::error("SnapshotManager not initialized");
+      ASTRADB_LOG_ERROR("SnapshotManager not initialized");
       return false;
     }
 
@@ -184,19 +184,19 @@ class SnapshotManager {
     if (name.empty()) {
       snapshot_path = FindLatestSnapshot();
       if (snapshot_path.empty()) {
-        spdlog::error("No snapshot found");
+        ASTRADB_LOG_ERROR("No snapshot found");
         return false;
       }
     } else {
       snapshot_path = absl::StrCat(options_.snapshot_dir, "/", name, ".snap");
     }
 
-    spdlog::info("Restoring snapshot: {}", snapshot_path);
+    ASTRADB_LOG_INFO("Restoring snapshot: {}", snapshot_path);
 
     // Open snapshot file
     std::ifstream ifs(snapshot_path, std::ios::binary);
     if (ASTRADB_UNLIKELY(!ifs.is_open())) {
-      spdlog::error("Failed to open snapshot file: {}", snapshot_path);
+      ASTRADB_LOG_ERROR("Failed to open snapshot file: {}", snapshot_path);
       return false;
     }
 
@@ -206,17 +206,17 @@ class SnapshotManager {
 
     // Validate header
     if (header.magic != SNAPSHOT_MAGIC) {
-      spdlog::error("Invalid snapshot magic: expected {}, got {}", 
+      ASTRADB_LOG_ERROR("Invalid snapshot magic: expected {}, got {}", 
                     SNAPSHOT_MAGIC, header.magic);
       return false;
     }
 
     if (header.version > SNAPSHOT_VERSION) {
-      spdlog::error("Unsupported snapshot version: {}", header.version);
+      ASTRADB_LOG_ERROR("Unsupported snapshot version: {}", header.version);
       return false;
     }
 
-    spdlog::info("Snapshot info: version={}, keys={}, created={}",
+    ASTRADB_LOG_INFO("Snapshot info: version={}, keys={}, created={}",
                  header.version, header.key_count, header.create_time_ms);
 
     // Read and restore entries using batch writes
@@ -245,7 +245,7 @@ class SnapshotManager {
         
         // Log progress every 100k keys
         if (restored % 100000 == 0) {
-          spdlog::info("Restored {} keys...", restored);
+          ASTRADB_LOG_INFO("Restored {} keys...", restored);
         }
       }
     }
@@ -257,7 +257,7 @@ class SnapshotManager {
 
     ifs.close();
 
-    spdlog::info("Snapshot restored: {} keys", restored);
+    ASTRADB_LOG_INFO("Snapshot restored: {} keys", restored);
     return true;
   }
 

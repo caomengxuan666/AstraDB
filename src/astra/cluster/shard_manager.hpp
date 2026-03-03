@@ -28,7 +28,7 @@
 #include <cmath>
 
 #include "astra/base/macros.hpp"
-#include <spdlog/spdlog.h>
+#include "astra/base/logging.hpp"
 
 namespace astra::cluster {
 
@@ -157,7 +157,7 @@ class ShardManager {
   // Initialize with number of shards
   bool Init(uint32_t shard_count, const NodeId& self_id) noexcept {
     if (shard_count == 0 || shard_count > kHashSlotCount) {
-      spdlog::error("Invalid shard count: {}", shard_count);
+      ASTRADB_LOG_ERROR("Invalid shard count: {}", shard_count);
       return false;
     }
     
@@ -199,7 +199,7 @@ class ShardManager {
     }
     
     initialized_.store(true, std::memory_order_release);
-    spdlog::info("ShardManager initialized: {} shards, {} slots each (approximately)", 
+    ASTRADB_LOG_INFO("ShardManager initialized: {} shards, {} slots each (approximately)", 
                  shard_count, slots_per_shard);
     return true;
   }
@@ -280,7 +280,7 @@ class ShardManager {
     shards_[shard].state = ShardConfig::State::kMigrating;
     shards_[shard].migration_target = target;
     
-    spdlog::info("Started migration of shard {} to {}", shard, 
+    ASTRADB_LOG_INFO("Started migration of shard {} to {}", shard, 
                  GossipManager::NodeIdToString(target));
     return true;
   }
@@ -296,7 +296,7 @@ class ShardManager {
     config.state = ShardConfig::State::kStable;
     config.migration_target = NodeId{};
     
-    spdlog::info("Completed migration of shard {}", shard);
+    ASTRADB_LOG_INFO("Completed migration of shard {}", shard);
     return true;
   }
 
@@ -309,7 +309,7 @@ class ShardManager {
     shards_[shard].state = ShardConfig::State::kStable;
     shards_[shard].migration_target = NodeId{};
     
-    spdlog::info("Cancelled migration of shard {}", shard);
+    ASTRADB_LOG_INFO("Cancelled migration of shard {}", shard);
     return true;
   }
 
@@ -324,7 +324,7 @@ class ShardManager {
     auto& replicas = shards_[shard].replicas;
     if (std::find(replicas.begin(), replicas.end(), replica) == replicas.end()) {
       replicas.push_back(replica);
-      spdlog::info("Added replica to shard {}: {}", shard, 
+      ASTRADB_LOG_INFO("Added replica to shard {}: {}", shard, 
                    GossipManager::NodeIdToString(replica));
     }
     return true;
@@ -340,7 +340,7 @@ class ShardManager {
     auto it = std::find(replicas.begin(), replicas.end(), replica);
     if (it != replicas.end()) {
       replicas.erase(it);
-      spdlog::info("Removed replica from shard {}: {}", shard, 
+      ASTRADB_LOG_INFO("Removed replica from shard {}: {}", shard, 
                    GossipManager::NodeIdToString(replica));
     }
     return true;
