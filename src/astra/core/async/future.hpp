@@ -11,6 +11,7 @@
 #include <absl/status/status.h>
 #include <absl/status/statusor.h>
 #include <absl/strings/str_cat.h>
+#include <cassert>
 #include <optional>
 #include <variant>
 #include <system_error>
@@ -39,7 +40,7 @@ class AsyncResult {
 
   explicit AsyncResult(absl::Status status)
       : state_(std::move(status)) {
-    DCHECK(!status.ok());
+    assert(!status.ok());
   }
 
   // Status check
@@ -57,17 +58,17 @@ class AsyncResult {
 
   // Get the value (must check ok() first)
   const T& value() const& {
-    DCHECK(ok());
+    assert(ok());
     return std::get<T>(state_);
   }
 
   T& value() & {
-    DCHECK(ok());
+    assert(ok());
     return std::get<T>(state_);
   }
 
   T&& value() && {
-    DCHECK(ok());
+    assert(ok());
     return std::get<T>(std::move(state_));
   }
 
@@ -91,7 +92,7 @@ class AsyncResult<void> {
 
   explicit AsyncResult(absl::Status status)
       : status_(std::move(status)) {
-    DCHECK(!status.ok());
+    assert(!status.ok());
   }
 
   bool ok() const { return status_.ok(); }
@@ -162,10 +163,12 @@ inline asio::awaitable<AsyncResult<std::invoke_result_t<Func>>> AsyncWithTimeout
   timer.expires_after(timeout);
   
   try {
+    using ResultType = std::invoke_result_t<Func>;
     auto result = co_await func();
-    co_return AsyncResult<decltype(result)>(std::move(result));
+    co_return AsyncResult<ResultType>(std::move(result));
   } catch (const std::exception& e) {
-    co_return AsyncResult<decltype(result)>(
+    using ResultType = std::invoke_result_t<Func>;
+    co_return AsyncResult<ResultType>(
         absl::InternalError(absl::StrCat("Exception: ", e.what())));
   }
 }

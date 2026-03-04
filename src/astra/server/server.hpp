@@ -20,6 +20,8 @@
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/core/metrics.hpp"
+#include "astra/core/async/executor.hpp"
+#include "astra/core/async/future.hpp"
 #include "astra/core/memory/buffer_pool.hpp"
 #include "shard.hpp"
 
@@ -134,6 +136,10 @@ class Server {
   void HandleCommand(const protocol::Command& cmd, 
                      std::shared_ptr<network::Connection> conn);
   
+  // Coroutine-based command handler (async/await)
+  asio::awaitable<void> HandleCommandAsync(const protocol::Command& cmd,
+                                          std::shared_ptr<network::Connection> conn);
+  
   void SendResponse(std::shared_ptr<network::Connection> conn,
                     const commands::CommandResult& result);
   
@@ -170,14 +176,15 @@ class Server {
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;
   std::unique_ptr<cluster::GossipManager> gossip_manager_;
   
+  // CORE components
+  std::unique_ptr<core::async::Executor> executor_;
+  std::unique_ptr<core::memory::BufferPool> buffer_pool_;
+  
   asio::io_context io_context_;
   std::unique_ptr<asio::executor_work_guard<asio::io_context::executor_type>> work_guard_;
   std::unique_ptr<asio::ip::tcp::acceptor> acceptor_;
   
   commands::CommandRegistry registry_;
-  
-  // Buffer pool for network I/O
-  std::unique_ptr<astra::core::memory::BufferPool> buffer_pool_;
   
   // Connection pool (uses buffer_pool_, created after buffer_pool init)
   std::unique_ptr<network::ConnectionPool> connection_pool_;

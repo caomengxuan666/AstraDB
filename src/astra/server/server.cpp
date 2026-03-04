@@ -32,6 +32,10 @@ Server::Server(const ServerConfig& config)
   buffer_pool_ = std::make_unique<astra::core::memory::BufferPool>(
       astra::core::memory::Buffer::kXLargeBufferSize);  // 1MB max buffer size
   
+  // Initialize executor for coroutines
+  executor_ = std::make_unique<astra::core::async::Executor>(
+      config_.thread_count > 0 ? config_.thread_count : std::thread::hardware_concurrency());
+  
   // Initialize connection pool with buffer pool
   connection_pool_ = std::make_unique<network::ConnectionPool>(
       io_context_, config.max_connections, buffer_pool_.get());
@@ -100,6 +104,11 @@ Server::~Server() {
 void Server::Run() {
   running_ = true;
   
+  // Start executor for coroutines
+  if (executor_) {
+    executor_->Run();
+  }
+  
   // Global thread pool is already started in GetGlobalThreadPool()
   ASTRADB_LOG_INFO("Using global IO context thread pool with {} threads",
                   astra::core::async::GetGlobalThreadPool().Size());
@@ -132,6 +141,11 @@ void Server::Run() {
 
 void Server::Start() {
   running_ = true;
+  
+  // Start executor for coroutines
+  if (executor_) {
+    executor_->Run();
+  }
   
   // Create acceptor
   asio::ip::tcp::endpoint endpoint(asio::ip::make_address(config_.host), config_.port);
@@ -171,6 +185,11 @@ void Server::Stop() {
   ASTRADB_LOG_INFO("Stopping server...");
   running_ = false;
   
+  // Stop executor for coroutines
+  if (executor_) {
+    executor_->Stop();
+  }
+  
   // Stop accepting new connections
   if (acceptor_) {
     asio::error_code ec;
@@ -181,27 +200,31 @@ void Server::Stop() {
   work_guard_.reset();
   
   // Stop the IO context
-    io_context_.stop();
-    
-    // Stop gossip tick thread
-    gossip_running_ = false;
-    if (gossip_tick_thread_.joinable()) {
-        gossip_tick_thread_.join();
-      }
-      
-      if (aof_rewrite_thread_.joinable()) {
-          aof_rewrite_thread_.join();
-        }
-        
-        if (rdb_save_thread_.joinable()) {
-          rdb_save_thread_.join();
-        }    // Stop expiration cleaner thread
-    cleaner_running_ = false;
+  io_context_.stop();
+  
+  // Stop gossip tick thread
+  gossip_running_ = false;
+  if (gossip_tick_thread_.joinable()) {
+    gossip_tick_thread_.join();
+  }
+  
+  // Stop expiration cleaner thread
+  cleaner_running_ = false;
+  if (expiration_cleaner_thread_.joinable()) {
+    expiration_cleaner_thread_.join();
+  }
+  
+  // Stop AOF rewrite thread
   aof_rewrite_running_ = false;
+  if (aof_rewrite_thread_.joinable()) {
+    aof_rewrite_thread_.join();
+  }
+  
+  // Stop RDB save thread
   rdb_save_running_ = false;
-    if (expiration_cleaner_thread_.joinable()) {
-      expiration_cleaner_thread_.join();
-    }
+  if (rdb_save_thread_.joinable()) {
+    rdb_save_thread_.join();
+  }
   
   // Wait for all threads to finish
   for (auto& thread : io_threads_) {
@@ -243,9 +266,15 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   // Update metrics
   astra::metrics::AstraMetrics::Instance().IncrementConnections();
   
-  // Set command callback
+  // Set command callback - use coroutine-based handler
   conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
-    HandleCommand(cmd, conn);
+    // Spawn coroutine for async command processing
+    if (executor_) {
+      executor_->Spawn(HandleCommandAsync(cmd, conn), "HandleCommandAsync");
+    } else {
+      // Fallback to synchronous handler
+      HandleCommand(cmd, conn);
+    }
   });
 
   // Register for Pub/Sub
@@ -613,6 +642,59 @@ void Server::HandleCommand(const protocol::Command& cmd,
     asio::post(io_context_, [this, conn, result]() {
       SendResponse(conn, result);
     });
+  });
+}
+
+// Coroutine-based command handler (async/await)
+asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
+                                                std::shared_ptr<network::Connection> conn) {
+  total_commands_++;
+
+  ASTRADB_LOG_DEBUG("Processing command async: id={}, cmd={}, args={}",
+                    conn->GetId(), cmd.name, cmd.ArgCount());
+
+  // Start metrics timer (using absl::Time)
+  auto start_time = absl::Now();
+
+  // Simulate async operation with co_await
+  co_await core::async::AsyncYield();
+
+  // Get routing strategy for this command
+  auto routing = registry_.GetRoutingStrategy(cmd.name);
+  
+  Shard* shard = nullptr;
+  
+  // Route based on strategy
+  if (routing == RoutingStrategy::kByFirstKey && cmd.ArgCount() > 0) {
+    const auto& key_arg = cmd[0];
+    if (key_arg.IsBulkString()) {
+      const auto& key = key_arg.AsString();
+      shard = local_shard_manager_.GetShard(key);
+    }
+  }
+  
+  if (!shard) {
+    shard = local_shard_manager_.GetShardByIndex(0);
+  }
+
+  // Execute command
+  commands::CommandResult result;
+  if (shard) {
+    ServerCommandContext ctx(shard->GetDatabase(), 0, this, conn.get());
+    result = registry_.Execute(cmd, &ctx);
+  } else {
+    result = commands::CommandResult(false, "ERR shard not found");
+  }
+
+  // Record metrics
+  auto duration = absl::Now() - start_time;
+  double seconds = absl::ToDoubleSeconds(duration);
+  astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
+
+  // Send response via post to main IO context
+  auto executor = co_await asio::this_coro::executor;
+  asio::post(executor, [this, conn, result]() {
+    SendResponse(conn, result);
   });
 }
 
