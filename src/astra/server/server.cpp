@@ -266,13 +266,13 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   // Update metrics
   astra::metrics::AstraMetrics::Instance().IncrementConnections();
   
-  // Set command callback - use coroutine-based handler
+  // Set command callback - use async or sync handler based on config
   conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
-    // Spawn coroutine for async command processing
-    if (executor_) {
+    if (config_.use_async_commands && executor_) {
+      // Use coroutine-based async handler
       executor_->Spawn(HandleCommandAsync(cmd, conn), "HandleCommandAsync");
     } else {
-      // Fallback to synchronous handler
+      // Use synchronous handler (fallback or if async disabled)
       HandleCommand(cmd, conn);
     }
   });

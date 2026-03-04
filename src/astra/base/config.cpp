@@ -72,6 +72,14 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       }
     }
     
+    // Async / Coroutine
+    if (data["async"]) {
+      auto async = *data["async"].as_table();
+      if (async["use_async_commands"]) {
+        config.use_async_commands = async["use_async_commands"].value_or<bool>(true);
+      }
+    }
+    
     // Persistence
     if (data["persistence"]) {
       auto persistence = *data["persistence"].as_table();
@@ -142,6 +150,14 @@ ServerConfig ServerConfig::LoadFromString(const std::string& config_str) {
       config.log_file = logging["file"].value_or<std::string>("astradb.log");
       config.log_async = logging["async"].value_or<bool>(true);
       config.log_queue_size = logging["queue_size"].value_or<size_t>(8192);
+    }
+    
+    // Async / Coroutine
+    if (data["async"]) {
+      auto async = *data["async"].as_table();
+      if (async["use_async_commands"]) {
+        config.use_async_commands = async["use_async_commands"].value_or<bool>(true);
+      }
     }
     
     // Persistence

@@ -179,6 +179,7 @@ int main(int argc, char** argv) {
   server_config.num_databases = config.num_databases;
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
+  server_config.use_async_commands = config.use_async_commands;
   
   // Copy persistence config
   server_config.persistence.enabled = config.persistence.enabled;

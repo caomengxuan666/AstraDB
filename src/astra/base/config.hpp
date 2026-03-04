@@ -53,6 +53,9 @@ struct ServerConfig {
   bool enable_pipeline = true;
   bool enable_compression = false;
   
+  // Async / Coroutine
+  bool use_async_commands = true;
+  
   // Persistence (LevelDB)
   PersistenceConfig persistence;
   

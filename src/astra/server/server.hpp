@@ -69,6 +69,9 @@ struct ServerConfig {
   PersistenceConfig persistence;
   ClusterConfig cluster;
   MetricsConfig metrics;
+  
+  // Async configuration
+  bool use_async_commands = true;  // Use coroutines for command processing
 };
 
 // Redis-compatible server
