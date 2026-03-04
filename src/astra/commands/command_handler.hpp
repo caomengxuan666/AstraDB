@@ -16,6 +16,7 @@
 #include <vector>
 #include <memory>
 #include "astra/protocol/resp/resp_types.hpp"
+#include "astra/replication/replication_manager.hpp"
 #include "database.hpp"
 
 namespace astra::commands {
@@ -27,6 +28,10 @@ namespace astra::cluster {
 class GossipManager;
 class ShardManager;
 struct AstraNodeView;
+}
+
+namespace astra::security {
+class AclManager;
 }
 
 namespace astra::persistence {
@@ -70,6 +75,16 @@ class CommandContext {
   virtual cluster::GossipManager* GetGossipManagerMutable() { return nullptr; }
   virtual cluster::ShardManager* GetClusterShardManager() const { return nullptr; }
   
+  // ACL operations (optional - return nullptr if not available)
+  virtual security::AclManager* GetAclManager() const { return nullptr; }
+  
+  // Authenticated user
+  virtual const std::string& GetAuthenticatedUser() const {
+    static const std::string empty;
+    return empty;
+  }
+  virtual void SetAuthenticatedUser(const std::string& user) { (void)user; }
+  
   // Persistence operations (optional - return nullptr/false if not available)
   virtual bool IsPersistenceEnabled() const { return false; }
   virtual persistence::LevelDBAdapter* GetPersistence() const { return nullptr; }
@@ -102,6 +117,8 @@ class CommandContext {
 
   // ============== Pub/Sub Support ==============
   virtual PubSubManager* GetPubSubManager() { return nullptr; }
+  
+  virtual replication::ReplicationManager* GetReplicationManager() { return nullptr; }
   virtual uint64_t GetConnectionId() const { return 0; }
   
  protected:
@@ -137,12 +154,23 @@ struct CommandInfo {
   int arity;  // Number of arguments. Positive for fixed, negative for variable (e.g., -2 means at least 1)
   std::string flags;  // Command flags (readonly, fast, etc.)
   RoutingStrategy routing;  // How to route this command
+  bool is_write = false;  // Whether this command modifies data
   
   CommandInfo() : routing(RoutingStrategy::kNone) {}
-  CommandInfo(const std::string& n, int a, const std::string& f)
-      : name(n), arity(a), flags(f), routing(RoutingStrategy::kNone) {}
-  CommandInfo(const std::string& n, int a, const std::string& f, RoutingStrategy r)
-      : name(n), arity(a), flags(f), routing(r) {}
+  CommandInfo(const std::string& n, int a, const std::string& f, bool w = false)
+      : name(n), arity(a), flags(f), routing(RoutingStrategy::kNone), is_write(w) {
+    // Auto-detect is_write from flags if not explicitly set
+    if (!w && flags == "write") {
+      is_write = true;
+    }
+  }
+  CommandInfo(const std::string& n, int a, const std::string& f, RoutingStrategy r, bool w = false)
+      : name(n), arity(a), flags(f), routing(r), is_write(w) {
+    // Auto-detect is_write from flags if not explicitly set
+    if (!w && flags == "write") {
+      is_write = true;
+    }
+  }
 };
 
 // Command entry in registry

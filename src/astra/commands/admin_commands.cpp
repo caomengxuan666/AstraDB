@@ -3,6 +3,7 @@
 
 #include "admin_commands.hpp"
 #include "command_auto_register.hpp"
+#include "acl_commands.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
@@ -622,5 +623,7 @@ ASTRADB_REGISTER_COMMAND(KEYS, 2, "readonly", RoutingStrategy::kNone, HandleKeys
 ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly", RoutingStrategy::kNone, HandleDbSize);
 ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
 ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
+ASTRADB_REGISTER_COMMAND(AUTH, -2, "no-auth", RoutingStrategy::kNone, HandleAuth);
+ASTRADB_REGISTER_COMMAND(ACL, -2, "admin", RoutingStrategy::kNone, HandleAcl);
 
 }  // namespace astra::commands

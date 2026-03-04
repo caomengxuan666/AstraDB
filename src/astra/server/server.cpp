@@ -8,6 +8,7 @@
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/persistence/rdb_writer.hpp"
 #include <absl/strings/match.h>
+#include <absl/strings/string_view.h>
 #include <absl/time/time.h>
 #include <filesystem>
 #include <chrono>
@@ -363,6 +364,10 @@ class ServerCommandContext : public commands::CommandContext {
   commands::PubSubManager* GetPubSubManager() override {
     return server_ ? server_->GetPubSubManager() : nullptr;
   }
+  
+  replication::ReplicationManager* GetReplicationManager() override {
+    return server_ ? server_->GetReplicationManager() : nullptr;
+  }
 
   uint64_t GetConnectionId() const override {
     return connection_ ? connection_->GetId() : 0;
@@ -584,6 +589,14 @@ void Server::HandleCommand(const protocol::Command& cmd,
     double seconds = absl::ToDoubleSeconds(duration);
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
     
+    // Propagate write commands to slaves
+    if (replication_manager_ && result.success) {
+      auto* info = registry_.GetInfo(cmd.name);
+      if (info && info->is_write) {
+        replication_manager_->PropagateCommand(cmd);
+      }
+    }
+    
     // Persist if enabled and command was successful
     if (config_.persistence.enabled && persistence_ && result.success) {
       // TODO: Add persistence logic for write commands
@@ -713,6 +726,18 @@ bool Server::InitPersistence() noexcept {
         rdb_writer_.reset();
       } else {
         ASTRADB_LOG_INFO("RDB writer initialized");
+      }
+      
+      // Initialize replication manager
+      replication_manager_ = std::make_unique<replication::ReplicationManager>();
+      replication::ReplicationConfig repl_config;
+      repl_config.role = replication::ReplicationRole::kMaster;  // Default to master
+      
+      if (!replication_manager_->Init(repl_config)) {
+        ASTRADB_LOG_ERROR("Failed to initialize replication manager");
+        replication_manager_.reset();
+      } else {
+        ASTRADB_LOG_INFO("Replication manager initialized");
       }
     }
     

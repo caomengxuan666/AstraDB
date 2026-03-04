@@ -22,6 +22,7 @@ struct CommandMetadata {
   std::string_view flags;
   RoutingStrategy routing;
   CommandHandler handler;
+  bool is_write = false;
 };
 
 // Runtime command registry (Meyers' Singleton - function-local static)

@@ -16,6 +16,7 @@
 #include "astra/persistence/leveldb_adapter.hpp"
 #include "astra/persistence/aof_writer.hpp"
 #include "astra/persistence/rdb_writer.hpp"
+#include "astra/replication/replication_manager.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/core/metrics.hpp"
@@ -115,6 +116,9 @@ class Server {
   // Get RDB writer (for internal use)
   persistence::RdbWriter* GetRdbWriter() { return rdb_writer_.get(); }
   
+  // Get replication manager (for internal use)
+  replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
+  
   // Cluster operations
   bool ClusterMeet(const std::string& ip, int port);
   cluster::GossipManager* GetGossipManagerMutable() { return gossip_manager_.get(); }
@@ -157,6 +161,9 @@ class Server {
   std::unique_ptr<persistence::LevelDBAdapter> persistence_;
   std::unique_ptr<persistence::AofWriter> aof_writer_;
   std::unique_ptr<persistence::RdbWriter> rdb_writer_;
+  
+  // Replication layer (optional)
+  std::unique_ptr<replication::ReplicationManager> replication_manager_;
   
   // Cluster management (optional)
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;

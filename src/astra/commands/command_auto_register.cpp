@@ -18,9 +18,11 @@ void RuntimeCommandRegistry::RegisterCommand(
     RoutingStrategy routing,
     CommandHandler handler) {
   std::lock_guard<std::mutex> lock(mutex_);
+  // Auto-detect is_write from flags
+  bool is_write = (flags == "write");
   // Store the handler (function pointer) - this creates a reference back
   // to the command function, preventing linker from optimizing it away
-  commands_[std::string(name)] = {name, arity, flags, routing, handler};
+  commands_[std::string(name)] = {name, arity, flags, routing, handler, is_write};
 }
 
 // Apply all registered commands to a registry
