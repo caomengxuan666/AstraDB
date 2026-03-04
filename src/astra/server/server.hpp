@@ -20,6 +20,7 @@
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/core/metrics.hpp"
+#include "astra/core/memory/buffer_pool.hpp"
 #include "shard.hpp"
 
 namespace astra::server {
@@ -175,7 +176,11 @@ class Server {
   
   commands::CommandRegistry registry_;
   
-  network::ConnectionPool connection_pool_;
+  // Buffer pool for network I/O
+  std::unique_ptr<astra::core::memory::BufferPool> buffer_pool_;
+  
+  // Connection pool (uses buffer_pool_, created after buffer_pool init)
+  std::unique_ptr<network::ConnectionPool> connection_pool_;
   
   std::vector<std::thread> io_threads_;
   std::thread expiration_cleaner_thread_;

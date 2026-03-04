@@ -15,8 +15,12 @@
 
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
+#include "astra/core/memory/buffer_pool.hpp"
 
 namespace astra::network {
+
+// Forward declaration
+class ConnectionPool;
 
 // Connection context
 class Connection : public std::enable_shared_from_this<Connection> {
@@ -25,7 +29,8 @@ class Connection : public std::enable_shared_from_this<Connection> {
   using Executor = asio::io_context;
   using CommandCallback = std::function<void(const protocol::Command&)>;
   
-  explicit Connection(Socket socket, Executor& io_context);
+  explicit Connection(Socket socket, Executor& io_context, 
+                    astra::core::memory::BufferPool* buffer_pool = nullptr);
   ~Connection();
   
   // Start the connection
@@ -50,6 +55,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
   
   // Send data to client
   void Send(const std::string& data);
+  
+  // Get buffer pool
+  astra::core::memory::BufferPool* GetBufferPool() const { return buffer_pool_; }
+  
+  // Reset connection state (for object pool reuse)
+  void Reset(asio::ip::tcp::socket socket);
   
   // ============== Transaction Support ==============
   
@@ -99,13 +110,16 @@ class Connection : public std::enable_shared_from_this<Connection> {
   uint64_t id_;
   static std::atomic<uint64_t> next_id_;
   
-  std::string read_buffer_;
-  std::string write_buffer_;
+  astra::core::memory::BufferPtr read_buffer_;
+  astra::core::memory::BufferPtr write_buffer_;
   
   CommandCallback command_callback_;
   
   bool writing_;
   bool closing_;
+  
+  // Buffer pool reference (not owned)
+  astra::core::memory::BufferPool* buffer_pool_;
   
   // ============== Transaction State ==============
   bool in_transaction_ = false;
@@ -117,7 +131,9 @@ class Connection : public std::enable_shared_from_this<Connection> {
 // Connection pool
 class ConnectionPool {
  public:
-  explicit ConnectionPool(asio::io_context& io_context, size_t max_connections = 10000);
+  explicit ConnectionPool(asio::io_context& io_context, 
+                         size_t max_connections = 10000,
+                         astra::core::memory::BufferPool* buffer_pool = nullptr);
   ~ConnectionPool();
   
   std::shared_ptr<Connection> Create(asio::ip::tcp::socket socket);
@@ -127,11 +143,15 @@ class ConnectionPool {
   
   void SetMaxConnections(size_t max) { max_connections_ = max; }
   
+  // Get buffer pool
+  astra::core::memory::BufferPool* GetBufferPool() const { return buffer_pool_; }
+  
  private:
   asio::io_context& io_context_;
   size_t max_connections_;
   std::atomic<size_t> active_connections_;
   std::atomic<size_t> total_connections_;
+  astra::core::memory::BufferPool* buffer_pool_;
 };
 
 }  // namespace astra::network

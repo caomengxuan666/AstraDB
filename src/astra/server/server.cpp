@@ -24,10 +24,17 @@ using astra::persistence::RdbWriter;
 Server::Server(const ServerConfig& config)
     : config_(config),
       local_shard_manager_(config.num_shards),
-      connection_pool_(io_context_, config.max_connections),
       running_(false),
       cleaner_running_(false),
       total_commands_(0) {
+  
+  // Initialize buffer pool for network I/O
+  buffer_pool_ = std::make_unique<astra::core::memory::BufferPool>(
+      astra::core::memory::Buffer::kXLargeBufferSize);  // 1MB max buffer size
+  
+  // Initialize connection pool with buffer pool
+  connection_pool_ = std::make_unique<network::ConnectionPool>(
+      io_context_, config.max_connections, buffer_pool_.get());
   
   // Set global function for direct posting to main IO context
   astra::core::async::g_post_to_main_io_context_func = [this](std::function<void()> work) {
@@ -222,7 +229,7 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   }
   
   // Create new connection
-  auto conn = connection_pool_.Create(std::move(socket));
+  auto conn = connection_pool_->Create(std::move(socket));
   if (!conn) {
     ASTRADB_LOG_WARN("Connection rejected: max connections reached");
     socket.close();

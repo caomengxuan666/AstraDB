@@ -9,12 +9,14 @@ namespace astra::network {
 
 std::atomic<uint64_t> Connection::next_id_(1);
 
-Connection::Connection(Socket socket, Executor& io_context)
+Connection::Connection(Socket socket, Executor& io_context, 
+                      astra::core::memory::BufferPool* buffer_pool)
     : socket_(std::move(socket)),
       io_context_(io_context),
       id_(next_id_++),
       writing_(false),
-      closing_(false) {
+      closing_(false),
+      buffer_pool_(buffer_pool) {
   ASTRADB_LOG_INFO("New connection created: id={}, addr={}", id_, GetRemoteAddress());
 }
 
@@ -51,6 +53,32 @@ void Connection::Close() {
   }
 }
 
+void Connection::Reset(asio::ip::tcp::socket socket) {
+  // Close old socket
+  asio::error_code ec;
+  socket_.close(ec);
+  
+  // Move new socket
+  socket_ = std::move(socket);
+  
+  // Reset state
+  id_ = next_id_++;
+  writing_ = false;
+  closing_ = false;
+  
+  // Reset buffers
+  read_buffer_.Reset();
+  write_buffer_.Reset();
+  
+  // Reset transaction state
+  in_transaction_ = false;
+  queued_commands_.clear();
+  watched_keys_.clear();
+  watched_key_versions_.clear();
+  
+  ASTRADB_LOG_DEBUG("Connection reset: id={}, addr={}", id_, GetRemoteAddress());
+}
+
 void Connection::Send(const std::string& data) {
   if (closing_ || !socket_.is_open()) {
     ASTRADB_LOG_DEBUG("Send: id={}, skipped (closing={}, open={})", 
@@ -61,7 +89,17 @@ void Connection::Send(const std::string& data) {
   ASTRADB_LOG_DEBUG("Send: id={}, data_len={}, writing_={}", 
                     id_, data.size(), writing_);
   
-  write_buffer_ += data;
+  // Append data to write buffer
+  if (!write_buffer_) {
+    if (buffer_pool_) {
+      write_buffer_ = buffer_pool_->Acquire(data.size());
+    } else {
+      write_buffer_ = astra::core::memory::BufferPtr(
+          new astra::core::memory::Buffer(data.size()));
+    }
+  }
+  
+  write_buffer_->Append(data.data(), data.size());
   DoWrite();
 }
 
@@ -76,14 +114,29 @@ void Connection::DoRead() {
     asio::buffer(*temp_buffer),
     [this, self, temp_buffer](const asio::error_code& ec, size_t bytes_transferred) {
       if (!ec && bytes_transferred > 0) {
-        read_buffer_.append(temp_buffer->data(), bytes_transferred);
+        // Initialize or append to read buffer
+        if (!read_buffer_) {
+          if (buffer_pool_) {
+            read_buffer_ = buffer_pool_->Acquire(bytes_transferred);
+          } else {
+            read_buffer_ = astra::core::memory::BufferPtr(
+                new astra::core::memory::Buffer(bytes_transferred));
+          }
+        }
+        
+        // Ensure buffer has enough capacity
+        if (read_buffer_->size() + bytes_transferred > read_buffer_->capacity()) {
+          read_buffer_->Reserve(read_buffer_->size() + bytes_transferred);
+        }
+        
+        read_buffer_->Append(temp_buffer->data(), bytes_transferred);
       }
       HandleRead(ec, bytes_transferred);
     });
 }
 
 void Connection::DoWrite() {
-  if (writing_ || write_buffer_.empty()) {
+  if (writing_ || !write_buffer_ || write_buffer_->empty()) {
     return;
   }
   
@@ -92,7 +145,7 @@ void Connection::DoWrite() {
   
   asio::async_write(
     socket_,
-    asio::buffer(write_buffer_),
+    asio::buffer(write_buffer_->data(), write_buffer_->size()),
     [this, self](const asio::error_code& ec, size_t bytes_transferred) {
       HandleWrite(ec, bytes_transferred);
     });
@@ -129,25 +182,40 @@ void Connection::HandleWrite(const asio::error_code& ec, size_t bytes_transferre
   }
   
   ASTRADB_LOG_DEBUG("Write complete: id={}, bytes_transferred={}, buffer_remaining={}", 
-                    id_, bytes_transferred, write_buffer_.size());
+                    id_, bytes_transferred, write_buffer_ ? write_buffer_->size() : 0);
   
-  if (bytes_transferred < write_buffer_.size()) {
-    // Partial write, continue with the rest
-    write_buffer_.erase(0, bytes_transferred);
+  if (!write_buffer_) {
+    return;
+  }
+  
+  if (bytes_transferred < write_buffer_->size()) {
+    // Partial write, remove written bytes from buffer
+    size_t remaining = write_buffer_->size() - bytes_transferred;
+    std::memmove(write_buffer_->data(), 
+                 write_buffer_->data() + bytes_transferred, 
+                 remaining);
+    write_buffer_->Resize(remaining);
     ASTRADB_LOG_DEBUG("Partial write: id={}, continuing with {} bytes", 
-                      id_, write_buffer_.size());
+                      id_, write_buffer_->size());
     DoWrite();
   } else {
-    write_buffer_.clear();
+    // All data written, clear buffer
+    write_buffer_->Clear();
   }
 }
 
 void Connection::ProcessData() {
+  if (!read_buffer_ || read_buffer_->empty()) {
+    return;
+  }
+  
   // Parse RESP commands from read_buffer_
-  std::string_view data(read_buffer_);
+  std::string_view data(read_buffer_->data(), read_buffer_->size());
   
   ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer_size={}, data_size='{}'", 
-                    id_, read_buffer_.size(), data.size());
+                    id_, read_buffer_->size(), data.size());
+  
+  size_t consumed = 0;
   
   while (!data.empty()) {
     // Check if we have a complete value
@@ -164,30 +232,37 @@ void Connection::ProcessData() {
       return;
     }
     
-    // Record data before buffer update
-    size_t old_buffer_size = read_buffer_.size();
+    // Calculate consumed bytes
     size_t data_size_before = data.size();
-    
-    // Update read buffer - ⚠️ This is the problematic line!
-    read_buffer_ = std::string(data);
-    
-    ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer updated: {} -> {}, data: {} -> {}", 
-                      id_, old_buffer_size, read_buffer_.size(), 
-                      data_size_before, data.size());
     
     // If it's an array, parse as command
     if (value->IsArray()) {
       auto cmd = protocol::RespParser::ParseCommand(*value);
       if (cmd.has_value() && command_callback_) {
-        // ⚠️ value may contain string_views pointing to old buffer!
         ASTRADB_LOG_DEBUG("ProcessData: id={}, processing command: {}, args={}", 
                           id_, cmd->name, cmd->ArgCount());
         ProcessCommand(*cmd);
       }
     }
+    
+    // Update consumed bytes
+    consumed += (data_size_before - data.size());
   }
   
-  if (read_buffer_.empty()) {
+  // Remove consumed data from read buffer
+  if (consumed > 0) {
+    size_t remaining = read_buffer_->size() - consumed;
+    if (remaining > 0) {
+      std::memmove(read_buffer_->data(), 
+                   read_buffer_->data() + consumed, 
+                   remaining);
+      read_buffer_->Resize(remaining);
+    } else {
+      read_buffer_->Clear();
+    }
+  }
+  
+  if (!read_buffer_ || read_buffer_->empty()) {
     ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer is now empty", id_);
   }
 }
@@ -260,23 +335,33 @@ void Connection::ClearWatchedKeys() {
 }
 
 // ConnectionPool Implementation
-ConnectionPool::ConnectionPool(asio::io_context& io_context, size_t max_connections)
+ConnectionPool::ConnectionPool(asio::io_context& io_context, 
+                               size_t max_connections,
+                               astra::core::memory::BufferPool* buffer_pool)
     : io_context_(io_context),
       max_connections_(max_connections),
       active_connections_(0),
-      total_connections_(0) {
+      total_connections_(0),
+      buffer_pool_(buffer_pool) {
+  
+  ASTRADB_LOG_INFO("ConnectionPool initialized: max_connections={}", max_connections);
 }
 
 ConnectionPool::~ConnectionPool() = default;
 
 std::shared_ptr<Connection> ConnectionPool::Create(asio::ip::tcp::socket socket) {
   if (active_connections_ >= max_connections_) {
+    ASTRADB_LOG_WARN("Connection limit reached: active={}, max={}", 
+                     active_connections_.load(), max_connections_);
     return nullptr;
   }
   
-  auto conn = std::make_shared<Connection>(std::move(socket), io_context_);
+  auto conn = std::make_shared<Connection>(std::move(socket), io_context_, buffer_pool_);
   active_connections_++;
   total_connections_++;
+  
+  ASTRADB_LOG_DEBUG("Connection created: id={}, active={}, total={}", 
+                    conn->GetId(), active_connections_.load(), total_connections_.load());
   
   return conn;
 }
