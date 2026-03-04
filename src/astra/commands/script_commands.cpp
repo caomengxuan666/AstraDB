@@ -413,7 +413,9 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
       }
     }
     GetGlobalScriptCache().Clear();
-    return CommandResult(RespValue(RespType::kSimpleString));
+    RespValue flush_resp;
+    flush_resp.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(flush_resp);
   } else if (subcommand == "EXISTS") {
     // SCRIPT EXISTS sha1 [sha1 ...]
     std::vector<RespValue> results;

@@ -659,22 +659,261 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   // Simulate async operation with co_await
   co_await core::async::AsyncYield();
 
+  // ============== Transaction Handling ==============
+  // Check if connection is in transaction mode
+  bool in_transaction = conn->IsInTransaction();
+
+  // Commands that are allowed inside MULTI
+  static const absl::flat_hash_set<std::string> kTransactionCommands = {
+    "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"
+  };
+
+  // If in transaction and command is not a transaction control command, queue it
+  if (in_transaction && kTransactionCommands.find(cmd.name) == kTransactionCommands.end()) {
+    conn->QueueCommand(cmd);
+
+    // Send QUEUED response
+    RespValue queued_resp;
+    queued_resp.SetString("QUEUED", RespType::kSimpleString);
+    
+    auto result = commands::CommandResult(queued_resp);
+    
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
+    
+    // Send response via post to main IO context
+    auto executor = co_await asio::this_coro::executor;
+    asio::post(executor, [this, conn, result]() {
+      SendResponse(conn, result);
+    });
+    co_return;
+  }
+
+  // Handle EXEC specially - execute all queued commands
+  if (cmd.name == "EXEC") {
+    if (!in_transaction) {
+      auto error_result = commands::CommandResult(false, "ERR EXEC without MULTI");
+      
+      // Record metrics
+      auto duration = absl::Now() - start_time;
+      double seconds = absl::ToDoubleSeconds(duration);
+      astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
+      
+      // Send response
+      auto executor = co_await asio::this_coro::executor;
+      asio::post(executor, [this, conn, error_result]() {
+        SendResponse(conn, error_result);
+      });
+      co_return;
+    }
+
+    // Check if any watched keys were modified
+    auto* db_for_watch = local_shard_manager_.GetShardByIndex(0);
+    if (db_for_watch && conn->IsWatchedKeyModified([db_for_watch](const std::string& key) {
+      return db_for_watch->GetDatabase()->GetKeyVersion(key);
+    })) {
+      conn->DiscardTransaction();
+      RespValue null_resp(RespType::kNull);
+      auto result = commands::CommandResult(null_resp);
+      
+      // Record metrics
+      auto duration = absl::Now() - start_time;
+      double seconds = absl::ToDoubleSeconds(duration);
+      astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
+      
+      // Send response
+      auto executor = co_await asio::this_coro::executor;
+      asio::post(executor, [this, conn, result]() {
+        SendResponse(conn, result);
+      });
+      co_return;
+    }
+
+    // Get all queued commands
+    auto queued_commands = conn->GetQueuedCommands();
+    std::vector<RespValue> results;
+    results.reserve(queued_commands.size());
+
+    // Execute each queued command
+    for (const auto& queued_cmd : queued_commands) {
+      // Get shard for the command
+      auto cmd_routing = registry_.GetRoutingStrategy(queued_cmd.name);
+      Shard* cmd_shard = nullptr;
+
+      if (cmd_routing == RoutingStrategy::kByFirstKey && queued_cmd.ArgCount() > 0) {
+        const auto& key_arg = queued_cmd[0];
+        if (key_arg.IsBulkString()) {
+          cmd_shard = local_shard_manager_.GetShard(key_arg.AsString());
+        }
+      }
+      if (!cmd_shard) {
+        cmd_shard = local_shard_manager_.GetShardByIndex(0);
+      }
+
+      if (cmd_shard) {
+        ServerCommandContext ctx(cmd_shard->GetDatabase(), 0, this, conn.get());
+        auto cmd_result = registry_.Execute(queued_cmd, &ctx);
+        results.push_back(cmd_result.response);
+      } else {
+        RespValue err;
+        err.SetString("ERR shard not found", RespType::kSimpleString);
+        results.push_back(err);
+      }
+    }
+
+    // Clear transaction state
+    conn->ClearQueuedCommands();
+    conn->ClearWatchedKeys();
+    conn->DiscardTransaction();
+
+    // Return array of results
+    RespValue response;
+    response.SetArray(std::move(results));
+    
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, response.IsArray(), seconds);
+    
+    // Send response
+    auto executor = co_await asio::this_coro::executor;
+    asio::post(executor, [this, conn, response]() {
+      SendResponse(conn, commands::CommandResult(response));
+    });
+    co_return;
+  }
+
   // Get routing strategy for this command
   auto routing = registry_.GetRoutingStrategy(cmd.name);
   
   Shard* shard = nullptr;
+  bool need_redirect = false;
+  bool ask_redirect = false;
+  std::string redirect_addr;
+  uint16_t redirect_slot = 0;
   
   // Route based on strategy
   if (routing == RoutingStrategy::kByFirstKey && cmd.ArgCount() > 0) {
+    // Route based on first argument (key)
     const auto& key_arg = cmd[0];
     if (key_arg.IsBulkString()) {
       const auto& key = key_arg.AsString();
-      shard = local_shard_manager_.GetShard(key);
+      
+      // In cluster mode, check if key belongs to this node
+      if (config_.cluster.enabled && cluster_shard_manager_) {
+        auto slot = cluster::HashSlotCalculator::Calculate(key);
+        redirect_slot = slot;
+        auto shard_id = cluster_shard_manager_->GetShardForSlot(slot);
+        
+        // Check migration state
+        bool is_migrating = cluster_shard_manager_->IsMigrating(shard_id);
+        bool is_importing = cluster_shard_manager_->IsImporting(shard_id);
+        
+        // Check if this slot is served by this node
+        auto primary_node = cluster_shard_manager_->GetPrimaryNode(shard_id);
+        auto self = gossip_manager_ ? gossip_manager_->GetSelf() : cluster::AstraNodeView{};
+        
+        if (primary_node != self.id && !is_importing) {
+          // Slot is served by another node - need MOVED redirect
+          need_redirect = true;
+          // Find the node that owns this slot
+          if (gossip_manager_) {
+            auto owner = gossip_manager_->FindNode(primary_node);
+            if (owner) {
+              redirect_addr = owner->ip + ":" + std::to_string(owner->port);
+            }
+          }
+        } else if (is_migrating) {
+          // Slot is being migrated from this node
+          // Check if key exists locally
+          auto* local_shard = local_shard_manager_.GetShardByIndex(shard_id % local_shard_manager_.GetShardCount());
+          bool key_exists = false;
+          if (local_shard && local_shard->GetDatabase()) {
+            key_exists = local_shard->GetDatabase()->Exists(key);
+          }
+          
+          if (!key_exists) {
+            // Key already migrated - ASK redirect to target
+            ask_redirect = true;
+            auto target = cluster_shard_manager_->GetMigrationTarget(shard_id);
+            if (gossip_manager_) {
+              auto target_node = gossip_manager_->FindNode(target);
+              if (target_node) {
+                redirect_addr = target_node->ip + ":" + std::to_string(target_node->port);
+              }
+            }
+          } else {
+            // Key still here - serve it
+            shard = local_shard;
+          }
+        } else {
+          // Slot is served by this node (stable or importing)
+          shard = local_shard_manager_.GetShardByIndex(shard_id % local_shard_manager_.GetShardCount());
+        }
+      } else {
+        // Standalone mode - use local shard manager
+        shard = local_shard_manager_.GetShard(key);
+      }
     }
   }
   
+  // Handle MOVED redirect
+  if (need_redirect) {
+    std::string moved_error = "MOVED " + std::to_string(redirect_slot) + " " + redirect_addr;
+    auto error_result = commands::CommandResult(false, moved_error);
+    
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
+    
+    // Send response
+    auto executor = co_await asio::this_coro::executor;
+    asio::post(executor, [this, conn, error_result]() {
+      SendResponse(conn, error_result);
+    });
+    co_return;
+  }
+  
+  // Handle ASK redirect
+  if (ask_redirect) {
+    std::string ask_error = "ASK " + std::to_string(redirect_slot) + " " + redirect_addr;
+    auto error_result = commands::CommandResult(false, ask_error);
+    
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
+    
+    // Send response
+    auto executor = co_await asio::this_coro::executor;
+    asio::post(executor, [this, conn, error_result]() {
+      SendResponse(conn, error_result);
+    });
+    co_return;
+  }
+  
+  // Default to shard 0 for commands without routing strategy
   if (!shard) {
     shard = local_shard_manager_.GetShardByIndex(0);
+  }
+  
+  if (!shard) {
+    auto error_result = commands::CommandResult(false, "ERR shard not found");
+    
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
+    
+    // Send response
+    auto executor = co_await asio::this_coro::executor;
+    asio::post(executor, [this, conn, error_result]() {
+      SendResponse(conn, error_result);
+    });
+    co_return;
   }
 
   // Execute command
@@ -690,6 +929,19 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   auto duration = absl::Now() - start_time;
   double seconds = absl::ToDoubleSeconds(duration);
   astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
+
+  // Propagate write commands to slaves
+  if (replication_manager_ && result.success) {
+    auto* info = registry_.GetInfo(cmd.name);
+    if (info && info->is_write) {
+      replication_manager_->PropagateCommand(cmd);
+    }
+  }
+  
+  // Persist if enabled and command was successful
+  if (config_.persistence.enabled && persistence_ && result.success) {
+    // TODO: Add persistence logic for write commands
+  }
 
   // Send response via post to main IO context
   auto executor = co_await asio::this_coro::executor;
