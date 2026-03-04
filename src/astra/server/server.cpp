@@ -268,9 +268,20 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   
   // Set command callback - use async or sync handler based on config
   conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
-    if (config_.use_async_commands && executor_) {
-      // Use coroutine-based async handler
-      executor_->Spawn(HandleCommandAsync(cmd, conn), "HandleCommandAsync");
+    if (config_.use_async_commands) {
+      // Use coroutine-based async handler with Server's io_context
+      asio::co_spawn(
+          io_context_,
+          HandleCommandAsync(cmd, conn),
+          [](std::exception_ptr e) {
+            if (e) {
+              try {
+                std::rethrow_exception(e);
+              } catch (const std::exception& ex) {
+                ASTRADB_LOG_ERROR("Coroutine error: {}", ex.what());
+              }
+            }
+          });
     } else {
       // Use synchronous handler (fallback or if async disabled)
       HandleCommand(cmd, conn);
@@ -656,8 +667,15 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   // Start metrics timer (using absl::Time)
   auto start_time = absl::Now();
 
-  // Simulate async operation with co_await
-  co_await core::async::AsyncYield();
+  // No explicit yield needed - coroutine scheduling handles it
+  ASTRADB_LOG_DEBUG("Executing command body: id={}, cmd={}", conn->GetId(), cmd.name);
+
+  // Helper to send response asynchronously
+  auto send_response = [this, conn](const commands::CommandResult& result) -> asio::awaitable<void> {
+    auto exec = co_await asio::this_coro::executor;
+    co_await asio::post(exec, asio::use_awaitable);
+    SendResponse(conn, result);
+  };
 
   // ============== Transaction Handling ==============
   // Check if connection is in transaction mode
@@ -683,11 +701,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     double seconds = absl::ToDoubleSeconds(duration);
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
     
-    // Send response via post to main IO context
-    auto executor = co_await asio::this_coro::executor;
-    asio::post(executor, [this, conn, result]() {
-      SendResponse(conn, result);
-    });
+    // Send response asynchronously
+    co_await send_response(result);
     co_return;
   }
 
@@ -702,10 +717,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
       astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
       
       // Send response
-      auto executor = co_await asio::this_coro::executor;
-      asio::post(executor, [this, conn, error_result]() {
-        SendResponse(conn, error_result);
-      });
+      co_await send_response(error_result);
       co_return;
     }
 
@@ -724,10 +736,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
       astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
       
       // Send response
-      auto executor = co_await asio::this_coro::executor;
-      asio::post(executor, [this, conn, result]() {
-        SendResponse(conn, result);
-      });
+      co_await send_response(result);
       co_return;
     }
 
@@ -778,10 +787,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, response.IsArray(), seconds);
     
     // Send response
-    auto executor = co_await asio::this_coro::executor;
-    asio::post(executor, [this, conn, response]() {
-      SendResponse(conn, commands::CommandResult(response));
-    });
+    co_await send_response(commands::CommandResult(response));
     co_return;
   }
 
@@ -870,10 +876,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
     
     // Send response
-    auto executor = co_await asio::this_coro::executor;
-    asio::post(executor, [this, conn, error_result]() {
-      SendResponse(conn, error_result);
-    });
+    // Using send_response helper
     co_return;
   }
   
@@ -888,10 +891,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
     
     // Send response
-    auto executor = co_await asio::this_coro::executor;
-    asio::post(executor, [this, conn, error_result]() {
-      SendResponse(conn, error_result);
-    });
+    // Using send_response helper
     co_return;
   }
   
@@ -909,10 +909,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
     
     // Send response
-    auto executor = co_await asio::this_coro::executor;
-    asio::post(executor, [this, conn, error_result]() {
-      SendResponse(conn, error_result);
-    });
+    // Using send_response helper
     co_return;
   }
 
@@ -943,11 +940,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     // TODO: Add persistence logic for write commands
   }
 
-  // Send response via post to main IO context
-  auto executor = co_await asio::this_coro::executor;
-  asio::post(executor, [this, conn, result]() {
-    SendResponse(conn, result);
-  });
+  // Send response asynchronously
+  co_await send_response(result);
 }
 
 void Server::SendResponse(std::shared_ptr<network::Connection> conn,

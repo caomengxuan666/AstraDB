@@ -73,6 +73,7 @@ class Executor final {
   void WorkerThread(size_t thread_index);
 
   asio::io_context io_context_;
+  std::unique_ptr<asio::executor_work_guard<asio::io_context::executor_type>> work_guard_;
   std::vector<std::thread> threads_;
   std::atomic<bool> running_{false};
   std::atomic<size_t> next_thread_index_{0};
@@ -99,6 +100,10 @@ inline Executor::~Executor() {
 inline void Executor::Run() {
   running_.store(true, std::memory_order_release);
   
+  // Create work guard to keep io_context running
+  work_guard_ = std::make_unique<asio::executor_work_guard<asio::io_context::executor_type>>(
+      io_context_.get_executor());
+  
   // Start worker threads
   for (size_t i = 0; i < threads_.capacity(); ++i) {
     threads_.emplace_back(&Executor::WorkerThread, this, i);
@@ -109,6 +114,9 @@ inline void Executor::Run() {
 
 inline void Executor::Stop() {
   if (running_.exchange(false, std::memory_order_acq_rel)) {
+    // Destroy work guard to allow io_context to stop
+    work_guard_.reset();
+    
     // Stop the io_context
     io_context_.stop();
     
@@ -130,6 +138,7 @@ inline void Executor::Post(absl::AnyInvocable<void()> task) {
 
 template <typename Awaitable>
 inline void Executor::Spawn(Awaitable&& awaitable, const char* name) {
+      ASTRADB_LOG_DEBUG("Posting coroutine to executor: {}", name);
   asio::co_spawn(
       io_context_,
       std::forward<Awaitable>(awaitable),
@@ -151,7 +160,9 @@ inline size_t Executor::GetThreadIndex() const {
 }
 
 inline void Executor::WorkerThread(size_t thread_index) {
+  ASTRADB_LOG_DEBUG("Worker thread {} entering io_context_.run()", thread_index);
   ASTRADB_LOG_DEBUG("Worker thread {} started", thread_index);
+  ASTRADB_LOG_DEBUG("Worker thread {} entering io_context_.run()", thread_index);
   
   try {
     io_context_.run();

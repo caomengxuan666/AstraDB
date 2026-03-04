@@ -125,6 +125,9 @@ class Server {
   // Get replication manager (for internal use)
   replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
   
+  // Get main IO context (for internal use)
+  asio::io_context& GetIoContext() { return io_context_; }
+  
   // Cluster operations
   bool ClusterMeet(const std::string& ip, int port);
   cluster::GossipManager* GetGossipManagerMutable() { return gossip_manager_.get(); }
