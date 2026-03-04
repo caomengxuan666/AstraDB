@@ -29,6 +29,10 @@ target_sources(astra_commands PRIVATE
   replication_commands.cpp
   acl_commands.cpp
   cluster_commands.cpp
+  bitmap_commands.cpp
+  hyperloglog_commands.cpp
+  geospatial_commands.cpp
+  client_commands.cpp
 )
 
 target_link_libraries(astra_commands PUBLIC
@@ -39,6 +43,10 @@ target_link_libraries(astra_commands PUBLIC
   cxxopts::cxxopts
   tomlplusplus::tomlplusplus
   absl::random_random
+  leveldb
+  prometheus-cpp::core
+  prometheus-cpp::pull
+  concurrentqueue
 )
 
 # Link TBB for parallel operations

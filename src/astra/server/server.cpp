@@ -420,6 +420,16 @@ class ServerCommandContext : public commands::CommandContext {
     return connection_ ? connection_->GetId() : 0;
   }
 
+  // Get connection pointer
+  network::Connection* GetConnection() const override {
+    return connection_;
+  }
+
+  // Get server pointer
+  void* GetServer() const override {
+    return static_cast<void*>(server_);
+  }
+
  private:
   commands::Database* db_;
   int db_index_;

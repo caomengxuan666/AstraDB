@@ -21,6 +21,7 @@
 #include "astra/container/stream_data.hpp"
 #include "astra/storage/key_metadata.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
+#include "astra/core/memory/string_pool.hpp"
 
 namespace astra::commands {
 
@@ -41,12 +42,27 @@ class Database {
   using ZSetType = astra::container::ZSet<std::string, double>;
   using ListType = astra::container::StringList;
 
-  Database() = default;
+  Database() : string_pool_(std::make_unique<core::memory::StringPool>()) {}
   ~Database() = default;
 
   // Disable copy and move
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
+
+  // ========== String Pool Optimization ==========
+
+  // Get pooled string view from pool (optimized for frequent keys)
+  std::string_view GetPooledString(const std::string& str) {
+    return string_pool_->AllocateString(str.data(), str.size());
+  }
+
+  // Get pooled string view from pool
+  std::string_view GetPooledString(const char* data, size_t len) {
+    return string_pool_->AllocateString(data, len);
+  }
+
+  // Get string pool for statistics
+  core::memory::StringPool* GetStringPool() { return string_pool_.get(); }
 
   // ========== Stream Operations ==========
 
@@ -938,6 +954,7 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<ListType>> lists_;
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   astra::storage::KeyMetadataManager metadata_manager_;
+  std::unique_ptr<core::memory::StringPool> string_pool_;
 };
 
 // Database manager - manages multiple databases

@@ -135,6 +135,11 @@ class Server {
   // Pub/Sub operations
   commands::PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
 
+  // Get all active connections
+  const absl::flat_hash_map<uint64_t, std::weak_ptr<network::Connection>>& GetConnections() const {
+    return connections_;
+  }
+
  private:
   void DoAccept();
   void OnAccept(asio::error_code ec, asio::ip::tcp::socket socket);

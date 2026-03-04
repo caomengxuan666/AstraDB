@@ -24,6 +24,10 @@ class PubSubManager;  // Forward declaration
 }
 
 // Forward declarations for optional types
+namespace astra::network {
+class Connection;
+}
+
 namespace astra::cluster {
 class GossipManager;
 class ShardManager;
@@ -120,6 +124,12 @@ class CommandContext {
   
   virtual replication::ReplicationManager* GetReplicationManager() { return nullptr; }
   virtual uint64_t GetConnectionId() const { return 0; }
+  
+  // Get connection pointer (optional - return nullptr if not available)
+  virtual astra::network::Connection* GetConnection() const { return nullptr; }
+  
+  // Get server pointer (optional - return nullptr if not available)
+  virtual void* GetServer() const { return nullptr; }
   
  protected:
   AofCallback aof_callback_;
