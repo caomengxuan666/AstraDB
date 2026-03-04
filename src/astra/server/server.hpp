@@ -10,10 +10,12 @@
 
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/commands/pubsub_commands.hpp"
 #include "astra/network/connection.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/persistence/leveldb_adapter.hpp"
 #include "astra/persistence/aof_writer.hpp"
+#include "astra/persistence/rdb_writer.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/core/metrics.hpp"
@@ -110,10 +112,16 @@ class Server {
   // Get AOF writer (for internal use)
   persistence::AofWriter* GetAofWriter() { return aof_writer_.get(); }
   
+  // Get RDB writer (for internal use)
+  persistence::RdbWriter* GetRdbWriter() { return rdb_writer_.get(); }
+  
   // Cluster operations
   bool ClusterMeet(const std::string& ip, int port);
   cluster::GossipManager* GetGossipManagerMutable() { return gossip_manager_.get(); }
-  
+
+  // Pub/Sub operations
+  commands::PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
+
  private:
   void DoAccept();
   void OnAccept(asio::error_code ec, asio::ip::tcp::socket socket);
@@ -130,6 +138,14 @@ class Server {
   void StartGossipTick();
   void GossipTickLoop();
   
+  void StartAofRewriteChecker();
+  void AofRewriteCheckerLoop();
+  bool PerformAofRewrite();
+  
+  void StartRdbSaver();
+  void RdbSaverLoop();
+  bool PerformRdbSave();
+  
   bool InitPersistence() noexcept;
   bool InitCluster() noexcept;
   
@@ -140,6 +156,7 @@ class Server {
   // Persistence layer (optional)
   std::unique_ptr<persistence::LevelDBAdapter> persistence_;
   std::unique_ptr<persistence::AofWriter> aof_writer_;
+  std::unique_ptr<persistence::RdbWriter> rdb_writer_;
   
   // Cluster management (optional)
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;
@@ -156,10 +173,52 @@ class Server {
   std::vector<std::thread> io_threads_;
   std::thread expiration_cleaner_thread_;
   std::thread gossip_tick_thread_;
+  std::thread aof_rewrite_thread_;
+  std::thread rdb_save_thread_;
   std::atomic<bool> running_;
   std::atomic<bool> cleaner_running_;
-  std::atomic<bool> gossip_running_;
+  std::atomic<bool> aof_rewrite_running_;
+  std::atomic<bool> rdb_save_running_;
   std::atomic<uint64_t> total_commands_;
+
+  // ============== Pub/Sub Support ==============
+  // Channel subscriptions: channel -> set of connection IDs
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> channel_subscribers_;
+  // Pattern subscriptions: pattern -> set of connection IDs
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> pattern_subscribers_;
+  // Connection subscriptions: conn_id -> set of channels/patterns
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_channels_;
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_patterns_;
+  // Connection to send messages
+  absl::flat_hash_map<uint64_t, std::weak_ptr<network::Connection>> connections_;
+  absl::Mutex pubsub_mutex_;
+
+  // PubSubManager implementation
+  class ServerPubSubManager : public commands::PubSubManager {
+   public:
+    explicit ServerPubSubManager(Server* server) : server_(server) {}
+
+    void Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
+    void Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
+    void PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
+    void PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
+    size_t Publish(const std::string& channel, const std::string& message) override;
+    size_t GetSubscriptionCount(uint64_t conn_id) const override;
+    bool IsSubscribed(uint64_t conn_id) const override;
+
+   private:
+    Server* server_;
+    void SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
+    void SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
+  };
+
+  std::unique_ptr<ServerPubSubManager> pubsub_manager_;
+
+  // Helper to register connection for pub/sub
+  void RegisterPubSubConnection(uint64_t conn_id, std::shared_ptr<network::Connection> conn);
+  void UnregisterPubSubConnection(uint64_t conn_id);
+
+  std::atomic<bool> gossip_running_;
 };
 
 }  // namespace astra::server

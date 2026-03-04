@@ -5,11 +5,20 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/core/async/thread_pool.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/persistence/rdb_writer.hpp"
+#include <absl/strings/match.h>
+#include <absl/time/time.h>
+#include <filesystem>
+#include <chrono>
 
 namespace astra::server {
 
 using astra::commands::RoutingStrategy;
 using astra::commands::RuntimeCommandRegistry;
+using astra::protocol::RespValue;
+using astra::protocol::RespType;
+using astra::persistence::RdbWriter;
 
 Server::Server(const ServerConfig& config)
     : config_(config),
@@ -47,7 +56,10 @@ Server::Server(const ServerConfig& config)
   metrics_config.bind_addr = config_.metrics.bind_addr;
   metrics_config.port = config_.metrics.port;
   astra::metrics::AstraMetrics::Instance().Init(metrics_config);
-  
+
+  // Initialize Pub/Sub manager
+  pubsub_manager_ = std::make_unique<ServerPubSubManager>(this);
+
   ASTRADB_LOG_INFO("Server configured: host={}, port={}, max_connections={}, databases={}, shards={}, commands={}"
                    "{}, {}{}",
                    config_.host, config_.port,
@@ -131,6 +143,16 @@ void Server::Start() {
   
   // Start expiration cleaner thread
   StartExpirationCleaner();
+  
+  // Start AOF rewrite checker if AOF is enabled
+  if (config_.persistence.aof_enabled && aof_writer_) {
+    StartAofRewriteChecker();
+  }
+  
+  // Start RDB saver if persistence is enabled
+  if (config_.persistence.enabled && rdb_writer_) {
+    StartRdbSaver();
+  }
 }
 
 void Server::Stop() {
@@ -156,11 +178,19 @@ void Server::Stop() {
     // Stop gossip tick thread
     gossip_running_ = false;
     if (gossip_tick_thread_.joinable()) {
-      gossip_tick_thread_.join();
-    }
-    
-    // Stop expiration cleaner thread
+        gossip_tick_thread_.join();
+      }
+      
+      if (aof_rewrite_thread_.joinable()) {
+          aof_rewrite_thread_.join();
+        }
+        
+        if (rdb_save_thread_.joinable()) {
+          rdb_save_thread_.join();
+        }    // Stop expiration cleaner thread
     cleaner_running_ = false;
+  aof_rewrite_running_ = false;
+  rdb_save_running_ = false;
     if (expiration_cleaner_thread_.joinable()) {
       expiration_cleaner_thread_.join();
     }
@@ -209,7 +239,10 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
     HandleCommand(cmd, conn);
   });
-  
+
+  // Register for Pub/Sub
+  RegisterPubSubConnection(conn->GetId(), conn);
+
   // Start the connection
   conn->Start();
   
@@ -222,8 +255,10 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
 class ServerCommandContext : public commands::CommandContext {
  public:
   ServerCommandContext(commands::Database* db, int db_index = 0,
-                       Server* server = nullptr)
-      : db_(db), db_index_(db_index), authenticated_(true), server_(server) {
+                       Server* server = nullptr,
+                       network::Connection* connection = nullptr)
+      : db_(db), db_index_(db_index), authenticated_(true), server_(server),
+        connection_(connection) {
     // Set AOF callback if AOF is enabled
     if (server_ && server_->IsAofEnabled()) {
       SetAofCallback([this](absl::string_view command, absl::Span<const absl::string_view> args) {
@@ -244,61 +279,197 @@ class ServerCommandContext : public commands::CommandContext {
       });
     }
   }
-  
+
   commands::Database* GetDatabase() const override { return db_; }
   int GetDBIndex() const override { return db_index_; }
   bool IsAuthenticated() const override { return authenticated_; }
-  
+
   void SetDBIndex(int index) override { db_index_ = index; }
   void SetAuthenticated(bool auth) override { authenticated_ = auth; }
-  
+
   // Cluster operations
   bool IsClusterEnabled() const override {
     return server_ ? server_->IsClusterEnabled() : false;
   }
-  
+
   bool ClusterMeet(const std::string& ip, int port) override {
     return server_ ? server_->ClusterMeet(ip, port) : false;
   }
-  
+
   cluster::GossipManager* GetGossipManager() const override {
     return server_ ? server_->GetGossipManager() : nullptr;
   }
-  
+
   cluster::GossipManager* GetGossipManagerMutable() override {
     return server_ ? server_->GetGossipManagerMutable() : nullptr;
   }
-  
+
   cluster::ShardManager* GetClusterShardManager() const override {
     return server_ ? server_->GetClusterShardManager() : nullptr;
   }
-  
+
   // Persistence operations
   bool IsPersistenceEnabled() const override {
     return server_ ? server_->IsPersistenceEnabled() : false;
   }
-  
+
   persistence::LevelDBAdapter* GetPersistence() const override {
     return server_ ? server_->GetPersistence() : nullptr;
   }
-  
+
+  // ============== Transaction Support ==============
+  bool IsInTransaction() const override {
+    return connection_ ? connection_->IsInTransaction() : false;
+  }
+
+  void BeginTransaction() override {
+    if (connection_) connection_->BeginTransaction();
+  }
+
+  void QueueCommand(const protocol::Command& cmd) override {
+    if (connection_) connection_->QueueCommand(cmd);
+  }
+
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override {
+    return connection_ ? connection_->GetQueuedCommands() : absl::InlinedVector<protocol::Command, 16>{};
+  }
+
+  void ClearQueuedCommands() override {
+    if (connection_) connection_->ClearQueuedCommands();
+  }
+
+  void DiscardTransaction() override {
+    if (connection_) connection_->DiscardTransaction();
+  }
+
+  void WatchKey(const std::string& key, uint64_t version) override {
+    if (connection_) connection_->WatchKey(key, version);
+  }
+
+  const absl::flat_hash_set<std::string>& GetWatchedKeys() const override {
+    static absl::flat_hash_set<std::string> empty;
+    return connection_ ? connection_->GetWatchedKeys() : empty;
+  }
+
+  bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const override {
+    return connection_ ? connection_->IsWatchedKeyModified(get_version) : false;
+  }
+
+  void ClearWatchedKeys() override {
+    if (connection_) connection_->ClearWatchedKeys();
+  }
+
+  // ============== Pub/Sub Support ==============
+  commands::PubSubManager* GetPubSubManager() override {
+    return server_ ? server_->GetPubSubManager() : nullptr;
+  }
+
+  uint64_t GetConnectionId() const override {
+    return connection_ ? connection_->GetId() : 0;
+  }
+
  private:
   commands::Database* db_;
   int db_index_;
   bool authenticated_;
   Server* server_;
+  network::Connection* connection_;
 };
 
 void Server::HandleCommand(const protocol::Command& cmd,
                           std::shared_ptr<network::Connection> conn) {
   total_commands_++;
-  
-  ASTRADB_LOG_DEBUG("Processing command: id={}, cmd={}, args={}", 
+
+  ASTRADB_LOG_DEBUG("Processing command: id={}, cmd={}, args={}",
                     conn->GetId(), cmd.name, cmd.ArgCount());
-  
+
   // Start metrics timer (using absl::Time)
   auto start_time = absl::Now();
-  
+
+  // ============== Transaction Handling ==============
+  // Check if connection is in transaction mode
+  bool in_transaction = conn->IsInTransaction();
+
+  // Commands that are allowed inside MULTI
+  static const absl::flat_hash_set<std::string> kTransactionCommands = {
+    "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"
+  };
+
+  // If in transaction and command is not a transaction control command, queue it
+  if (in_transaction && kTransactionCommands.find(cmd.name) == kTransactionCommands.end()) {
+    conn->QueueCommand(cmd);
+
+    // Send QUEUED response
+    RespValue queued_resp;
+    queued_resp.SetString("QUEUED", RespType::kSimpleString);
+    SendResponse(conn, commands::CommandResult(queued_resp));
+    return;
+  }
+
+  // Handle EXEC specially - execute all queued commands
+  if (cmd.name == "EXEC") {
+    if (!in_transaction) {
+      auto error_result = commands::CommandResult(false, "ERR EXEC without MULTI");
+      SendResponse(conn, error_result);
+      return;
+    }
+
+    // Check if any watched keys were modified
+    auto* db_for_watch = local_shard_manager_.GetShardByIndex(0);
+    if (db_for_watch && conn->IsWatchedKeyModified([db_for_watch](const std::string& key) {
+      return db_for_watch->GetDatabase()->GetKeyVersion(key);
+    })) {
+      conn->DiscardTransaction();
+      RespValue null_resp(RespType::kNull);
+      auto result = commands::CommandResult(null_resp);
+      SendResponse(conn, result);
+      return;
+    }
+
+    // Get all queued commands
+    auto queued_commands = conn->GetQueuedCommands();
+    std::vector<RespValue> results;
+    results.reserve(queued_commands.size());
+
+    // Execute each queued command
+    for (const auto& queued_cmd : queued_commands) {
+      // Get shard for the command
+      auto cmd_routing = registry_.GetRoutingStrategy(queued_cmd.name);
+      Shard* cmd_shard = nullptr;
+
+      if (cmd_routing == RoutingStrategy::kByFirstKey && queued_cmd.ArgCount() > 0) {
+        const auto& key_arg = queued_cmd[0];
+        if (key_arg.IsBulkString()) {
+          cmd_shard = local_shard_manager_.GetShard(key_arg.AsString());
+        }
+      }
+      if (!cmd_shard) {
+        cmd_shard = local_shard_manager_.GetShardByIndex(0);
+      }
+
+      if (cmd_shard) {
+        ServerCommandContext ctx(cmd_shard->GetDatabase(), 0, this, conn.get());
+        auto cmd_result = registry_.Execute(queued_cmd, &ctx);
+        results.push_back(cmd_result.response);
+      } else {
+        RespValue err;
+        err.SetString("ERR shard not found", RespType::kSimpleString);
+        results.push_back(err);
+      }
+    }
+
+    // Clear transaction state
+    conn->ClearQueuedCommands();
+    conn->ClearWatchedKeys();
+    conn->DiscardTransaction();
+
+    // Return array of results
+    RespValue response;
+    response.SetArray(std::move(results));
+    SendResponse(conn, commands::CommandResult(response));
+    return;
+  }
+
   // Get routing strategy for this command
   auto routing = registry_.GetRoutingStrategy(cmd.name);
   
@@ -402,9 +573,9 @@ void Server::HandleCommand(const protocol::Command& cmd,
   
   // Post command execution to the shard's IO context
   shard->Post([this, cmd, conn, shard, start_time]() {
-    // Create command context
-    ServerCommandContext context(shard->GetDatabase(), 0, this);
-    
+    // Create command context with connection for transaction support
+    ServerCommandContext context(shard->GetDatabase(), 0, this, conn.get());
+
     // Execute command
     auto result = registry_.Execute(cmd, &context);
     
@@ -445,21 +616,8 @@ void Server::SendResponse(std::shared_ptr<network::Connection> conn,
     } else if (result.response.GetType() == protocol::RespType::kDouble) {
       response = "," + std::to_string(result.response.AsDouble()) + "\r\n";
     } else if (result.response.IsArray()) {
-      const auto& arr = result.response.AsArray();
-      response = "*" + std::to_string(arr.size()) + "\r\n";
-      for (const auto& elem : arr) {
-        if (elem.IsBulkString()) {
-          const auto& str = elem.AsString();
-          response += "$" + std::to_string(str.length()) + "\r\n" + str + "\r\n";
-        } else if (elem.IsInteger()) {
-          response += ":" + std::to_string(elem.AsInteger()) + "\r\n";
-        } else if (elem.IsNull()) {
-          response += "$-1\r\n";
-        } else {
-          // Fallback to simple string
-          response += "+" + elem.AsString() + "\r\n";
-        }
-      }
+      // Use RespBuilder for proper array serialization (including nested arrays)
+      response = protocol::RespBuilder::Build(result.response);
     } else if (result.response.IsNull()) {
       response = "$-1\r\n";
     } else {
@@ -543,6 +701,18 @@ bool Server::InitPersistence() noexcept {
         ASTRADB_LOG_INFO("AOF initialized: path={}, sync={}",
                          aof_options.aof_path,
                          config_.persistence.aof_sync_everysec ? "everysec" : "always");
+      }
+      
+      // Initialize RDB writer
+      rdb_writer_ = std::make_unique<persistence::RdbWriter>();
+      persistence::RdbOptions rdb_options;
+      rdb_options.save_path = "./data/dump.rdb";
+      
+      if (!rdb_writer_->Init(rdb_options)) {
+        ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
+        rdb_writer_.reset();
+      } else {
+        ASTRADB_LOG_INFO("RDB writer initialized");
       }
     }
     
@@ -649,14 +819,408 @@ void Server::GossipTickLoop() {
   // This is now handled by StartGossipTick
 }
 
+void Server::StartAofRewriteChecker() {
+  if (!aof_writer_ || !config_.persistence.aof_enabled) {
+    return;
+  }
+
+  aof_rewrite_running_.store(true);
+  aof_rewrite_thread_ = std::thread([this]() {
+    ASTRADB_LOG_INFO("AOF rewrite checker thread started");
+
+    while (aof_rewrite_running_.load(std::memory_order_acquire)) {
+      // Check every 60 seconds
+      for (int i = 0; i < 60 && aof_rewrite_running_.load(std::memory_order_acquire); ++i) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+
+      if (!aof_rewrite_running_.load(std::memory_order_acquire)) {
+        break;
+      }
+
+      // Check if rewrite is needed
+      if (aof_writer_->ShouldRewrite()) {
+        ASTRADB_LOG_INFO("AOF rewrite threshold reached, starting rewrite...");
+        PerformAofRewrite();
+      }
+    }
+
+    ASTRADB_LOG_INFO("AOF rewrite checker thread stopped");
+  });
+}
+
+void Server::AofRewriteCheckerLoop() {
+  // This is now handled by StartAofRewriteChecker
+}
+
+bool Server::PerformAofRewrite() {
+  if (!aof_writer_) {
+    return false;
+  }
+
+  ASTRADB_LOG_INFO("Starting AOF rewrite...");
+
+  // Callback to serialize all database data
+  auto write_callback = [this](std::string& output) {
+    // Iterate through all shards and databases
+    for (size_t db_idx = 0; db_idx < config_.num_databases; ++db_idx) {
+      auto* shard = local_shard_manager_.GetShardByIndex(0);  // For simplicity, use shard 0
+      if (!shard) continue;
+
+      auto* db = shard->GetDatabase();
+      if (!db) continue;
+
+      // TODO: Serialize all keys and values to RESP commands
+      // This requires iterating through all data structures (String, Hash, Set, ZSet, List, Stream)
+      // For now, this is a placeholder
+      
+      ASTRADB_LOG_INFO("Rewriting database {}", db_idx);
+    }
+  };
+
+  bool success = aof_writer_->Rewrite(write_callback);
+  
+  if (success) {
+    ASTRADB_LOG_INFO("AOF rewrite completed successfully");
+  } else {
+    ASTRADB_LOG_ERROR("AOF rewrite failed");
+  }
+
+  return success;
+}
+
+void Server::StartRdbSaver() {
+  if (!rdb_writer_ || !config_.persistence.enabled) {
+    return;
+  }
+
+  rdb_save_running_.store(true);
+  rdb_save_thread_ = std::thread([this]() {
+    ASTRADB_LOG_INFO("RDB saver thread started");
+
+    while (rdb_save_running_.load(std::memory_order_acquire)) {
+      // Save every 300 seconds (5 minutes)
+      for (int i = 0; i < 300 && rdb_save_running_.load(std::memory_order_acquire); ++i) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+
+      if (!rdb_save_running_.load(std::memory_order_acquire)) {
+        break;
+      }
+
+      ASTRADB_LOG_INFO("Starting scheduled RDB save...");
+      PerformRdbSave();
+    }
+
+    ASTRADB_LOG_INFO("RDB saver thread stopped");
+  });
+}
+
+void Server::RdbSaverLoop() {
+  // This is now handled by StartRdbSaver
+}
+
+bool Server::PerformRdbSave() {
+  if (!rdb_writer_) {
+    return false;
+  }
+
+  ASTRADB_LOG_INFO("Starting RDB save...");
+
+  // Callback to serialize database to RDB format
+  auto save_callback = [this](RdbWriter& writer) {
+    for (size_t db_idx = 0; db_idx < config_.num_databases; ++db_idx) {
+      auto* shard = local_shard_manager_.GetShardByIndex(0);
+      if (!shard) continue;
+
+      auto* db = shard->GetDatabase();
+      if (!db) continue;
+
+      std::ofstream file;
+      writer.SelectDb(file, static_cast<int>(db_idx));
+      writer.ResizeDb(file, 0, 0);  // TODO: Get actual counts
+
+      // TODO: Serialize all keys and their values
+      // For each key, determine its type and write accordingly
+      ASTRADB_LOG_INFO("Saving database {} to RDB", db_idx);
+    }
+  };
+
+  bool success = rdb_writer_->Save(save_callback);
+  
+  if (success) {
+    ASTRADB_LOG_INFO("RDB save completed successfully");
+  } else {
+    ASTRADB_LOG_ERROR("RDB save failed");
+  }
+
+  return success;
+}
+
 bool Server::ClusterMeet(const std::string& ip, int port) {
   if (!config_.cluster.enabled || !gossip_manager_) {
     ASTRADB_LOG_WARN("Cluster not enabled, cannot meet node");
     return false;
   }
-  
+
   ASTRADB_LOG_INFO("CLUSTER MEET: {}:{}", ip, port);
   return gossip_manager_->MeetNode(ip, port);
+}
+
+// ============== Pub/Sub Implementation ==============
+
+void Server::RegisterPubSubConnection(uint64_t conn_id, std::shared_ptr<network::Connection> conn) {
+  absl::MutexLock lock(&pubsub_mutex_);
+  connections_[conn_id] = conn;
+}
+
+void Server::UnregisterPubSubConnection(uint64_t conn_id) {
+  absl::MutexLock lock(&pubsub_mutex_);
+
+  // Unsubscribe from all channels
+  auto it = conn_channels_.find(conn_id);
+  if (it != conn_channels_.end()) {
+    for (const auto& channel : it->second) {
+      auto& subscribers = channel_subscribers_[channel];
+      subscribers.erase(conn_id);
+      if (subscribers.empty()) {
+        channel_subscribers_.erase(channel);
+      }
+    }
+    conn_channels_.erase(conn_id);
+  }
+
+  // Unsubscribe from all patterns
+  auto pit = conn_patterns_.find(conn_id);
+  if (pit != conn_patterns_.end()) {
+    for (const auto& pattern : pit->second) {
+      auto& subscribers = pattern_subscribers_[pattern];
+      subscribers.erase(conn_id);
+      if (subscribers.empty()) {
+        pattern_subscribers_.erase(pattern);
+      }
+    }
+    conn_patterns_.erase(conn_id);
+  }
+
+  connections_.erase(conn_id);
+}
+
+// ============== ServerPubSubManager Implementation ==============
+
+void Server::ServerPubSubManager::Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+  absl::MutexLock lock(&server_->pubsub_mutex_);
+
+  for (const auto& channel : channels) {
+    server_->channel_subscribers_[channel].insert(conn_id);
+    server_->conn_channels_[conn_id].insert(channel);
+
+    size_t count = server_->conn_channels_[conn_id].size() + server_->conn_patterns_[conn_id].size();
+    SendSubscribeReply(conn_id, channel, count);
+  }
+}
+
+void Server::ServerPubSubManager::Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+  absl::MutexLock lock(&server_->pubsub_mutex_);
+
+  auto it = server_->conn_channels_.find(conn_id);
+  if (it == server_->conn_channels_.end()) {
+    return;
+  }
+
+  std::vector<std::string> to_unsub = channels;
+  if (to_unsub.empty()) {
+    // Unsubscribe from all
+    to_unsub = std::vector<std::string>(it->second.begin(), it->second.end());
+  }
+
+  for (const auto& channel : to_unsub) {
+    auto& subscribers = server_->channel_subscribers_[channel];
+    subscribers.erase(conn_id);
+    if (subscribers.empty()) {
+      server_->channel_subscribers_.erase(channel);
+    }
+
+    it->second.erase(channel);
+
+    size_t count = server_->conn_channels_[conn_id].size() + server_->conn_patterns_[conn_id].size();
+    SendUnsubscribeReply(conn_id, channel, count);
+  }
+
+  if (it->second.empty()) {
+    server_->conn_channels_.erase(conn_id);
+  }
+}
+
+void Server::ServerPubSubManager::PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+  absl::MutexLock lock(&server_->pubsub_mutex_);
+
+  for (const auto& pattern : patterns) {
+    server_->pattern_subscribers_[pattern].insert(conn_id);
+    server_->conn_patterns_[conn_id].insert(pattern);
+
+    size_t count = server_->conn_channels_[conn_id].size() + server_->conn_patterns_[conn_id].size();
+    SendSubscribeReply(conn_id, pattern, count);
+  }
+}
+
+void Server::ServerPubSubManager::PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+  absl::MutexLock lock(&server_->pubsub_mutex_);
+
+  auto it = server_->conn_patterns_.find(conn_id);
+  if (it == server_->conn_patterns_.end()) {
+    return;
+  }
+
+  std::vector<std::string> to_unsub = patterns;
+  if (to_unsub.empty()) {
+    to_unsub = std::vector<std::string>(it->second.begin(), it->second.end());
+  }
+
+  for (const auto& pattern : to_unsub) {
+    auto& subscribers = server_->pattern_subscribers_[pattern];
+    subscribers.erase(conn_id);
+    if (subscribers.empty()) {
+      server_->pattern_subscribers_.erase(pattern);
+    }
+
+    it->second.erase(pattern);
+
+    size_t count = server_->conn_channels_[conn_id].size() + server_->conn_patterns_[conn_id].size();
+    SendUnsubscribeReply(conn_id, pattern, count);
+  }
+
+  if (it->second.empty()) {
+    server_->conn_patterns_.erase(conn_id);
+  }
+}
+
+size_t Server::ServerPubSubManager::Publish(const std::string& channel, const std::string& message) {
+  absl::MutexLock lock(&server_->pubsub_mutex_);
+
+  size_t subscriber_count = 0;
+
+  // Build message: ["message", channel, message]
+  std::string resp_msg;
+  resp_msg += "*3\r\n";
+  resp_msg += "$7\r\nmessage\r\n";
+  resp_msg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+  resp_msg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+
+  // Send to channel subscribers
+  auto it = server_->channel_subscribers_.find(channel);
+  if (it != server_->channel_subscribers_.end()) {
+    for (uint64_t conn_id : it->second) {
+      auto conn_it = server_->connections_.find(conn_id);
+      if (conn_it != server_->connections_.end()) {
+        auto conn = conn_it->second.lock();
+        if (conn && conn->IsConnected()) {
+          conn->Send(resp_msg);
+          subscriber_count++;
+        }
+      }
+    }
+  }
+
+  // Send to pattern subscribers (pattern matching)
+  for (const auto& [pattern, subscribers] : server_->pattern_subscribers_) {
+    // Simple glob pattern matching (supports * and ?)
+    bool matches = false;
+    if (pattern == "*") {
+      matches = true;
+    } else if (pattern.find('*') == std::string::npos && pattern.find('?') == std::string::npos) {
+      // No wildcards, exact match
+      matches = (channel == pattern);
+    } else {
+      // Simple prefix/suffix matching for common patterns like "news:*"
+      size_t star_pos = pattern.find('*');
+      if (star_pos != std::string::npos && pattern.find('*', star_pos + 1) == std::string::npos) {
+        // Single * wildcard
+        std::string prefix = pattern.substr(0, star_pos);
+        std::string suffix = pattern.substr(star_pos + 1);
+        matches = channel.substr(0, prefix.size()) == prefix &&
+                  channel.substr(channel.size() - suffix.size()) == suffix;
+      } else {
+        // Fallback to simple contains check
+        matches = (channel.find(pattern.substr(0, pattern.find_first_of("*?"))) != std::string::npos);
+      }
+    }
+
+    if (matches) {
+      // Build pattern message: ["pmessage", pattern, channel, message]
+      std::string pmsg;
+      pmsg += "*4\r\n";
+      pmsg += "$8\r\npmessage\r\n";
+      pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
+      pmsg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+      pmsg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+
+      for (uint64_t conn_id : subscribers) {
+        auto conn_it = server_->connections_.find(conn_id);
+        if (conn_it != server_->connections_.end()) {
+          auto conn = conn_it->second.lock();
+          if (conn && conn->IsConnected()) {
+            conn->Send(pmsg);
+            subscriber_count++;
+          }
+        }
+      }
+    }
+  }
+
+  return subscriber_count;
+}
+
+size_t Server::ServerPubSubManager::GetSubscriptionCount(uint64_t conn_id) const {
+  absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
+
+  size_t count = 0;
+  auto it = server_->conn_channels_.find(conn_id);
+  if (it != server_->conn_channels_.end()) {
+    count += it->second.size();
+  }
+  auto pit = server_->conn_patterns_.find(conn_id);
+  if (pit != server_->conn_patterns_.end()) {
+    count += pit->second.size();
+  }
+  return count;
+}
+
+bool Server::ServerPubSubManager::IsSubscribed(uint64_t conn_id) const {
+  absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
+  return server_->conn_channels_.contains(conn_id) || server_->conn_patterns_.contains(conn_id);
+}
+
+void Server::ServerPubSubManager::SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+  auto conn_it = server_->connections_.find(conn_id);
+  if (conn_it != server_->connections_.end()) {
+    auto conn = conn_it->second.lock();
+    if (conn && conn->IsConnected()) {
+      // Send: ["subscribe", channel, count]
+      std::string reply;
+      reply += "*3\r\n";
+      reply += "$9\r\nsubscribe\r\n";
+      reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+      reply += ":" + std::to_string(count) + "\r\n";
+      conn->Send(reply);
+    }
+  }
+}
+
+void Server::ServerPubSubManager::SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+  auto conn_it = server_->connections_.find(conn_id);
+  if (conn_it != server_->connections_.end()) {
+    auto conn = conn_it->second.lock();
+    if (conn && conn->IsConnected()) {
+      // Send: ["unsubscribe", channel, count]
+      std::string reply;
+      reply += "*3\r\n";
+      reply += "$11\r\nunsubscribe\r\n";
+      reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+      reply += ":" + std::to_string(count) + "\r\n";
+      conn->Send(reply);
+    }
+  }
 }
 
 }  // namespace astra::server

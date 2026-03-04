@@ -7,6 +7,11 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <atomic>
+
+#include <absl/container/flat_hash_set.h>
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/inlined_vector.h>
 
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
@@ -46,6 +51,38 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // Send data to client
   void Send(const std::string& data);
   
+  // ============== Transaction Support ==============
+  
+  // Check if in transaction
+  bool IsInTransaction() const { return in_transaction_; }
+  
+  // Begin transaction (MULTI)
+  void BeginTransaction();
+  
+  // Queue a command in transaction
+  void QueueCommand(const protocol::Command& cmd);
+  
+  // Get queued commands (for EXEC)
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const;
+  
+  // Clear queued commands
+  void ClearQueuedCommands();
+  
+  // Discard transaction
+  void DiscardTransaction();
+  
+  // WATCH key
+  void WatchKey(const std::string& key, uint64_t version);
+  
+  // Get watched keys
+  const absl::flat_hash_set<std::string>& GetWatchedKeys() const { return watched_keys_; }
+  
+  // Check if any watched key was modified
+  bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const;
+  
+  // Clear watched keys
+  void ClearWatchedKeys();
+  
  private:
   void DoRead();
   void DoWrite();
@@ -69,6 +106,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
   
   bool writing_;
   bool closing_;
+  
+  // ============== Transaction State ==============
+  bool in_transaction_ = false;
+  absl::InlinedVector<protocol::Command, 16> queued_commands_;
+  absl::flat_hash_set<std::string> watched_keys_;
+  absl::flat_hash_map<std::string, uint64_t> watched_key_versions_;
 };
 
 // Connection pool

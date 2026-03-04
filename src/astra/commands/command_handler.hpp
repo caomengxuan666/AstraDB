@@ -7,6 +7,8 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+#include <absl/container/inlined_vector.h>
 #include <absl/strings/string_view.h>
 #include <absl/types/span.h>
 #include <functional>
@@ -15,6 +17,10 @@
 #include <memory>
 #include "astra/protocol/resp/resp_types.hpp"
 #include "database.hpp"
+
+namespace astra::commands {
+class PubSubManager;  // Forward declaration
+}
 
 // Forward declarations for optional types
 namespace astra::cluster {
@@ -75,6 +81,28 @@ class CommandContext {
       aof_callback_(command, args);
     }
   }
+
+  // ============== Transaction Support ==============
+  virtual bool IsInTransaction() const { return false; }
+  virtual void BeginTransaction() {}
+  virtual void QueueCommand(const protocol::Command& cmd) { (void)cmd; }
+  virtual absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const { return {}; }
+  virtual void ClearQueuedCommands() {}
+  virtual void DiscardTransaction() {}
+  virtual void WatchKey(const std::string& key, uint64_t version) { (void)key; (void)version; }
+  virtual const absl::flat_hash_set<std::string>& GetWatchedKeys() const {
+    static absl::flat_hash_set<std::string> empty;
+    return empty;
+  }
+  virtual bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const {
+    (void)get_version;
+    return false;
+  }
+  virtual void ClearWatchedKeys() {}
+
+  // ============== Pub/Sub Support ==============
+  virtual PubSubManager* GetPubSubManager() { return nullptr; }
+  virtual uint64_t GetConnectionId() const { return 0; }
   
  protected:
   AofCallback aof_callback_;

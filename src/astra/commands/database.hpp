@@ -18,6 +18,7 @@
 #include "astra/container/dash_map.hpp"
 #include "astra/container/zset/btree_zset.hpp"
 #include "astra/container/linked_list.hpp"
+#include "astra/container/stream_data.hpp"
 #include "astra/storage/key_metadata.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 
@@ -46,6 +47,29 @@ class Database {
   // Disable copy and move
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
+
+  // ========== Stream Operations ==========
+
+  StreamData* GetStream(const std::string& key) {
+    std::shared_ptr<StreamData> stream;
+    if (streams_.Get(key, &stream)) {
+      return stream.get();
+    }
+    return nullptr;
+  }
+
+  StreamData* GetOrCreateStream(const std::string& key) {
+    std::shared_ptr<StreamData> stream;
+    if (streams_.Get(key, &stream)) {
+      return stream.get();
+    }
+
+    // Create new stream
+    stream = std::make_shared<StreamData>();
+    streams_.Insert(key, stream);
+    metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);  // Use String type for now
+    return stream.get();
+  }
 
   // ========== String Operations ==========
 
@@ -159,6 +183,11 @@ class Database {
 
   bool Exists(const std::string& key) {
     return metadata_manager_.IsValid(key);
+  }
+
+  // Get key version for WATCH support
+  uint64_t GetKeyVersion(const std::string& key) {
+    return metadata_manager_.GetKeyVersion(key);
   }
 
   std::vector<std::optional<std::string>> MGet(const std::vector<std::string>& keys) {
@@ -907,6 +936,7 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<SetType>> sets_;
   astra::container::DashMap<std::string, std::shared_ptr<ZSetType>> zsets_;
   astra::container::DashMap<std::string, std::shared_ptr<ListType>> lists_;
+  astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   astra::storage::KeyMetadataManager metadata_manager_;
 };
 

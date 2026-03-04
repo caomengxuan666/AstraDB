@@ -23,6 +23,9 @@ target_sources(astra_commands PRIVATE
   admin_commands.cpp
   ttl_commands.cpp
   script_commands.cpp
+  transaction_commands.cpp
+  pubsub_commands.cpp
+  stream_commands.cpp
 )
 
 target_link_libraries(astra_commands PUBLIC

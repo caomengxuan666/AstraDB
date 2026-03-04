@@ -202,6 +202,63 @@ void Connection::ProcessCommand(const protocol::Command& cmd) {
   }
 }
 
+// ============== Transaction Support Implementation ==============
+
+void Connection::BeginTransaction() {
+  in_transaction_ = true;
+  queued_commands_.clear();
+  ASTRADB_LOG_DEBUG("Transaction started: id={}", id_);
+}
+
+void Connection::QueueCommand(const protocol::Command& cmd) {
+  queued_commands_.push_back(cmd);
+  ASTRADB_LOG_DEBUG("Command queued: id={}, name={}, queue_size={}", 
+                    id_, cmd.name, queued_commands_.size());
+}
+
+absl::InlinedVector<protocol::Command, 16> Connection::GetQueuedCommands() const {
+  return queued_commands_;
+}
+
+void Connection::ClearQueuedCommands() {
+  queued_commands_.clear();
+}
+
+void Connection::DiscardTransaction() {
+  in_transaction_ = false;
+  queued_commands_.clear();
+  watched_keys_.clear();
+  watched_key_versions_.clear();
+  ASTRADB_LOG_DEBUG("Transaction discarded: id={}", id_);
+}
+
+void Connection::WatchKey(const std::string& key, uint64_t version) {
+  watched_keys_.insert(key);
+  watched_key_versions_[key] = version;
+  ASTRADB_LOG_DEBUG("WATCH key: id={}, key={}, version={}", id_, key, version);
+}
+
+bool Connection::IsWatchedKeyModified(
+    const std::function<uint64_t(const std::string&)>& get_version) const {
+  for (const auto& key : watched_keys_) {
+    auto it = watched_key_versions_.find(key);
+    if (it != watched_key_versions_.end()) {
+      uint64_t current_version = get_version(key);
+      if (current_version != it->second) {
+        ASTRADB_LOG_DEBUG("WATCH key modified: id={}, key={}, old={}, new={}", 
+                          id_, key, it->second, current_version);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void Connection::ClearWatchedKeys() {
+  watched_keys_.clear();
+  watched_key_versions_.clear();
+}
+
 // ConnectionPool Implementation
 ConnectionPool::ConnectionPool(asio::io_context& io_context, size_t max_connections)
     : io_context_(io_context),

@@ -288,11 +288,11 @@ class AofWriter {
   }
 
   // Get current AOF file size
-  size_t GetFileSize() noexcept {
-    if (!file_.is_open()) {
+  size_t GetFileSize() const noexcept {
+    if (!const_cast<AofWriter*>(this)->file_.is_open()) {
       return 0;
     }
-    auto pos = file_.tellp();
+    auto pos = const_cast<AofWriter*>(this)->file_.tellp();
     return pos >= 0 ? static_cast<size_t>(pos) : 0;
   }
 
@@ -304,6 +304,98 @@ class AofWriter {
   // Check if initialized
   bool IsInitialized() const noexcept {
     return initialized_.load(std::memory_order_acquire);
+  }
+
+  // Rewrite AOF - creates new AOF from current database state
+  bool Rewrite(std::function<void(std::string&)> write_callback) noexcept {
+    if (!initialized_.load(std::memory_order_acquire)) {
+      return false;
+    }
+
+    // Stop background sync during rewrite
+    std::atomic<bool> was_running = running_.exchange(false, std::memory_order_acq_rel);
+    cv_.notify_all();
+    if (sync_thread_.joinable()) {
+      sync_thread_.join();
+    }
+
+    // Flush any pending data first
+    Flush();
+
+    // Create temporary file for rewrite
+    std::string temp_path = options_.aof_path + ".tmp-rewrite";
+    std::ofstream temp_file(temp_path, std::ios::binary);
+    if (!temp_file.is_open()) {
+      ASTRADB_LOG_ERROR("Failed to create temporary AOF file: {}", temp_path);
+      if (was_running) {
+        // Restart sync thread
+        running_.store(true, std::memory_order_release);
+        sync_thread_ = std::thread(&AofWriter::SyncThread, this);
+      }
+      return false;
+    }
+
+    // Call callback to write all data
+    std::string data;
+    write_callback(data);
+    temp_file.write(data.data(), data.size());
+    temp_file.flush();
+    temp_file.close();
+
+    // Replace old AOF with new one
+    std::filesystem::path temp_p(temp_path);
+    std::filesystem::path final_p(options_.aof_path);
+    std::error_code ec;
+    
+    // Backup old AOF
+    std::string backup_path = options_.aof_path + ".backup";
+    if (std::filesystem::exists(final_p, ec)) {
+      std::filesystem::rename(final_p, backup_path, ec);
+      if (ec) {
+        ASTRADB_LOG_WARN("Failed to backup old AOF: {}", ec.message());
+      }
+    }
+    
+    // Rename temp file to final file
+    std::filesystem::rename(temp_p, final_p, ec);
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to rename rewritten AOF: {}", ec.message());
+      // Restore from backup
+      if (std::filesystem::exists(backup_path, ec)) {
+        std::filesystem::rename(backup_path, final_p, ec);
+      }
+      return false;
+    }
+
+    // Remove backup
+    if (std::filesystem::exists(backup_path, ec)) {
+      std::filesystem::remove(backup_path, ec);
+    }
+
+    // Reopen AOF file
+    file_.close();
+    file_.open(options_.aof_path, std::ios::binary | std::ios::app);
+    if (!file_.is_open()) {
+      ASTRADB_LOG_ERROR("Failed to reopen AOF after rewrite");
+      return false;
+    }
+
+    ASTRADB_LOG_INFO("AOF rewrite completed: {} bytes", data.size());
+
+    // Restart sync thread if it was running
+    if (was_running && options_.sync_policy == AofSyncPolicy::kEverySec) {
+      running_.store(true, std::memory_order_release);
+      sync_thread_ = std::thread(&AofWriter::SyncThread, this);
+    }
+
+    return true;
+  }
+
+  // Check if rewrite is needed
+  bool ShouldRewrite() const noexcept {
+    size_t current_size = GetFileSize();
+    return current_size > options_.rewrite_min_size && 
+           current_size > options_.rewrite_min_size * options_.rewrite_growth_factor;
   }
 
  private:

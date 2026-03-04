@@ -28,6 +28,7 @@ enum class KeyType : uint8_t {
 struct KeyMetadata {
   KeyType type;
   std::optional<int64_t> expire_time_ms;  // 0 or empty means no expiration
+  uint64_t version = 0;  // Version for WATCH/optimistic locking
 
   KeyMetadata() : type(KeyType::kNone) {}
   
@@ -85,9 +86,18 @@ class KeyMetadataManager {
 
   ~KeyMetadataManager() = default;
 
-  // Register a key with its type
+  // Register a key with its type (increments version on update)
   void RegisterKey(const std::string& key, KeyType type) {
+    KeyMetadata existing;
+    uint64_t new_version = 1;
+    
+    // If key exists, increment version
+    if (metadata_map_.Get(key, &existing)) {
+      new_version = existing.version + 1;
+    }
+    
     KeyMetadata metadata(type);
+    metadata.version = new_version;
     metadata_map_.Insert(key, std::move(metadata));
   }
 
@@ -198,6 +208,24 @@ class KeyMetadataManager {
   // Get all keys (for KEYS command)
   std::vector<std::string> GetAllKeys() {
     return metadata_map_.GetAllKeys();
+  }
+
+  // Get key version (for WATCH)
+  uint64_t GetKeyVersion(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return 0;  // Key doesn't exist
+    }
+    return metadata.version;
+  }
+
+  // Increment key version (called on every write)
+  void IncrementKeyVersion(const std::string& key) {
+    KeyMetadata metadata;
+    if (metadata_map_.Get(key, &metadata)) {
+      metadata.version++;
+      metadata_map_.Insert(key, std::move(metadata));
+    }
   }
 
   // Clear all metadata
