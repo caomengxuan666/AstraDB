@@ -91,8 +91,8 @@ ObjectPool<T>::ObjectPool(
     Factory factory,
     Deleter deleter)
     : max_size_(max_size),
-      factory_(factory ? factory : []() { return new T(); }),
-      deleter_(deleter ? deleter : [](T* obj) { delete obj; }) {
+      factory_(factory ? std::move(factory) : Factory([]() { return new T(); })),
+      deleter_(deleter ? std::move(deleter) : Deleter([](T* obj) { delete obj; })) {
 }
 
 template <typename T>

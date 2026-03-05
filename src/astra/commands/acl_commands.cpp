@@ -102,10 +102,13 @@ CommandResult HandleAclDelUser(const protocol::Command& command, CommandContext*
     return CommandResult(false, "ERR ACL not configured");
   }
 
-  // TODO: Implement user deletion
-  ASTRADB_LOG_INFO("ACL DELUSER: {}", username);
+  // Delete user from ACL manager
+  bool deleted = acl_manager->DeleteUser(username);
+  
+  ASTRADB_LOG_INFO("ACL DELUSER: {} - {}", username, deleted ? "success" : "failed");
+  
   protocol::RespValue resp;
-  resp.SetInteger(1);  // Number of users deleted
+  resp.SetInteger(deleted ? 1 : 0);  // Number of users deleted
   return CommandResult(resp);
 }
 
@@ -117,10 +120,46 @@ CommandResult HandleAclGetUser(const protocol::Command& command, CommandContext*
 
   const std::string& username = command[0].AsString();
 
-  // TODO: Return user ACL rules
+  auto* acl_manager = context->GetAclManager();
+  if (!acl_manager) {
+    return CommandResult(false, "ERR ACL not configured");
+  }
+
+  // Get user ACL rules
+  auto user_info = acl_manager->GetUserInfo(username);
+  if (!user_info) {
+    return CommandResult(false, "ERR User '" + username + "' does not exist");
+  }
+
   ASTRADB_LOG_INFO("ACL GETUSER: {}", username);
+  
+  // Format user info as RESP array
   protocol::RespValue resp;
-  resp.SetString("on", protocol::RespType::kBulkString);
+  std::vector<protocol::RespValue> user_array;
+  
+  // Add username
+  protocol::RespValue username_val;
+  username_val.SetString(username, protocol::RespType::kBulkString);
+  user_array.push_back(username_val);
+  
+  // Add ACL rules
+  protocol::RespValue rules_val;
+  std::vector<protocol::RespValue> rules_array;
+  rules_val.SetArray(rules_array);
+  user_array.push_back(rules_val);
+  
+  // Add passwords
+  protocol::RespValue passwords_val;
+  std::vector<protocol::RespValue> passwords_array;
+  passwords_val.SetArray(passwords_array);
+  user_array.push_back(passwords_val);
+  
+  // Add flags
+  protocol::RespValue flags_val;
+  flags_val.SetString("on", protocol::RespType::kSimpleString);
+  user_array.push_back(flags_val);
+  
+  resp.SetArray(user_array);
   return CommandResult(resp);
 }
 
@@ -162,10 +201,35 @@ CommandResult HandleAclCat(const protocol::Command& command, CommandContext* con
 
   const std::string& username = command[0].AsString();
   
-  // TODO: Return user rules
+  auto* acl_manager = context->GetAclManager();
+  if (!acl_manager) {
+    return CommandResult(false, "ERR ACL not configured");
+  }
+
+  // Get user info
+  auto user_info = acl_manager->GetUserInfo(username);
+  if (!user_info) {
+    return CommandResult(false, "ERR User '" + username + "' does not exist");
+  }
+
   ASTRADB_LOG_INFO("ACL CAT: {}", username);
+  
+  // Format permissions as RESP string
   protocol::RespValue resp;
-  resp.SetArray({});
+  std::string permissions_str;
+  
+  // Convert permissions to string representation
+  if (user_info->permissions & static_cast<uint32_t>(astra::security::AclPermission::kRead)) {
+    permissions_str += "+@all +read +write +admin ";
+  } else if (user_info->permissions & static_cast<uint32_t>(astra::security::AclPermission::kWrite)) {
+    permissions_str += "+@all +read +write ";
+  } else if (user_info->permissions & static_cast<uint32_t>(astra::security::AclPermission::kAdmin)) {
+    permissions_str += "+@all +read +write +admin ";
+  } else {
+    permissions_str += "+@all +read ";
+  }
+  
+  resp.SetString(permissions_str, protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
@@ -181,8 +245,20 @@ CommandResult HandleAclSetpass(const protocol::Command& command, CommandContext*
     password = command[1].AsString();
   }
 
-  // TODO: Set user password
-  ASTRADB_LOG_INFO("ACL SETPASS: {}", username);
+  auto* acl_manager = context->GetAclManager();
+  if (!acl_manager) {
+    return CommandResult(false, "ERR ACL not configured");
+  }
+
+  // Set user password
+  bool updated = acl_manager->SetPassword(username, password);
+  
+  ASTRADB_LOG_INFO("ACL SETPASS: {} - {}", username, updated ? "success" : "failed");
+  
+  if (!updated) {
+    return CommandResult(false, "ERR Failed to set password for user '" + username + "'");
+  }
+  
   protocol::RespValue resp;
   resp.SetString("OK", protocol::RespType::kSimpleString);
   return CommandResult(resp);
@@ -196,10 +272,30 @@ CommandResult HandleAclGetpass(const protocol::Command& command, CommandContext*
 
   const std::string& username = command[0].AsString();
 
-  // TODO: Return user password (masked)
+  auto* acl_manager = context->GetAclManager();
+  if (!acl_manager) {
+    return CommandResult(false, "ERR ACL not configured");
+  }
+
+  // Get user info and return masked password
+  auto user_info = acl_manager->GetUserInfo(username);
+  if (!user_info) {
+    return CommandResult(false, "ERR User '" + username + "' does not exist");
+  }
+
   ASTRADB_LOG_INFO("ACL GETPASS: {}", username);
+  
+  // Return masked password
   protocol::RespValue resp;
-  resp.SetString("hidden", protocol::RespType::kBulkString);
+  
+  if (!user_info->password.empty()) {
+    // Return masked password
+    std::string masked(user_info->password.length(), '*');
+    resp.SetString(masked, protocol::RespType::kBulkString);
+  } else {
+    resp.SetInteger(-1);  // No password set
+  }
+  
   return CommandResult(resp);
 }
 
@@ -212,8 +308,12 @@ CommandResult HandleAcl(const protocol::Command& command, CommandContext* contex
   const auto& subcommand = command[0].AsString();
 
   // Create a new command object without the subcommand argument
-  // This is a simplified approach - in a real implementation we'd need to properly slice the command
-  // For now, we'll just check the subcommand and handle it appropriately
+  // We need to slice the args vector to exclude the subcommand itself
+  protocol::Command subcommand_cmd;
+  subcommand_cmd.name = command.name;
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    subcommand_cmd.args.push_back(command[i]);
+  }
   
   if (subcommand == "SAVE") {
     // ACL SAVE has no additional arguments
@@ -232,17 +332,17 @@ CommandResult HandleAcl(const protocol::Command& command, CommandContext* contex
     protocol::Command empty_cmd;
     return HandleAclUsers(empty_cmd, context);
   } else if (subcommand == "SETUSER") {
-    return HandleAclSetUser(command, context);
+    return HandleAclSetUser(subcommand_cmd, context);
   } else if (subcommand == "DELUSER") {
-    return HandleAclDelUser(command, context);
+    return HandleAclDelUser(subcommand_cmd, context);
   } else if (subcommand == "GETUSER") {
-    return HandleAclGetUser(command, context);
+    return HandleAclGetUser(subcommand_cmd, context);
   } else if (subcommand == "CAT") {
-    return HandleAclCat(command, context);
+    return HandleAclCat(subcommand_cmd, context);
   } else if (subcommand == "SETPASS") {
-    return HandleAclSetpass(command, context);
+    return HandleAclSetpass(subcommand_cmd, context);
   } else if (subcommand == "GETPASS") {
-    return HandleAclGetpass(command, context);
+    return HandleAclGetpass(subcommand_cmd, context);
   } else {
     return CommandResult(false, "ERR Unknown ACL subcommand '" + subcommand + "'");
   }

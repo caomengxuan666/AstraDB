@@ -37,6 +37,9 @@
 #include "astra/replication/replication_manager.hpp"
 #include <absl/container/flat_hash_map.h>
 #include <absl/synchronization/mutex.h>
+#include "astra/security/acl_manager.hpp"
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
 #include "astra/cluster/gossip_manager.hpp"
 #include <absl/container/flat_hash_map.h>
 #include <absl/synchronization/mutex.h>
@@ -90,6 +93,13 @@ struct MetricsConfig {
   uint16_t port = 9090;  // Prometheus metrics port
 };
 
+// ACL configuration
+struct AclConfig {
+  bool enabled = true;  // Enable ACL system
+  std::string default_user = "default";
+  std::string default_password = "";  // Empty = no password required
+};
+
 // Server configuration
 struct ServerConfig {
   std::string host = "0.0.0.0";
@@ -101,6 +111,7 @@ struct ServerConfig {
   PersistenceConfig persistence;
   ClusterConfig cluster;
   MetricsConfig metrics;
+  AclConfig acl;
   
   // Async configuration
   bool use_async_commands = true;  // Use coroutines for command processing
@@ -157,6 +168,9 @@ class Server {
   // Get replication manager (for internal use)
   replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
   
+  // Get ACL manager (for internal use)
+  security::AclManager* GetAclManager() { return acl_manager_.get(); }
+  
   // Get main IO context (for internal use)
   asio::io_context& GetIoContext() { return io_context_; }
   
@@ -171,6 +185,9 @@ class Server {
   const absl::flat_hash_map<uint64_t, std::weak_ptr<network::Connection>>& GetConnections() const {
     return connections_;
   }
+
+  // Get local shard manager (for internal use)
+  LocalShardManager& GetLocalShardManager() { return local_shard_manager_; }
 
  private:
   void DoAccept();
@@ -200,6 +217,8 @@ class Server {
   void RdbSaverLoop();
   bool PerformRdbSave();
   
+  void AppendToAof(const protocol::Command& cmd);
+  
   bool InitPersistence() noexcept;
   bool InitCluster() noexcept;
   
@@ -214,6 +233,9 @@ class Server {
   
   // Replication layer (optional)
   std::unique_ptr<replication::ReplicationManager> replication_manager_;
+  
+  // ACL layer (optional)
+  std::unique_ptr<security::AclManager> acl_manager_;
   
   // Cluster management (optional)
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;
@@ -267,6 +289,9 @@ class Server {
     size_t Publish(const std::string& channel, const std::string& message) override;
     size_t GetSubscriptionCount(uint64_t conn_id) const override;
     bool IsSubscribed(uint64_t conn_id) const override;
+    std::vector<std::string> GetActiveChannels(const std::string& pattern) const override;
+    size_t GetChannelSubscriberCount(const std::string& channel) const override;
+    size_t GetPatternSubscriptionCount() const override;
 
    private:
     Server* server_;

@@ -136,9 +136,22 @@ CommandResult HandlePubSub(const protocol::Command& command, CommandContext* con
 
   if (subcmd == "channels") {
     // PUBSUB CHANNELS [pattern] - list active channels
-    // TODO: Implement channel listing
+    std::string pattern = "";
+    if (command.ArgCount() > 1) {
+      pattern = command[1].AsString();
+    }
+    
+    auto channels = manager->GetActiveChannels(pattern);
+    
+    std::vector<protocol::RespValue> result;
+    for (const auto& ch : channels) {
+      protocol::RespValue channel_name;
+      channel_name.SetString(ch, protocol::RespType::kBulkString);
+      result.push_back(channel_name);
+    }
+    
     protocol::RespValue response;
-    response.SetArray({});
+    response.SetArray(std::move(result));
     return CommandResult(response);
   } else if (subcmd == "numsub") {
     // PUBSUB NUMSUB [channel ...] - return subscriber counts
@@ -149,9 +162,10 @@ CommandResult HandlePubSub(const protocol::Command& command, CommandContext* con
       channel_name.SetString(ch, protocol::RespType::kBulkString);
       result.push_back(channel_name);
 
-      protocol::RespValue count;
-      count.SetInteger(0);  // TODO: Track per-channel subscriber counts
-      result.push_back(count);
+      size_t count = manager->GetChannelSubscriberCount(ch);
+      protocol::RespValue count_val;
+      count_val.SetInteger(count);
+      result.push_back(count_val);
     }
 
     protocol::RespValue response;
@@ -159,8 +173,9 @@ CommandResult HandlePubSub(const protocol::Command& command, CommandContext* con
     return CommandResult(response);
   } else if (subcmd == "numpat") {
     // PUBSUB NUMPAT - return pattern subscription count
+    size_t count = manager->GetPatternSubscriptionCount();
     protocol::RespValue response;
-    response.SetInteger(0);  // TODO: Implement pattern count
+    response.SetInteger(count);
     return CommandResult(response);
   } else {
     return CommandResult(false, "ERR unknown subcommand for PUBSUB");

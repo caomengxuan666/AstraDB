@@ -96,6 +96,9 @@ class CommandContext {
   virtual bool IsPersistenceEnabled() const { return false; }
   virtual persistence::LevelDBAdapter* GetPersistence() const { return nullptr; }
   
+  // Database manager for multi-database support (optional - return nullptr if not available)
+  virtual DatabaseManager* GetDatabaseManager() const { return nullptr; }
+  
   // AOF logging callback (zero-copy)
   virtual void SetAofCallback(AofCallback callback) { aof_callback_ = std::move(callback); }
   virtual void LogToAof(absl::string_view command, absl::Span<const absl::string_view> args) {

@@ -8,22 +8,17 @@
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/base/logging.hpp"
+#include <sha1.hpp>
 #include <sstream>
 #include <mutex>
-#include <openssl/sha.h>
 
 namespace astra::commands {
 
-// SHA1 hash function
+// SHA1 hash function using vog/sha1 library
 static std::string SHA1(const std::string& input) {
-  unsigned char hash[SHA_DIGEST_LENGTH];
-  ::SHA1(reinterpret_cast<const unsigned char*>(input.c_str()), input.size(), hash);
-  
-  std::ostringstream oss;
-  for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) {
-    oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-  }
-  return oss.str();
+  ::SHA1 sha1;
+  sha1.update(input);
+  return sha1.final();
 }
 
 // Lua script context implementation

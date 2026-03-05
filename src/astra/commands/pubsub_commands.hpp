@@ -34,6 +34,15 @@ class PubSubManager {
 
   // Check if connection is in pub/sub mode
   virtual bool IsSubscribed(uint64_t conn_id) const = 0;
+  
+  // Get list of active channels matching pattern
+  virtual std::vector<std::string> GetActiveChannels(const std::string& pattern = "") const = 0;
+  
+  // Get subscriber count for a specific channel
+  virtual size_t GetChannelSubscriberCount(const std::string& channel) const = 0;
+  
+  // Get pattern subscription count
+  virtual size_t GetPatternSubscriptionCount() const = 0;
 };
 
 // SUBSCRIBE - Subscribe to channels

@@ -35,7 +35,7 @@ using astra::persistence::RdbWriter;
 
 Server::Server(const ServerConfig& config)
     : config_(config),
-      local_shard_manager_(config.num_shards),
+      local_shard_manager_(config.num_shards, config.num_databases),
       running_(false),
       cleaner_running_(false),
       total_commands_(0) {
@@ -71,6 +71,17 @@ Server::Server(const ServerConfig& config)
   if (config_.cluster.enabled) {
     if (!InitCluster()) {
       ASTRADB_LOG_WARN("Cluster initialization failed, running in standalone mode");
+    }
+  }
+  
+  // Initialize ACL if enabled
+  if (config_.acl.enabled) {
+    acl_manager_ = std::make_unique<security::AclManager>();
+    // Add default user
+    if (!config_.acl.default_user.empty()) {
+      acl_manager_->CreateUser(config_.acl.default_user, config_.acl.default_password, 
+                               static_cast<uint32_t>(security::AclPermission::kAdmin), true);
+      ASTRADB_LOG_INFO("ACL initialized with default user: {}", config_.acl.default_user);
     }
   }
   
@@ -317,8 +328,16 @@ class ServerCommandContext : public commands::CommandContext {
   ServerCommandContext(commands::Database* db, int db_index = 0,
                        Server* server = nullptr,
                        network::Connection* connection = nullptr)
-      : db_(db), db_index_(db_index), authenticated_(true), server_(server),
+      : db_(db), db_manager_(nullptr), db_index_(db_index), authenticated_(true), server_(server),
         connection_(connection) {
+    // Get database manager from server if available
+    if (server_) {
+      // For now, get from shard 0 as default (will be improved with per-shard db managers)
+      auto* shard = server_->GetLocalShardManager().GetShardByIndex(0);
+      if (shard) {
+        db_manager_ = shard->GetDatabaseManager();
+      }
+    }
     // Set AOF callback if AOF is enabled
     if (server_ && server_->IsAofEnabled()) {
       SetAofCallback([this](absl::string_view command, absl::Span<const absl::string_view> args) {
@@ -340,12 +359,19 @@ class ServerCommandContext : public commands::CommandContext {
     }
   }
 
-  commands::Database* GetDatabase() const override { return db_; }
+  commands::Database* GetDatabase() const override {
+    if (db_manager_ && db_manager_->GetDatabase(db_index_)) {
+      return db_manager_->GetDatabase(db_index_);
+    }
+    return db_;  // Fallback to old single database
+  }
   int GetDBIndex() const override { return db_index_; }
   bool IsAuthenticated() const override { return authenticated_; }
 
   void SetDBIndex(int index) override { db_index_ = index; }
   void SetAuthenticated(bool auth) override { authenticated_ = auth; }
+
+  commands::DatabaseManager* GetDatabaseManager() const override { return db_manager_; }
 
   // Cluster operations
   bool IsClusterEnabled() const override {
@@ -366,6 +392,11 @@ class ServerCommandContext : public commands::CommandContext {
 
   cluster::ShardManager* GetClusterShardManager() const override {
     return server_ ? server_->GetClusterShardManager() : nullptr;
+  }
+
+  // ACL operations
+  security::AclManager* GetAclManager() const override {
+    return server_ ? server_->GetAclManager() : nullptr;
   }
 
   // Persistence operations
@@ -444,6 +475,7 @@ class ServerCommandContext : public commands::CommandContext {
 
  private:
   commands::Database* db_;
+  commands::DatabaseManager* db_manager_;
   int db_index_;
   bool authenticated_;
   Server* server_;
@@ -667,8 +699,8 @@ void Server::HandleCommand(const protocol::Command& cmd,
     }
     
     // Persist if enabled and command was successful
-    if (config_.persistence.enabled && persistence_ && result.success) {
-      // TODO: Add persistence logic for write commands
+    if (config_.persistence.enabled && persistence_ && result.success && aof_writer_) {
+      AppendToAof(cmd);
     }
     
     // Send response back on connection's thread
@@ -958,8 +990,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   }
   
   // Persist if enabled and command was successful
-  if (config_.persistence.enabled && persistence_ && result.success) {
-    // TODO: Add persistence logic for write commands
+  if (config_.persistence.enabled && persistence_ && result.success && aof_writer_) {
+    AppendToAof(cmd);
   }
 
   // Send response asynchronously
@@ -1301,6 +1333,41 @@ void Server::StartRdbSaver() {
   });
 }
 
+void Server::AppendToAof(const protocol::Command& cmd) {
+  if (!aof_writer_) {
+    return;
+  }
+
+  const auto& args = cmd.args;
+  if (args.empty()) {
+    return;
+  }
+
+  const auto& command_name = args[0].AsString();
+
+  // Get command info to check if it's a write command
+  auto cmd_info = registry_.GetInfo(command_name);
+  if (!cmd_info) {
+    return;
+  }
+
+  // Only persist write commands
+  if (cmd_info->flags == "read" || cmd_info->flags == "readonly") {
+    return;
+  }
+
+  // Format command as RESP and append to AOF
+  std::string resp_cmd;
+  resp_cmd += absl::StrCat("*", args.size(), "\r\n");
+
+  for (const auto& arg : args) {
+    const auto& str = arg.AsString();
+    resp_cmd += absl::StrCat("$", str.length(), "\r\n", str, "\r\n");
+  }
+
+  aof_writer_->Append(resp_cmd);
+}
+
 void Server::RdbSaverLoop() {
   // This is now handled by StartRdbSaver
 }
@@ -1318,15 +1385,20 @@ bool Server::PerformRdbSave() {
       auto* shard = local_shard_manager_.GetShardByIndex(0);
       if (!shard) continue;
 
-      auto* db = shard->GetDatabase();
+      // Get the specific database from DatabaseManager
+      auto* db = shard->GetDatabase(static_cast<int>(db_idx));
       if (!db) continue;
 
-      std::ofstream file;
-      writer.SelectDb(file, static_cast<int>(db_idx));
-      writer.ResizeDb(file, 0, 0);  // TODO: Get actual counts
+      writer.SelectDb(static_cast<int>(db_idx));
+      
+      // Get actual key count (TODO: implement GetKeyCount() in Database class)
+      uint64_t db_size = 0;  // Placeholder
+      uint64_t expires_size = 0;  // Placeholder
+      writer.ResizeDb(db_size, expires_size);
 
       // TODO: Serialize all keys and their values
       // For each key, determine its type and write accordingly
+      // This requires iterating through all data structures in Database class
       ASTRADB_LOG_INFO("Saving database {} to RDB", db_idx);
     }
   };
@@ -1574,6 +1646,46 @@ size_t Server::ServerPubSubManager::GetSubscriptionCount(uint64_t conn_id) const
 bool Server::ServerPubSubManager::IsSubscribed(uint64_t conn_id) const {
   absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
   return server_->conn_channels_.contains(conn_id) || server_->conn_patterns_.contains(conn_id);
+}
+
+std::vector<std::string> Server::ServerPubSubManager::GetActiveChannels(const std::string& pattern) const {
+  std::vector<std::string> channels;
+  
+  absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
+  
+  if (pattern.empty()) {
+    // Return all active channels
+    for (const auto& [channel, _] : server_->channel_subscribers_) {
+      channels.push_back(channel);
+    }
+  } else {
+    // Return channels matching the pattern
+    for (const auto& [channel, _] : server_->channel_subscribers_) {
+      if (absl::StrContains(channel, pattern)) {
+        channels.push_back(channel);
+      }
+    }
+  }
+  
+  return channels;
+}
+
+size_t Server::ServerPubSubManager::GetChannelSubscriberCount(const std::string& channel) const {
+  absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
+  auto it = server_->channel_subscribers_.find(channel);
+  if (it != server_->channel_subscribers_.end()) {
+    return it->second.size();
+  }
+  return 0;
+}
+
+size_t Server::ServerPubSubManager::GetPatternSubscriptionCount() const {
+  absl::ReaderMutexLock lock(&server_->pubsub_mutex_);
+  size_t total = 0;
+  for (const auto& [pattern, subscribers] : server_->pattern_subscribers_) {
+    total += subscribers.size();
+  }
+  return total;
 }
 
 void Server::ServerPubSubManager::SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {

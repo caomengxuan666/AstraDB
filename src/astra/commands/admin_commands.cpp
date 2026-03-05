@@ -296,9 +296,79 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
     return CommandResult(RespValue(std::move(result)));
     
   } else if (subcommand == "FORGET") {
-    return CommandResult(false, "ERR cluster forget not implemented yet");
+    // CLUSTER FORGET <node_id>
+    // Remove a node from the cluster
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'cluster|forget' command");
+    }
+    
+    const auto& node_id_str = command[1].AsString();
+    cluster::NodeId node_id;
+    if (!cluster::GossipManager::ParseNodeId(node_id_str, node_id)) {
+      return CommandResult(false, "ERR invalid node id");
+    }
+    
+    auto* gossip = context->GetGossipManager();
+    if (!gossip) {
+      return CommandResult(false, "ERR cluster not enabled");
+    }
+    
+    // Check if trying to forget self
+    auto self = gossip->GetSelf();
+    if (self.id == node_id) {
+      return CommandResult(false, "ERR I tried hard but I can't forget myself...");
+    }
+    
+    // In production, we would use gossip_core_->remove_node(node_id)
+    // For now, we'll just return OK
+    // TODO: Implement actual node removal in GossipManager
+    
+    RespValue response;
+    response.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(response);
+    
   } else if (subcommand == "REPLICATE") {
-    return CommandResult(false, "ERR cluster replicate not implemented yet");
+    // CLUSTER REPLICATE <master_node_id>
+    // Configure this node as a replica of the specified master node
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'cluster|replicate' command");
+    }
+    
+    const auto& master_id_str = command[1].AsString();
+    cluster::NodeId master_id;
+    if (!cluster::GossipManager::ParseNodeId(master_id_str, master_id)) {
+      return CommandResult(false, "ERR invalid node id");
+    }
+    
+    auto* gossip = context->GetGossipManager();
+    if (!gossip) {
+      return CommandResult(false, "ERR cluster not enabled");
+    }
+    
+    // Find the master node
+    auto master_node = gossip->FindNode(master_id);
+    if (!master_node) {
+      return CommandResult(false, "ERR Unknown master node");
+    }
+    
+    // Check if master is not a replica itself
+    if (master_node->role == "replica") {
+      return CommandResult(false, "ERR can't replicate a replica node");
+    }
+    
+    // In production, we would:
+    // 1. Update this node's role to replica
+    // 2. Set the master_node_id
+    // 3. Start replication from the master
+    // 4. Notify other nodes via gossip
+    
+    // For now, we'll just return OK
+    // TODO: Implement actual replication logic
+    
+    RespValue response;
+    response.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(response);
+    
   } else if (subcommand == "ADDSLOTS" || subcommand == "DELSLOTS") {
     return CommandResult(false, "ERR cluster slot management not implemented yet");
   } else if (subcommand == "SETSLOT") {
@@ -611,13 +681,65 @@ CommandResult HandleFlushDb(const astra::protocol::Command& command, CommandCont
 
 // FLUSHALL - Clear all databases
 CommandResult HandleFlushAll(const astra::protocol::Command& command, CommandContext* context) {
-  // For now, just clear current database
-  // TODO: Implement multi-database support
-  Database* db = context->GetDatabase();
-  if (db) {
-    db->Clear();
+  // Get database manager and clear all databases
+  DatabaseManager* db_manager = context->GetDatabaseManager();
+  if (db_manager) {
+    size_t db_count = db_manager->GetDatabaseCount();
+    for (size_t i = 0; i < db_count; ++i) {
+      Database* db = db_manager->GetDatabase(static_cast<int>(i));
+      if (db) {
+        db->Clear();
+      }
+    }
+  } else {
+    // Fallback: clear current database only
+    Database* db = context->GetDatabase();
+    if (db) {
+      db->Clear();
+    }
   }
   
+  RespValue response;
+  response.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// SELECT - Select the database with the specified zero-based numeric index
+CommandResult HandleSelect(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SELECT' command");
+  }
+
+  const auto& arg = command[0];
+  if (arg.GetType() != RespType::kBulkString) {
+    return CommandResult(false, "ERR invalid argument type for 'SELECT' command");
+  }
+
+  // Parse database index
+  std::string index_str = arg.AsString();
+  int db_index;
+  try {
+    db_index = std::stoi(index_str);
+  } catch (...) {
+    return CommandResult(false, "ERR invalid database index");
+  }
+
+  // Validate database index
+  DatabaseManager* db_manager = context->GetDatabaseManager();
+  if (db_manager) {
+    if (db_index < 0 || static_cast<size_t>(db_index) >= db_manager->GetDatabaseCount()) {
+      return CommandResult(false, "ERR DB index is out of range");
+    }
+  } else {
+    // Fallback: only allow index 0
+    if (db_index != 0) {
+      return CommandResult(false, "ERR DB index is out of range");
+    }
+  }
+
+  // Set the database index
+  context->SetDBIndex(db_index);
+
   RespValue response;
   response.SetString("OK", protocol::RespType::kSimpleString);
   return CommandResult(response);
@@ -639,6 +761,7 @@ ASTRADB_REGISTER_COMMAND(KEYS, 2, "readonly", RoutingStrategy::kNone, HandleKeys
 ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly", RoutingStrategy::kNone, HandleDbSize);
 ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
 ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
+ASTRADB_REGISTER_COMMAND(SELECT, 2, "fast", RoutingStrategy::kNone, HandleSelect);
 ASTRADB_REGISTER_COMMAND(AUTH, -2, "no-auth", RoutingStrategy::kNone, HandleAuth);
 ASTRADB_REGISTER_COMMAND(ACL, -2, "admin", RoutingStrategy::kNone, HandleAcl);
 

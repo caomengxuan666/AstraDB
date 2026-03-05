@@ -1,0 +1,102 @@
+// ==============================================================================
+// AstraDB RDB FlatBuffers Schema
+// ==============================================================================
+// FlatBuffers-based serialization for database snapshots
+// Zero-copy, efficient, schema-based
+// ==============================================================================
+
+namespace AstraDB.RDB;
+
+// Database entry types
+enum ValueType : uint8 {
+  String = 0,
+  Hash = 1,
+  List = 2,
+  Set = 3,
+  SortedSet = 4,
+  Bitmap = 5,
+  HyperLogLog = 6,
+  Stream = 7
+}
+
+// Key-value pair
+table KeyValue {
+  key: string (key);
+  value_type: ValueType;
+  timestamp: int64;
+  ttl_ms: int64 = 0;  // 0 means no expiration
+}
+
+// String value
+table StringValue {
+  data: [ubyte];
+}
+
+// Hash field-value pair
+table HashField {
+  field: string;
+  value: string;
+}
+
+// Hash value
+table HashValue {
+  fields: [HashField];
+}
+
+// List element
+table ListElement {
+  value: string;
+  index: int32;
+}
+
+// List value
+table ListValue {
+  elements: [ListElement];
+}
+
+// Set member
+table SetMember {
+  value: string;
+}
+
+// Set value
+table SetValue {
+  members: [SetMember];
+}
+
+// Sorted set member with score
+table SortedSetMember {
+  member: string;
+  score: double;
+}
+
+// Sorted set value
+table SortedSetValue {
+  members: [SortedSetMember];
+}
+
+// Database snapshot
+table Database {
+  index: int32;
+  key_values: [KeyValue];
+  size: uint64;
+}
+
+// RDB file header
+table Header {
+  magic: string = "ASTRDB";
+  version: string = "1.0.0";
+  timestamp: int64;
+  git_branch: string;
+  git_commit: string;
+}
+
+// Full RDB snapshot
+table Snapshot {
+  header: Header;
+  databases: [Database];
+  total_keys: uint64;
+  total_databases: uint32;
+}
+
+root_type Snapshot;

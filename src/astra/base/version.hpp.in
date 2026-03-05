@@ -1,0 +1,62 @@
+#pragma once
+
+// Auto-generated version information - DO NOT EDIT
+
+#define ASTRADB_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define ASTRADB_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define ASTRADB_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define ASTRADB_VERSION "@PROJECT_VERSION@"
+#define ASTRADB_VERSION_FULL "@PROJECT_VERSION@"
+
+// Git information (if available)
+#define ASTRADB_GIT_BRANCH "@GIT_BRANCH@"
+#define ASTRADB_GIT_COMMIT_HASH "@GIT_COMMIT_HASH@"
+#define ASTRADB_GIT_COMMIT_SHORT "@GIT_COMMIT_SHORT@"
+#define ASTRADB_GIT_COMMIT_DATE "@GIT_COMMIT_DATE@"
+#define ASTRADB_GIT_IS_DIRTY @GIT_IS_DIRTY@
+
+namespace astra::base {
+
+struct VersionInfo {
+  int major;
+  int minor;
+  int patch;
+  const char* version;
+  const char* git_branch;
+  const char* git_commit_hash;
+  const char* git_commit_short;
+  const char* git_commit_date;
+  bool git_is_dirty;
+  
+  const char* GetFullVersion() const {
+    return version;
+  }
+  
+  bool IsDirty() const {
+    return git_is_dirty;
+  }
+  
+  const char* GetGitBranch() const {
+    return git_branch;
+  }
+  
+  const char* GetGitCommit() const {
+    return git_commit_hash;
+  }
+  
+  const char* GetGitCommitShort() const {
+    return git_commit_short;
+  }
+} constexpr kVersion = {
+  ASTRADB_VERSION_MAJOR,
+  ASTRADB_VERSION_MINOR,
+  ASTRADB_VERSION_PATCH,
+  ASTRADB_VERSION,
+  ASTRADB_GIT_BRANCH,
+  ASTRADB_GIT_COMMIT_HASH,
+  ASTRADB_GIT_COMMIT_SHORT,
+  ASTRADB_GIT_COMMIT_DATE,
+  ASTRADB_GIT_IS_DIRTY
+};
+
+}  // namespace astra::base

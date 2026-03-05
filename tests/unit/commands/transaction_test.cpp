@@ -53,7 +53,7 @@ class TransactionTestContext : public CommandContext {
     return watched_keys_;
   }
   bool IsWatchedKeyModified(
-      const std::function<uint64_t(const std::string&)>& get_version) const override {
+      const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const override {
     for (const auto& key : watched_keys_) {
       auto it = watched_key_versions_.find(key);
       if (it != watched_key_versions_.end()) {

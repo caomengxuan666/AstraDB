@@ -110,6 +110,43 @@ class AclManager {
     return (it->second.permissions & static_cast<uint32_t>(perm)) != 0;
   }
   
+  // Delete user
+  bool DeleteUser(const std::string& username) noexcept {
+    absl::MutexLock lock(&mutex_);
+    auto it = users_.find(username);
+    if (it == users_.end()) {
+      return false;
+    }
+    if (username == "default") {
+      return false;  // Cannot delete default user
+    }
+    users_.erase(it);
+    ASTRADB_LOG_INFO("Deleted user: {}", username);
+    return true;
+  }
+  
+  // Get user info
+  const AclUser* GetUserInfo(const std::string& username) const noexcept {
+    absl::MutexLock lock(&mutex_);
+    auto it = users_.find(username);
+    if (it == users_.end()) {
+      return nullptr;
+    }
+    return &it->second;
+  }
+  
+  // Set user password
+  bool SetPassword(const std::string& username, const std::string& password) noexcept {
+    absl::MutexLock lock(&mutex_);
+    auto it = users_.find(username);
+    if (it == users_.end()) {
+      return false;
+    }
+    it->second.password = password;
+    ASTRADB_LOG_INFO("Updated password for user: {}", username);
+    return true;
+  }
+  
   // Get user info
   std::vector<std::string> GetUsers() const noexcept {
     absl::MutexLock lock(&mutex_);

@@ -37,6 +37,18 @@ CommandResult HandleLastSave(const astra::protocol::Command& command, CommandCon
 // SAVE - Synchronous save (persistence)
 CommandResult HandleSave(const astra::protocol::Command& command, CommandContext* context);
 
+// DBSIZE - Return number of keys in current database
+CommandResult HandleDbSize(const astra::protocol::Command& command, CommandContext* context);
+
+// FLUSHDB - Clear current database
+CommandResult HandleFlushDb(const astra::protocol::Command& command, CommandContext* context);
+
+// FLUSHALL - Clear all databases
+CommandResult HandleFlushAll(const astra::protocol::Command& command, CommandContext* context);
+
+// SELECT - Select database by index
+CommandResult HandleSelect(const astra::protocol::Command& command, CommandContext* context);
+
 // Admin commands are auto-registered via ASTRADB_REGISTER_COMMAND macro
 
 }  // namespace astra::commands

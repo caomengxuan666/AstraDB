@@ -159,7 +159,6 @@ if(ASTRADB_STATIC_BUILD AND CMAKE_BUILD_TYPE STREQUAL "Release")
   if(MSVC)
     # MSVC optimizations
     target_compile_options(astradb PRIVATE /O2 /GL)
-    target_link_options(astradb PRIVATE /LTCG)
   else()
     # GCC/Clang optimizations
     target_compile_options(astradb PRIVATE
@@ -167,7 +166,6 @@ if(ASTRADB_STATIC_BUILD AND CMAKE_BUILD_TYPE STREQUAL "Release")
       -march=native
       -DNDEBUG
     )
-    target_link_options(astradb PRIVATE -flto)
   endif()
 endif()
 

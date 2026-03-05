@@ -10,6 +10,11 @@ target_include_directories(astra_commands PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
 
+# Add vog/sha1 include directory for SHA1 hashing
+if(sha1_SOURCE_DIR)
+  target_include_directories(astra_commands PUBLIC ${sha1_SOURCE_DIR})
+endif()
+
 # All command files (including core registration logic)
 target_sources(astra_commands PRIVATE
   command_handler.cpp
@@ -67,11 +72,6 @@ endif()
 # Link Lua library
 if(TARGET lua::lua)
   target_link_libraries(astra_commands PUBLIC lua::lua)
-endif()
-
-# Link OpenSSL for SHA1
-if(OPENSSL_FOUND)
-  target_link_libraries(astra_commands PUBLIC OpenSSL::Crypto)
 endif()
 
 # Create wrapper target for whole-archive linking

@@ -16,12 +16,18 @@ namespace astra::server {
 // Shard - A single database shard (data only, no worker thread)
 class Shard {
  public:
-  explicit Shard(int shard_id, size_t io_context_index = 0);
+  explicit Shard(int shard_id, size_t io_context_index = 0, size_t num_databases = 16);
   ~Shard() = default;
   
   int GetShardId() const { return shard_id_; }
   
-  commands::Database* GetDatabase() { return &database_; }
+  // Get database by index (for multi-database support)
+  commands::Database* GetDatabase(int db_index = 0) {
+    return db_manager_->GetDatabase(db_index);
+  }
+  
+  // Get database manager
+  commands::DatabaseManager* GetDatabaseManager() { return db_manager_.get(); }
   
   // Get the shard's IO context index (for routing to thread pool)
   size_t GetIOContextIndex() const { return io_context_index_; }
@@ -36,13 +42,13 @@ class Shard {
  private:
   int shard_id_;
   size_t io_context_index_;
-  astra::commands::Database database_;
+  std::unique_ptr<commands::DatabaseManager> db_manager_;
 };
 
 // LocalShardManager - Manages local database shards (renamed to avoid conflict with cluster::ShardManager)
 class LocalShardManager {
  public:
-  explicit LocalShardManager(size_t num_shards = 16);
+  explicit LocalShardManager(size_t num_shards = 16, size_t num_databases = 16);
   ~LocalShardManager() = default;
   
   // Get shard by key (consistent hashing)

@@ -40,7 +40,7 @@ class ScriptTestContext : public CommandContext {
     static absl::flat_hash_set<std::string> empty;
     return empty;
   }
-  bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>&) const override { return false; }
+  bool IsWatchedKeyModified(const absl::AnyInvocable<uint64_t(const std::string&) const>&) const override { return false; }
   void ClearWatchedKeys() override {}
 
  private:

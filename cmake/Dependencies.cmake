@@ -8,6 +8,22 @@
 # Core Dependencies
 # ==============================================================================
 
+# SHA1 - SHA1 hash function implementation
+# Usage: Lua script caching (EVALSHA, SCRIPT commands)
+# Benefits: Lightweight, header-only, no OpenSSL dependency
+CPMAddPackage(
+  NAME
+  sha1
+  VERSION
+  1.0.0
+  GITHUB_REPOSITORY
+  vog/sha1
+  GIT_TAG
+  master
+  OPTIONS
+  "SHA1_BUILD_TESTS OFF"
+  "SHA1_BUILD_EXAMPLES OFF")
+
 # mimalloc - High-performance memory allocator
 # Features: Thread-local caching, size-classes, decay mechanism
 # Benefits: 20-30% faster than glibc malloc, lower fragmentation
