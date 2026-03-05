@@ -83,6 +83,67 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
   }
   // arity == 0 means unlimited, no check needed
 
+  // ========== Command Parameter Caching ==========
+  // Generate cache key from command name and arguments
+  if (caching_enabled_ && !entry.info.is_write) {
+    // Only cache read commands
+    std::string cache_key = GenerateCacheKey(command);
+    
+    // Check cache
+    auto cache_it = command_cache_.find(cache_key);
+    if (cache_it != command_cache_.end()) {
+      // Cache hit
+      cache_hit_count_++;
+      cache_it->second.last_accessed_ms = absl::GetCurrentTimeNanos() / 1000000;
+      cache_it->second.access_count++;
+      
+      // Return cached result (if available)
+      // Note: In a real implementation, we'd need to store the actual result
+      // For now, we just track cache hits
+    } else {
+      // Cache miss
+      cache_miss_count_++;
+      
+      // Add to cache
+      if (command_cache_.size() >= kMaxCacheSize) {
+        // LRU eviction
+        EvictLRUCacheEntry();
+      }
+      
+      // Create cache entry
+      CachedCommandEntry cache_entry;
+      cache_entry.command_name = upper_name;
+      cache_entry.hash = cache_key;
+      cache_entry.created_at_ms = absl::GetCurrentTimeNanos() / 1000000;
+      cache_entry.last_accessed_ms = cache_entry.created_at_ms;
+      cache_entry.access_count = 1;
+      cache_entry.is_read_only = true;
+      
+      // Cache command parameters
+      for (size_t i = 0; i < command.ArgCount(); ++i) {
+        const auto& arg = command[i];
+        std::string arg_str;
+        if (arg.IsBulkString() || arg.IsSimpleString()) {
+          arg_str = arg.AsString();
+        } else if (arg.IsInteger()) {
+          arg_str = std::to_string(arg.AsInteger());
+        } else {
+          arg_str = "";
+        }
+        CachedParameterValue param_value;
+        param_value.type = CachedParameterValue::Type::kString;
+        param_value.string_value = arg_str;
+        cache_entry.parameters.emplace_back("arg_" + std::to_string(i), param_value);
+      }
+      
+      cache_entry.param_count = static_cast<uint32_t>(cache_entry.parameters.size());
+      cache_entry.estimated_size_bytes = static_cast<uint32_t>(
+          upper_name.size() + cache_key.size() + cache_entry.parameters.size() * 64);
+      
+      command_cache_[cache_key] = std::move(cache_entry);
+    }
+  }
+
   // Execute handler
   try {
     return entry.handler(command, context);
@@ -110,6 +171,49 @@ RoutingStrategy CommandRegistry::GetRoutingStrategy(const std::string& command_n
     return it->second.info.routing;
   }
   return RoutingStrategy::kNone;
+}
+
+// Generate cache key from command name and arguments
+std::string CommandRegistry::GenerateCacheKey(const astra::protocol::Command& command) const noexcept {
+  std::string upper_name = absl::AsciiStrToUpper(command.name);
+  
+  std::vector<std::pair<std::string, CachedParameterValue>> params;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    const auto& arg = command[i];
+    std::string arg_str;
+    if (arg.IsBulkString() || arg.IsSimpleString()) {
+      arg_str = arg.AsString();
+    } else if (arg.IsInteger()) {
+      arg_str = std::to_string(arg.AsInteger());
+    } else {
+      arg_str = "";
+    }
+    CachedParameterValue param_value;
+    param_value.type = CachedParameterValue::Type::kString;
+    param_value.string_value = arg_str;
+    params.emplace_back("arg_" + std::to_string(i), param_value);
+  }
+  
+  return CommandCacheFlatbuffersSerializer::GenerateCommandHash(upper_name, params);
+}
+
+// Evict LRU cache entry
+void CommandRegistry::EvictLRUCacheEntry() const noexcept {
+  if (command_cache_.empty()) {
+    return;
+  }
+  
+  // Find least recently used entry
+  auto lru_it = command_cache_.begin();
+  for (auto it = command_cache_.begin(); it != command_cache_.end(); ++it) {
+    if (it->second.last_accessed_ms < lru_it->second.last_accessed_ms) {
+      lru_it = it;
+    }
+  }
+  
+  // Erase the LRU entry
+  command_cache_.erase(lru_it);
+  cache_eviction_count_++;
 }
 
 CommandRegistry& GetGlobalCommandRegistry() {

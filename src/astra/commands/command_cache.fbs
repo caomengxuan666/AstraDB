@@ -76,7 +76,7 @@ table CacheSnapshot {
   entries: [CommandCacheEntry];
   stats: CacheStats;
   snapshot_time_ms: int64;
-  version: string = "1.0.0";
+  version: string;
 }
 
 root_type CacheSnapshot;

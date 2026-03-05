@@ -15,10 +15,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/B
 endif()
 
 # Generate FlatBuffers headers for RDB schema
-if(TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
+if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
   # Use official FlatBuffers CMake function
   set(RDB_FBS ${CMAKE_CURRENT_SOURCE_DIR}/rdb.fbs)
   set(RDB_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  
+  # Ensure generated directory exists
+  file(MAKE_DIRECTORY ${RDB_GENERATED_DIR})
   
   build_flatbuffers(
     "${RDB_FBS}"

@@ -34,6 +34,7 @@
 #include "astra/base/macros.hpp"
 #include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
+#include "aof_flatbuffers.hpp"
 
 namespace astra::persistence {
 
@@ -42,6 +43,13 @@ enum class AofSyncPolicy {
   kAlways,    // Sync after every write (slowest, safest)
   kEverySec,  // Sync every second (balanced)
   kNever,     // Let OS handle it (fastest, least safe)
+};
+
+// AOF format types
+enum class AofFormat {
+  kResp,          // Redis RESP text format (default, compatible)
+  kFlatbuffers,   // Binary FlatBuffers format (faster, more compact)
+  kHybrid         // Both formats for compatibility
 };
 
 // AOF configuration options
@@ -53,17 +61,20 @@ struct AofOptions {
   double rewrite_growth_factor = 1.0;  // Rewrite when size doubles
   size_t buffer_size = 4 * 1024 * 1024;  // 4MB write buffer
   
-  // Compression options
+  // Format and compression options
+  AofFormat format = AofFormat::kResp;  // Output format
   bool compress = false;  // Enable zstd compression
   int compression_level = 3;  // zstd compression level (1-22, default 3)
 };
 
 // AOF entry representing a write command
 struct AofEntry {
-  std::string command;  // Full RESP command
+  std::string command;  // Full RESP command or FlatBuffers binary data
+  bool is_flatbuffers = false;  // True if data is FlatBuffers format
   
   AofEntry() = default;
-  explicit AofEntry(std::string cmd) : command(std::move(cmd)) {}
+  explicit AofEntry(std::string cmd) : command(std::move(cmd)), is_flatbuffers(false) {}
+  AofEntry(std::string cmd, bool fb) : command(std::move(cmd)), is_flatbuffers(fb) {}
 };
 
 // AOF Writer - handles append-only file writing
@@ -158,6 +169,71 @@ class AofWriter {
   bool AppendDel(absl::string_view key) noexcept {
     std::string cmd = FormatRespCommand("DEL", {std::string(key)});
     return Append(cmd);
+  }
+
+  // FlatBuffers Append methods (when format is kFlatbuffers or kHybrid)
+  
+  // Append SET command using FlatBuffers
+  bool AppendSetFlatbuffers(int db_index, absl::string_view key, absl::string_view value) noexcept {
+    if (options_.format == AofFormat::kResp) {
+      return AppendSet(key, value);  // Fall back to RESP
+    }
+    
+    auto data = AofFlatbuffersSerializer::SerializeSetCommand(db_index, std::string(key), std::string(value));
+    
+    {
+      absl::MutexLock lock(&buffer_mutex_);
+      buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
+      buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
+    }
+    
+    if (options_.sync_policy == AofSyncPolicy::kAlways) {
+      return Sync();
+    }
+    
+    return true;
+  }
+
+  // Append DEL command using FlatBuffers
+  bool AppendDelFlatbuffers(int db_index, absl::string_view key) noexcept {
+    if (options_.format == AofFormat::kResp) {
+      return AppendDel(key);  // Fall back to RESP
+    }
+    
+    auto data = AofFlatbuffersSerializer::SerializeDelCommand(db_index, std::string(key));
+    
+    {
+      absl::MutexLock lock(&buffer_mutex_);
+      buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
+      buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
+    }
+    
+    if (options_.sync_policy == AofSyncPolicy::kAlways) {
+      return Sync();
+    }
+    
+    return true;
+  }
+
+  // Append EXPIRE command using FlatBuffers
+  bool AppendExpireFlatbuffers(int db_index, absl::string_view key, int64_t ttl_ms) noexcept {
+    if (options_.format == AofFormat::kResp) {
+      return AppendExpire(key, ttl_ms);  // Fall back to RESP
+    }
+    
+    auto data = AofFlatbuffersSerializer::SerializeExpireCommand(db_index, std::string(key), ttl_ms);
+    
+    {
+      absl::MutexLock lock(&buffer_mutex_);
+      buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
+      buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
+    }
+    
+    if (options_.sync_policy == AofSyncPolicy::kAlways) {
+      return Sync();
+    }
+    
+    return true;
   }
 
   // Append HSET command

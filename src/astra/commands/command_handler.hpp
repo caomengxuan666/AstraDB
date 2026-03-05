@@ -21,6 +21,7 @@
 #include "astra/replication/replication_manager.hpp"
 #include <absl/functional/any_invocable.h>
 #include "database.hpp"
+#include "command_cache_flatbuffers.hpp"
 
 namespace astra::commands {
 class PubSubManager;  // Forward declaration
@@ -218,6 +219,74 @@ class CommandRegistry {
   
   // Get number of registered commands
   size_t Size() const noexcept { return commands_.size(); }
+  
+  // ========== Command Parameter Caching ==========
+  
+  // Enable/disable command parameter caching
+  void EnableCaching(bool enable) noexcept { caching_enabled_ = enable; }
+  bool IsCachingEnabled() const noexcept { return caching_enabled_; }
+  
+  // Get cache statistics
+  struct CacheStats {
+    uint64_t hit_count = 0;
+    uint64_t miss_count = 0;
+    uint32_t entry_count = 0;
+    uint32_t eviction_count = 0;
+  };
+  
+  CacheStats GetCacheStats() const noexcept {
+    CacheStats stats;
+    stats.hit_count = cache_hit_count_;
+    stats.miss_count = cache_miss_count_;
+    stats.entry_count = static_cast<uint32_t>(command_cache_.size());
+    stats.eviction_count = cache_eviction_count_;
+    return stats;
+  }
+  
+  // Clear cache
+  void ClearCache() noexcept {
+    command_cache_.clear();
+    cache_hit_count_ = 0;
+    cache_miss_count_ = 0;
+    cache_eviction_count_ = 0;
+  }
+  
+  // Export cache to FlatBuffers
+  std::vector<uint8_t> ExportCacheSnapshot() const noexcept {
+    std::vector<CachedCommandEntry> entries;
+    entries.reserve(command_cache_.size());
+    
+    for (const auto& [key, entry] : command_cache_) {
+      entries.push_back(entry);
+    }
+    
+    return CommandCacheFlatbuffersSerializer::SerializeCacheSnapshot(
+        entries, cache_hit_count_, cache_miss_count_, cache_eviction_count_);
+  }
+  
+  // Import cache from FlatBuffers
+  bool ImportCacheSnapshot(const uint8_t* data, size_t size) noexcept {
+    std::vector<CachedCommandEntry> entries;
+    uint64_t hit_count = 0;
+    uint64_t miss_count = 0;
+    uint32_t eviction_count = 0;
+    
+    if (!CommandCacheFlatbuffersSerializer::DeserializeCacheSnapshot(
+            data, size, entries, hit_count, miss_count, eviction_count)) {
+      return false;
+    }
+    
+    // Import entries
+    for (const auto& entry : entries) {
+      command_cache_[entry.hash] = entry;
+    }
+    
+    cache_hit_count_ = hit_count;
+    cache_miss_count_ = miss_count;
+    cache_eviction_count_ = eviction_count;
+    
+    return true;
+  }
 
  private:
   struct CommandEntry {
@@ -226,6 +295,20 @@ class CommandRegistry {
   };
 
   absl::flat_hash_map<std::string, CommandEntry> commands_;
+  
+  // Command parameter caching
+  mutable bool caching_enabled_ = false;
+  mutable absl::flat_hash_map<std::string, CachedCommandEntry> command_cache_;
+  mutable uint64_t cache_hit_count_ = 0;
+  mutable uint64_t cache_miss_count_ = 0;
+  mutable uint32_t cache_eviction_count_ = 0;
+  
+  // Maximum cache size (LRU eviction when exceeded)
+  static constexpr size_t kMaxCacheSize = 10000;
+  
+  // Helper functions for caching
+  std::string GenerateCacheKey(const astra::protocol::Command& command) const noexcept;
+  void EvictLRUCacheEntry() const noexcept;
 };
 
 // Global command registry instance

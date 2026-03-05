@@ -84,8 +84,8 @@ table Database {
 
 // RDB file header
 table Header {
-  magic: string = "ASTRDB";
-  version: string = "1.0.0";
+  magic: string;
+  version: string;
   timestamp: int64;
   git_branch: string;
   git_commit: string;

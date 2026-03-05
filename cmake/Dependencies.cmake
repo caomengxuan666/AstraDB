@@ -394,12 +394,10 @@ CPMAddPackage(
 CPMAddPackage(
   NAME
   leveldb
-  VERSION
-  1.23
   GITHUB_REPOSITORY
   google/leveldb
   GIT_TAG
-  1.23
+  main
   OPTIONS
   "LEVELDB_BUILD_TESTS OFF"
   "LEVELDB_BUILD_BENCHMARKS OFF"

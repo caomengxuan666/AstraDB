@@ -8,7 +8,49 @@ add_library(astra_commands STATIC)
 target_include_directories(astra_commands PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../cluster
+  ${CMAKE_CURRENT_SOURCE_DIR}/../persistence
 )
+
+# Add persistence generated directory for aof_flatbuffers.hpp
+set(PERSISTENCE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/../persistence/generated")
+file(MAKE_DIRECTORY ${PERSISTENCE_GENERATED_DIR})
+target_include_directories(astra_commands PUBLIC ${PERSISTENCE_GENERATED_DIR})
+
+# Add core generated directory for metrics_flatbuffers.hpp
+set(CORE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/../core/generated")
+file(MAKE_DIRECTORY ${CORE_GENERATED_DIR})
+target_include_directories(astra_commands PUBLIC ${CORE_GENERATED_DIR})
+
+# Include FlatBuffers BuildFlatBuffers module
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake)
+endif()
+
+# Generate FlatBuffers headers for command cache schema
+# Note: We check for flatbuffers_ADDED which is set by CPM in the root CMakeLists.txt
+if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
+  set(COMMAND_CACHE_FBS ${CMAKE_CURRENT_SOURCE_DIR}/command_cache.fbs)
+  set(COMMAND_CACHE_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  
+  build_flatbuffers(
+    "${COMMAND_CACHE_FBS}"
+    ""  # No include dirs
+    "command_cache_generated"
+    ""  # No additional dependencies
+    "${COMMAND_CACHE_GENERATED_DIR}"
+    ""  # No binary schemas
+    ""  # No text schema copy
+  )
+  
+  target_include_directories(astra_commands PUBLIC ${COMMAND_CACHE_GENERATED_DIR})
+  add_dependencies(astra_commands command_cache_generated)
+  
+  # Add FlatBuffers include directory
+  target_include_directories(astra_commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
+  
+  message(STATUS "FlatBuffers command cache headers will be generated in ${COMMAND_CACHE_GENERATED_DIR}")
+endif()
 
 # Add vog/sha1 include directory for SHA1 hashing
 if(sha1_SOURCE_DIR)
@@ -53,6 +95,11 @@ target_link_libraries(astra_commands PUBLIC
   prometheus-cpp::pull
   concurrentqueue
 )
+
+# Link FlatBuffers
+if(TARGET flatbuffers::flatbuffers)
+  target_link_libraries(astra_commands PUBLIC flatbuffers::flatbuffers)
+endif()
 
 # Link TBB for parallel operations
 if(TARGET TBB::tbb)

@@ -20,6 +20,8 @@
 #include <string>
 #include <mutex>
 
+#include "metrics_flatbuffers.hpp"
+
 namespace astra::metrics {
 
 // Metrics configuration
@@ -239,6 +241,83 @@ class AstraMetrics {
   void SetRdbLastSave(double timestamp) {
     if (!initialized_ || !config_.enabled) return;
     persistence_info_->Add({{"type", "rdb_last_save"}}).Set(timestamp);
+  }
+
+  // Export metrics to FlatBuffers format
+  std::vector<uint8_t> ExportToFlatBuffers(const std::string& host = "localhost",
+                                             const std::string& instance = "astradb",
+                                             const std::string& job = "astradb") {
+    if (!initialized_ || !config_.enabled) {
+      return {};
+    }
+
+    std::vector<std::vector<uint8_t>> metrics_data;
+    
+    // Export connections metric
+    if (connections_current_) {
+      auto conn_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_connections",
+        connections_current_->Value(),
+        {},
+        "Current number of connections");
+      metrics_data.push_back(conn_data);
+    }
+    
+    // Export memory metrics
+    if (memory_used_ && memory_total_) {
+      auto mem_used_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_memory_bytes",
+        memory_used_->Value(),
+        {{"type", "used"}},
+        "Memory usage in bytes");
+      metrics_data.push_back(mem_used_data);
+      
+      auto mem_total_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_memory_bytes",
+        memory_total_->Value(),
+        {{"type", "total"}},
+        "Memory usage in bytes");
+      metrics_data.push_back(mem_total_data);
+    }
+    
+    // Export keys metric
+    if (keys_) {
+      // Get current keys count for each database
+      for (int db = 0; db < 16; db++) {
+        // This would need to be tracked separately
+        // For now, just create placeholder
+      }
+    }
+    
+    // Export cluster metrics
+    if (cluster_info_) {
+      auto cluster_enabled_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_cluster_enabled",
+        0,  // Placeholder - needs to be tracked
+        {},
+        "Cluster enabled status");
+      metrics_data.push_back(cluster_enabled_data);
+    }
+    
+    // Export persistence metrics
+    if (persistence_info_) {
+      auto aof_size_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_aof_size_bytes",
+        0,  // Placeholder - needs to be tracked
+        {{"type", "aof_size"}},
+        "AOF file size in bytes");
+      metrics_data.push_back(aof_size_data);
+      
+      auto rdb_save_data = core::MetricsSerializer::SerializeGaugeMetric(
+        "astradb_rdb_last_save_timestamp",
+        0,  // Placeholder - needs to be tracked
+        {{"type", "rdb_last_save"}},
+        "Last RDB save timestamp");
+      metrics_data.push_back(rdb_save_data);
+    }
+    
+    // Create batch
+    return core::MetricsSerializer::SerializeMetricsBatch(metrics_data, host, instance, job);
   }
 
  private:
