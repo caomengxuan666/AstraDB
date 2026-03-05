@@ -1,7 +1,9 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
 
+#include <absl/synchronization/mutex.h>
 #include "astra/container/zset/bplustree_zset.hpp"
+#include <absl/synchronization/mutex.h>
 #include "b_plus_tree.hpp"  // From romz-pl/b-plus-tree
 #include <stdexcept>
 

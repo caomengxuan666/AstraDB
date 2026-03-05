@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
 #include "command_handler.hpp"
 #include <string>
 #include <memory>
@@ -60,7 +61,7 @@ class ScriptCache {
   std::vector<std::string> GetAllHashes() const;
   
  private:
-  std::unordered_map<std::string, std::string> cache_;
+  absl::flat_hash_map<std::string, std::string> cache_;
 };
 
 // Global script functions

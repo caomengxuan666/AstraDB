@@ -248,7 +248,9 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
     const auto& ip = command[1].AsString();
     int port = 0;
     try {
-      port = std::stoi(command[2].AsString());
+      if (!absl::SimpleAtoi(command[2].AsString(), &port)) {
+        return CommandResult(false, "ERR invalid port number");
+      }
     } catch (...) {
       return CommandResult(false, "ERR invalid port number");
     }
@@ -308,7 +310,11 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
     
     uint16_t slot = 0;
     try {
-      slot = static_cast<uint16_t>(std::stoi(command[1].AsString()));
+      int temp_slot;
+      if (!absl::SimpleAtoi(command[1].AsString(), &temp_slot)) {
+        return CommandResult(false, "ERR invalid slot number");
+      }
+      slot = static_cast<uint16_t>(temp_slot);
     } catch (...) {
       return CommandResult(false, "ERR invalid slot number");
     }
@@ -382,8 +388,16 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
     uint16_t slot = 0;
     int count = 0;
     try {
-      slot = static_cast<uint16_t>(std::stoi(command[1].AsString()));
-      count = std::stoi(command[2].AsString());
+      int temp_slot;
+      if (!absl::SimpleAtoi(command[1].AsString(), &temp_slot)) {
+        return CommandResult(false, "ERR invalid slot number");
+      }
+      uint16_t slot = static_cast<uint16_t>(temp_slot);
+      int temp_count;
+      if (!absl::SimpleAtoi(command[2].AsString(), &temp_count)) {
+        return CommandResult(false, "ERR invalid count number");
+      }
+      count = temp_count;
     } catch (...) {
       return CommandResult(false, "ERR invalid slot or count");
     }
@@ -435,7 +449,9 @@ CommandResult HandleMigrate(const astra::protocol::Command& command, CommandCont
   const auto& host = command[0].AsString();
   int port = 0;
   try {
-    port = std::stoi(command[1].AsString());
+    if (!absl::SimpleAtoi(command[1].AsString(), &port)) {
+      return CommandResult(false, "ERR invalid port number");
+    }
   } catch (...) {
     return CommandResult(false, "ERR invalid port number");
   }

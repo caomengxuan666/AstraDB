@@ -206,7 +206,7 @@ class AstraMetrics {
   // Keys tracking
   void SetKeys(int db_index, double count) {
     if (!initialized_ || !config_.enabled) return;
-    keys_->Add({{"db", std::to_string(db_index)}}).Set(count);
+    keys_->Add({{"db", absl::StrCat(db_index)}}).Set(count);
   }
 
   // Cluster status

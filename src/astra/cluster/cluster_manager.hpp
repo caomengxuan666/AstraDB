@@ -10,6 +10,8 @@
 #include <mutex>
 #include <atomic>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::cluster {
@@ -82,7 +84,7 @@ class ClusterManager {
   
   // Get cluster info
   std::vector<ClusterNode> GetNodes() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     std::vector<ClusterNode> nodes;
     for (const auto& [id, node] : nodes_) {
       nodes.push_back(node);
@@ -92,7 +94,7 @@ class ClusterManager {
   
   // Add node to cluster
   bool AddNode(const ClusterNode& node) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     if (nodes_.find(node.id) != nodes_.end()) {
       return false;
     }
@@ -103,7 +105,7 @@ class ClusterManager {
   
   // Remove node from cluster
   bool RemoveNode(const std::string& node_id) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     auto it = nodes_.find(node_id);
     if (it == nodes_.end()) {
       return false;
@@ -115,7 +117,7 @@ class ClusterManager {
   
   // Get node by ID
   std::optional<ClusterNode> GetNode(const std::string& node_id) const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     auto it = nodes_.find(node_id);
     if (it == nodes_.end()) {
       return std::nullopt;
@@ -125,7 +127,7 @@ class ClusterManager {
   
   // Assign slots to node
   bool AssignSlots(const std::string& node_id, const std::vector<uint16_t>& slots) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     auto it = nodes_.find(node_id);
     if (it == nodes_.end()) {
       return false;
@@ -150,7 +152,7 @@ class ClusterManager {
       return std::nullopt;
     }
     
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     for (const auto& [id, node] : nodes_) {
       if (node.slots[slot]) {
         return id;
@@ -160,8 +162,8 @@ class ClusterManager {
   }
   
  private:
-  mutable std::mutex mutex_;
-  std::unordered_map<std::string, ClusterNode> nodes_;
+  mutable absl::Mutex mutex_;
+  absl::flat_hash_map<std::string, ClusterNode> nodes_;
   std::string node_id_;
   std::string ip_;
   uint16_t port_ = 0;

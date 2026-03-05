@@ -14,6 +14,7 @@
 #include <absl/strings/string_view.h>
 #include <absl/strings/str_cat.h>
 #include <absl/synchronization/mutex.h>
+#include <absl/synchronization/notification.h>
 #include <absl/time/time.h>
 
 #include <zstd.h>
@@ -29,7 +30,9 @@
 #include <filesystem>
 #include <vector>
 
+#include <absl/functional/any_invocable.h>
 #include "astra/base/macros.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::persistence {
@@ -112,7 +115,7 @@ class AofWriter {
       return;
     }
     
-    cv_.notify_all();
+    sync_cv_.SignalAll();
     if (sync_thread_.joinable()) {
       sync_thread_.join();
     }
@@ -183,7 +186,7 @@ class AofWriter {
 
   // Append ZADD command
   bool AppendZAdd(absl::string_view key, double score, absl::string_view member) noexcept {
-    std::string cmd = FormatRespCommand("ZADD", {std::string(key), std::to_string(score), std::string(member)});
+    std::string cmd = FormatRespCommand("ZADD", {std::string(key), absl::StrCat(score), std::string(member)});
     return Append(cmd);
   }
 
@@ -219,13 +222,13 @@ class AofWriter {
 
   // Append EXPIRE command
   bool AppendExpire(absl::string_view key, int64_t seconds) noexcept {
-    std::string cmd = FormatRespCommand("EXPIRE", {std::string(key), std::to_string(seconds)});
+    std::string cmd = FormatRespCommand("EXPIRE", {std::string(key), absl::StrCat(seconds)});
     return Append(cmd);
   }
 
   // Append PEXPIRE command
   bool AppendPExpire(absl::string_view key, int64_t ms) noexcept {
-    std::string cmd = FormatRespCommand("PEXPIRE", {std::string(key), std::to_string(ms)});
+    std::string cmd = FormatRespCommand("PEXPIRE", {std::string(key), absl::StrCat(ms)});
     return Append(cmd);
   }
 
@@ -307,14 +310,14 @@ class AofWriter {
   }
 
   // Rewrite AOF - creates new AOF from current database state
-  bool Rewrite(std::function<void(std::string&)> write_callback) noexcept {
+  bool Rewrite(absl::AnyInvocable<void(std::string&)> write_callback) noexcept {
     if (!initialized_.load(std::memory_order_acquire)) {
       return false;
     }
 
     // Stop background sync during rewrite
     std::atomic<bool> was_running = running_.exchange(false, std::memory_order_acq_rel);
-    cv_.notify_all();
+    sync_cv_.SignalAll();
     if (sync_thread_.joinable()) {
       sync_thread_.join();
     }
@@ -430,10 +433,8 @@ class AofWriter {
   // Background sync thread
   void SyncThread() noexcept {
     while (running_.load(std::memory_order_acquire)) {
-      std::unique_lock<std::mutex> lock(sync_mutex_);
-      cv_.wait_for(lock, std::chrono::seconds(1), [this] {
-        return !running_.load(std::memory_order_acquire);
-      });
+      absl::MutexLock lock(&sync_mutex_);
+      sync_cv_.WaitWithTimeout(&sync_mutex_, absl::Seconds(1));
       
       if (!running_.load(std::memory_order_acquire)) {
         break;
@@ -453,8 +454,8 @@ class AofWriter {
   std::atomic<bool> running_{false};
   
   std::thread sync_thread_;
-  std::mutex sync_mutex_;
-  std::condition_variable cv_;
+  absl::Mutex sync_mutex_;
+  absl::CondVar sync_cv_;
 };
 
 }  // namespace astra::persistence

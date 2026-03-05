@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
 #include "command_handler.hpp"
 #include <functional>
 #include <memory>
@@ -47,7 +49,7 @@ class RuntimeCommandRegistry {
 
   // Get command count
   size_t GetCommandCount() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     return commands_.size();
   }
 
@@ -59,8 +61,8 @@ class RuntimeCommandRegistry {
   RuntimeCommandRegistry(const RuntimeCommandRegistry&) = delete;
   RuntimeCommandRegistry& operator=(const RuntimeCommandRegistry&) = delete;
 
-  mutable std::mutex mutex_;
-  std::unordered_map<std::string, CommandMetadata> commands_;
+  mutable absl::Mutex mutex_;
+  absl::flat_hash_map<std::string, CommandMetadata> commands_;
 };
 
 // Macro for automatic command registration

@@ -78,14 +78,18 @@ CommandResult HandleBitCount(const protocol::Command& command, CommandContext* c
   // Parse start and end indices
   if (command.ArgCount() >= 2) {
     try {
-      start = std::stoll(command[1].AsString());
+      if (!absl::SimpleAtoi(command[1].AsString(), &start)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
     } catch (...) {
       return CommandResult(false, "ERR value is not an integer or out of range");
     }
   }
   if (command.ArgCount() >= 3) {
     try {
-      end = std::stoll(command[2].AsString());
+      if (!absl::SimpleAtoi(command[2].AsString(), &end)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
     } catch (...) {
       return CommandResult(false, "ERR value is not an integer or out of range");
     }
@@ -201,7 +205,9 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
   const std::string& key = command[0].AsString();
   int64_t bit_value;
   try {
-    bit_value = std::stoll(command[1].AsString());
+    if (!absl::SimpleAtoi(command[1].AsString(), &bit_value)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
     if (bit_value != 0 && bit_value != 1) {
       return CommandResult(false, "ERR bit value must be 0 or 1");
     }
@@ -220,19 +226,40 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
   int64_t end = static_cast<int64_t>(bitmap.size()) - 1;
 
   if (command.ArgCount() >= 3) {
-    try {
-      start = std::stoll(command[2].AsString());
-    } catch (...) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+
+      try {
+
+        if (!absl::SimpleAtoi(command[2].AsString(), &start)) {
+
+          return CommandResult(false, "ERR value is not an integer or out of range");
+
+        }
+
+      } catch (...) {
+
+        return CommandResult(false, "ERR value is not an integer or out of range");
+
+      }
+
     }
-  }
-  if (command.ArgCount() >= 4) {
-    try {
-      end = std::stoll(command[3].AsString());
-    } catch (...) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+
+    if (command.ArgCount() >= 4) {
+
+      try {
+
+        if (!absl::SimpleAtoi(command[3].AsString(), &end)) {
+
+          return CommandResult(false, "ERR value is not an integer or out of range");
+
+        }
+
+      } catch (...) {
+
+        return CommandResult(false, "ERR value is not an integer or out of range");
+
+      }
+
     }
-  }
 
   // Handle negative indices
   int64_t len = static_cast<int64_t>(bitmap.size());
@@ -307,14 +334,19 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       const std::string& encoding = command[i + 1].AsString();
       int64_t offset;
       try {
-        offset = std::stoll(command[i + 2].AsString());
+        if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
       } catch (...) {
         return CommandResult(false, "ERR offset is not an integer or out of range");
       }
 
       // Extract type and bits
       bool signed_type = (encoding[0] == 'i');
-      int bits = std::stoi(encoding.substr(1));
+      int bits;
+      if (!absl::SimpleAtoi(encoding.substr(1), &bits)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
 
       if (bits <= 0 || bits > 64) {
         return CommandResult(false, "ERR invalid bitfield type");
@@ -366,14 +398,21 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       int64_t offset;
       int64_t new_value;
       try {
-        offset = std::stoll(command[i + 2].AsString());
-        new_value = std::stoll(command[i + 3].AsString());
+        if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
+        if (!absl::SimpleAtoi(command[i + 3].AsString(), &new_value)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
       } catch (...) {
         return CommandResult(false, "ERR offset or value is not an integer or out of range");
       }
 
       bool signed_type = (encoding[0] == 'i');
-      int bits = std::stoi(encoding.substr(1));
+      int bits;
+      if (!absl::SimpleAtoi(encoding.substr(1), &bits)) {
+        return CommandResult(false, "ERR invalid bitfield type");
+      }
 
       if (bits <= 0 || bits > 64) {
         return CommandResult(false, "ERR invalid bitfield type");
@@ -432,14 +471,21 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       int64_t offset;
       int64_t increment;
       try {
-        offset = std::stoll(command[i + 2].AsString());
-        increment = std::stoll(command[i + 3].AsString());
+        if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
+        if (!absl::SimpleAtoi(command[i + 3].AsString(), &increment)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
       } catch (...) {
         return CommandResult(false, "ERR offset or increment is not an integer or out of range");
       }
 
       bool signed_type = (encoding[0] == 'i');
-      int bits = std::stoi(encoding.substr(1));
+      int bits;
+      if (!absl::SimpleAtoi(encoding.substr(1), &bits)) {
+        return CommandResult(false, "ERR invalid bitfield type");
+      }
 
       if (bits <= 0 || bits > 64) {
         return CommandResult(false, "ERR invalid bitfield type");
@@ -551,7 +597,9 @@ CommandResult HandleBitGet(const protocol::Command& command, CommandContext* con
   const std::string& key = command[0].AsString();
   int64_t offset;
   try {
-    offset = std::stoll(command[1].AsString());
+    if (!absl::SimpleAtoi(command[1].AsString(), &offset)) {
+      return CommandResult(false, "ERR offset is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR offset is not an integer or out of range");
   }
@@ -583,8 +631,12 @@ CommandResult HandleBitSet(const protocol::Command& command, CommandContext* con
   int64_t offset;
   int64_t bit_value;
   try {
-    offset = std::stoll(command[1].AsString());
-    bit_value = std::stoll(command[2].AsString());
+    if (!absl::SimpleAtoi(command[1].AsString(), &offset)) {
+      return CommandResult(false, "ERR offset is not an integer or out of range");
+    }
+    if (!absl::SimpleAtoi(command[2].AsString(), &bit_value)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR offset or value is not an integer or out of range");
   }

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <fstream>
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::persistence {
@@ -73,7 +74,7 @@ class RdbWriter {
   }
 
   // Save snapshot to RDB file
-  bool Save(std::function<void(RdbWriter&)> save_callback) noexcept {
+  bool Save(absl::AnyInvocable<void(RdbWriter&)> save_callback) noexcept {
     if (!initialized_.load(std::memory_order_acquire)) {
       return false;
     }
@@ -93,7 +94,7 @@ class RdbWriter {
     // Write auxiliary fields
     WriteAux(file, "redis-ver", "6.0.0");
     WriteAux(file, "redis-bits", "64");
-    WriteAux(file, "ctime", std::to_string(absl::ToUnixSeconds(absl::Now())));
+    WriteAux(file, "ctime", absl::StrCat(absl::ToUnixSeconds(absl::Now())));
 
     // Call callback to write database content
     save_callback(*this);

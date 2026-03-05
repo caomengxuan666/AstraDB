@@ -160,7 +160,9 @@ CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, Comman
   double increment;
   
   try {
-    increment = std::stod(incr_arg.AsString());
+    if (!absl::SimpleAtod(incr_arg.AsString(), &increment)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not a valid float");
   }
@@ -304,7 +306,9 @@ CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandCont
   int64_t increment;
 
   try {
-    increment = std::stoll(incr_arg.AsString());
+    if (!absl::SimpleAtoi(incr_arg.AsString(), &increment)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }

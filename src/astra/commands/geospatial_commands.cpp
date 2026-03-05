@@ -162,8 +162,12 @@ CommandResult HandleGeoAdd(const protocol::Command& command, CommandContext* con
     double longitude, latitude;
     
     try {
-      longitude = std::stod(command[idx].AsString());
-      latitude = std::stod(command[idx + 1].AsString());
+      if (!absl::SimpleAtod(command[idx].AsString(), &longitude)) {
+        return CommandResult(false, "ERR value is not a valid float");
+      }
+      if (!absl::SimpleAtod(command[idx + 1].AsString(), &latitude)) {
+        return CommandResult(false, "ERR value is not a valid float");
+      }
     } catch (...) {
       return CommandResult(false, "ERR invalid longitude or latitude");
     }
@@ -245,7 +249,7 @@ CommandResult HandleGeoDist(const protocol::Command& command, CommandContext* co
   double distance = HaversineDistance(lon1, lat1, lon2, lat2, unit);
   
   protocol::RespValue resp;
-  resp.SetString(std::to_string(distance), protocol::RespType::kBulkString);
+  resp.SetString(absl::StrCat(distance), protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
@@ -320,9 +324,15 @@ CommandResult HandleGeoRadius(const protocol::Command& command, CommandContext* 
   double longitude, latitude, radius;
   
   try {
-    longitude = std::stod(command[1].AsString());
-    latitude = std::stod(command[2].AsString());
-    radius = std::stod(command[3].AsString());
+    if (!absl::SimpleAtod(command[1].AsString(), &longitude)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
+    if (!absl::SimpleAtod(command[2].AsString(), &latitude)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
+    if (!absl::SimpleAtod(command[3].AsString(), &radius)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
   } catch (...) {
     return CommandResult(false, "ERR invalid coordinates or radius");
   }

@@ -1,11 +1,23 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
 
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "server.hpp"
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/commands/command_auto_register.hpp"
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/core/async/thread_pool.hpp"
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/protocol/resp/resp_builder.hpp"
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/persistence/rdb_writer.hpp"
 #include <absl/strings/match.h>
 #include <absl/strings/string_view.h>
@@ -41,7 +53,7 @@ Server::Server(const ServerConfig& config)
       io_context_, config.max_connections, buffer_pool_.get());
   
   // Set global function for direct posting to main IO context
-  astra::core::async::g_post_to_main_io_context_func = [this](std::function<void()> work) {
+  astra::core::async::g_post_to_main_io_context_func = [this](absl::AnyInvocable<void()> work) {
     asio::post(io_context_, std::move(work));
   };
   
@@ -313,12 +325,12 @@ class ServerCommandContext : public commands::CommandContext {
         if (server_ && server_->IsAofEnabled()) {
           // Format as RESP command
           std::string resp_cmd;
-          resp_cmd += "*" + std::to_string(args.size() + 1) + "\r\n";
-          resp_cmd += "$" + std::to_string(command.size()) + "\r\n";
+          resp_cmd += absl::StrCat("*", args.size() + 1, "\r\n");
+          resp_cmd += absl::StrCat("$", command.size(), "\r\n");
           resp_cmd.append(command.data(), command.size());
           resp_cmd += "\r\n";
           for (const auto& arg : args) {
-            resp_cmd += "$" + std::to_string(arg.size()) + "\r\n";
+            resp_cmd += absl::StrCat("$", arg.size(), "\r\n");
             resp_cmd.append(arg.data(), arg.size());
             resp_cmd += "\r\n";
           }
@@ -399,7 +411,7 @@ class ServerCommandContext : public commands::CommandContext {
     return connection_ ? connection_->GetWatchedKeys() : empty;
   }
 
-  bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const override {
+  bool IsWatchedKeyModified(const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const override {
     return connection_ ? connection_->IsWatchedKeyModified(get_version) : false;
   }
 
@@ -569,7 +581,7 @@ void Server::HandleCommand(const protocol::Command& cmd,
           if (gossip_manager_) {
             auto owner = gossip_manager_->FindNode(primary_node);
             if (owner) {
-              redirect_addr = owner->ip + ":" + std::to_string(owner->port);
+              redirect_addr = absl::StrCat(owner->ip, ":", owner->port);
             }
           }
         } else if (is_migrating) {
@@ -588,7 +600,7 @@ void Server::HandleCommand(const protocol::Command& cmd,
             if (gossip_manager_) {
               auto target_node = gossip_manager_->FindNode(target);
               if (target_node) {
-                redirect_addr = target_node->ip + ":" + std::to_string(target_node->port);
+                redirect_addr = absl::StrCat(target_node->ip, ":", target_node->port);
               }
             }
           } else {
@@ -608,7 +620,7 @@ void Server::HandleCommand(const protocol::Command& cmd,
   
   // Handle MOVED redirect
   if (need_redirect) {
-    std::string moved_error = "MOVED " + std::to_string(redirect_slot) + " " + redirect_addr;
+    std::string moved_error = absl::StrCat("MOVED ", redirect_slot, " ") + redirect_addr;
     auto error_result = commands::CommandResult(false, moved_error);
     SendResponse(conn, error_result);
     return;
@@ -616,7 +628,7 @@ void Server::HandleCommand(const protocol::Command& cmd,
   
   // Handle ASK redirect
   if (ask_redirect) {
-    std::string ask_error = "ASK " + std::to_string(redirect_slot) + " " + redirect_addr;
+    std::string ask_error = absl::StrCat("ASK ", redirect_slot, " ") + redirect_addr;
     auto error_result = commands::CommandResult(false, ask_error);
     SendResponse(conn, error_result);
     return;
@@ -838,7 +850,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
           if (gossip_manager_) {
             auto owner = gossip_manager_->FindNode(primary_node);
             if (owner) {
-              redirect_addr = owner->ip + ":" + std::to_string(owner->port);
+              redirect_addr = absl::StrCat(owner->ip, ":", owner->port);
             }
           }
         } else if (is_migrating) {
@@ -857,7 +869,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
             if (gossip_manager_) {
               auto target_node = gossip_manager_->FindNode(target);
               if (target_node) {
-                redirect_addr = target_node->ip + ":" + std::to_string(target_node->port);
+                redirect_addr = absl::StrCat(target_node->ip, ":", target_node->port);
               }
             }
           } else {
@@ -877,7 +889,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   
   // Handle MOVED redirect
   if (need_redirect) {
-    std::string moved_error = "MOVED " + std::to_string(redirect_slot) + " " + redirect_addr;
+    std::string moved_error = absl::StrCat("MOVED ", redirect_slot, " ") + redirect_addr;
     auto error_result = commands::CommandResult(false, moved_error);
     
     // Record metrics
@@ -892,7 +904,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   
   // Handle ASK redirect
   if (ask_redirect) {
-    std::string ask_error = "ASK " + std::to_string(redirect_slot) + " " + redirect_addr;
+    std::string ask_error = absl::StrCat("ASK ", redirect_slot, " ") + redirect_addr;
     auto error_result = commands::CommandResult(false, ask_error);
     
     // Record metrics
@@ -968,11 +980,11 @@ void Server::SendResponse(std::shared_ptr<network::Connection> conn,
       response = "+" + result.response.AsString() + "\r\n";
     } else if (result.response.IsBulkString()) {
       const auto& str = result.response.AsString();
-      response = "$" + std::to_string(str.length()) + "\r\n" + str + "\r\n";
+      response = absl::StrCat("$", str.length(), "\r\n", str, "\r\n");
     } else if (result.response.IsInteger()) {
-      response = ":" + std::to_string(result.response.AsInteger()) + "\r\n";
+      response = absl::StrCat(":", result.response.AsInteger(), "\r\n");
     } else if (result.response.GetType() == protocol::RespType::kDouble) {
-      response = "," + std::to_string(result.response.AsDouble()) + "\r\n";
+      response = absl::StrCat(",", result.response.AsDouble(), "\r\n");
     } else if (result.response.IsArray()) {
       // Use RespBuilder for proper array serialization (including nested arrays)
       response = protocol::RespBuilder::Build(result.response);
@@ -1146,7 +1158,10 @@ bool Server::InitCluster() noexcept {
       size_t colon_pos = seed.find(':');
       if (colon_pos != std::string::npos) {
         std::string ip = seed.substr(0, colon_pos);
-        int port = std::stoi(seed.substr(colon_pos + 1));
+        int port;
+        if (!absl::SimpleAtoi(seed.substr(colon_pos + 1), &port)) {
+          continue;
+        }
         gossip_manager_->MeetNode(ip, port);
       }
     }
@@ -1474,8 +1489,8 @@ size_t Server::ServerPubSubManager::Publish(const std::string& channel, const st
   std::string resp_msg;
   resp_msg += "*3\r\n";
   resp_msg += "$7\r\nmessage\r\n";
-  resp_msg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-  resp_msg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+  resp_msg += absl::StrCat("$", channel.size(), "\r\n", channel, "\r\n");
+  resp_msg += absl::StrCat("$", message.size(), "\r\n", message, "\r\n");
 
   // Send to channel subscribers
   auto it = server_->channel_subscribers_.find(channel);
@@ -1521,9 +1536,9 @@ size_t Server::ServerPubSubManager::Publish(const std::string& channel, const st
       std::string pmsg;
       pmsg += "*4\r\n";
       pmsg += "$8\r\npmessage\r\n";
-      pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
-      pmsg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-      pmsg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+      pmsg += absl::StrCat("$", pattern.size(), "\r\n", pattern, "\r\n");
+      pmsg += absl::StrCat("$", channel.size(), "\r\n", channel, "\r\n");
+      pmsg += absl::StrCat("$", message.size(), "\r\n", message, "\r\n");
 
       for (uint64_t conn_id : subscribers) {
         auto conn_it = server_->connections_.find(conn_id);
@@ -1570,8 +1585,8 @@ void Server::ServerPubSubManager::SendSubscribeReply(uint64_t conn_id, const std
       std::string reply;
       reply += "*3\r\n";
       reply += "$9\r\nsubscribe\r\n";
-      reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-      reply += ":" + std::to_string(count) + "\r\n";
+      reply += absl::StrCat("$", channel.size(), "\r\n", channel, "\r\n");
+      reply += absl::StrCat(":", count, "\r\n");
       conn->Send(reply);
     }
   }
@@ -1586,8 +1601,8 @@ void Server::ServerPubSubManager::SendUnsubscribeReply(uint64_t conn_id, const s
       std::string reply;
       reply += "*3\r\n";
       reply += "$11\r\nunsubscribe\r\n";
-      reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-      reply += ":" + std::to_string(count) + "\r\n";
+      reply += absl::StrCat("$", channel.size(), "\r\n", channel, "\r\n");
+      reply += absl::StrCat(":", count, "\r\n");
       conn->Send(reply);
     }
   }

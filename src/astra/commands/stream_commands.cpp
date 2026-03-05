@@ -33,7 +33,7 @@ StreamId::StreamId(const std::string& str) {
 }
 
 std::string StreamId::ToString() const {
-  return std::to_string(ms) + "-" + std::to_string(seq);
+  return absl::StrCat(ms, "-", seq);
 }
 
 bool StreamId::operator<(const StreamId& other) const {

@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "resp_builder.hpp"
+#include <absl/strings/str_cat.h>
 #include <charconv>
 
 namespace astra::protocol {
@@ -174,7 +175,7 @@ std::string RespBuilder::BuildDouble(double num) {
   std::string out;
   out += ',';
   // Simple double conversion
-  out += std::to_string(num);
+  out += absl::StrCat(num);
   AppendCRLF(out);
   return out;
 }
@@ -188,7 +189,7 @@ void RespBuilder::AppendCRLF(std::string& out) {
 }
 
 void RespBuilder::AppendInteger(std::string& out, int64_t num) {
-  out += std::to_string(num);
+  out += absl::StrCat(num);
 }
 
 }  // namespace astra::protocol

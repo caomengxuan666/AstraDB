@@ -343,12 +343,9 @@ class Database {
     std::string value;
     int64_t int_value = 0;
     if (hash->Get(field, &value)) {
-      // Parse existing value as integer
       try {
-        size_t pos;
-        int_value = std::stoll(value, &pos);
-        if (pos != value.size()) {
-          throw std::invalid_argument("not an integer");
+        if (!absl::SimpleAtoi(value, &int_value)) {
+          return 0;
         }
       } catch (...) {
         return 0;  // Will be handled by command
@@ -356,7 +353,7 @@ class Database {
     }
     
     int_value += increment;
-    hash->Insert(field, std::to_string(int_value));
+    hash->Insert(field, absl::StrCat(int_value));
     return int_value;
   }
 
@@ -373,7 +370,9 @@ class Database {
     double float_value = 0.0;
     if (hash->Get(field, &value)) {
       try {
-        float_value = std::stod(value);
+        if (!absl::SimpleAtod(value, &float_value)) {
+          return 0.0;
+        }
       } catch (...) {
         return 0.0;  // Will be handled by command
       }

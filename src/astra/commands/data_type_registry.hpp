@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <absl/functional/any_invocable.h>
 #include "astra/base/constexpr_map.hpp"
 
 namespace astra::commands {
@@ -39,7 +40,7 @@ class IContainer {
 };
 
 // Type-erased container factory
-using ContainerFactory = std::function<std::unique_ptr<IContainer>()>;
+using ContainerFactory = absl::AnyInvocable<std::unique_ptr<IContainer>() const>;
 
 // Compile-time data type registration
 template <DataType... Types>

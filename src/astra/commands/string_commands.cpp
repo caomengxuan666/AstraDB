@@ -83,7 +83,10 @@ std::string key = key_arg.AsString();
         return CommandResult(false, "ERR wrong type of seconds argument");
       }
       try {
-        int64_t seconds = std::stoll(seconds_arg.AsString());
+        int64_t seconds;
+        if (!absl::SimpleAtoi(seconds_arg.AsString(), &seconds)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
         if (seconds < 0) {
           return CommandResult(false, "ERR invalid expire time");
         }
@@ -102,7 +105,10 @@ std::string key = key_arg.AsString();
         return CommandResult(false, "ERR wrong type of milliseconds argument");
       }
       try {
-        int64_t millis = std::stoll(millis_arg.AsString());
+        int64_t millis;
+        if (!absl::SimpleAtoi(millis_arg.AsString(), &millis)) {
+          return CommandResult(false, "ERR value is not an integer or out of range");
+        }
         if (millis < 0) {
           return CommandResult(false, "ERR invalid expire time");
         }
@@ -141,7 +147,7 @@ std::string key = key_arg.AsString();
   
   // Log to AOF (zero-copy with absl::Span)
   if (expire_time_ms.has_value()) {
-    std::string px_str = std::to_string(*expire_time_ms);
+    std::string px_str = absl::StrCat(*expire_time_ms);
     std::array<absl::string_view, 4> aof_args_with_expire = {key, value, "PX", px_str};
     context->LogToAof("SET", absl::MakeSpan(aof_args_with_expire));
   } else {
@@ -282,10 +288,7 @@ CommandResult HandleIncr(const astra::protocol::Command& command, CommandContext
   if (value.has_value()) {
     // Try to parse as integer
     try {
-      size_t pos;
-      int_value = std::stoll(value->value, &pos);
-      // Check if entire string was consumed (no trailing chars)
-      if (pos != value->value.size()) {
+      if (!absl::SimpleAtoi(value->value, &int_value)) {
         return CommandResult(false, "ERR value is not an integer or out of range");
       }
     } catch (...) {
@@ -297,7 +300,7 @@ CommandResult HandleIncr(const astra::protocol::Command& command, CommandContext
   int_value++;
   
   // Store back
-  db->Set(key, std::to_string(int_value));
+  db->Set(key, absl::StrCat(int_value));
   
   // Log to AOF
   std::array<absl::string_view, 1> aof_args = {key};
@@ -328,9 +331,7 @@ CommandResult HandleDecr(const astra::protocol::Command& command, CommandContext
   int64_t int_value = 0;
   if (value.has_value()) {
     try {
-      size_t pos;
-      int_value = std::stoll(value->value, &pos);
-      if (pos != value->value.size()) {
+      if (!absl::SimpleAtoi(value->value, &int_value)) {
         return CommandResult(false, "ERR value is not an integer or out of range");
       }
     } catch (...) {
@@ -339,7 +340,7 @@ CommandResult HandleDecr(const astra::protocol::Command& command, CommandContext
   }
   
   int_value--;
-  db->Set(key, std::to_string(int_value));
+  db->Set(key, absl::StrCat(int_value));
   
   std::array<absl::string_view, 1> aof_args = {key};
   context->LogToAof("DECR", aof_args);
@@ -369,7 +370,9 @@ CommandResult HandleIncrBy(const astra::protocol::Command& command, CommandConte
   int64_t increment;
   
   try {
-    increment = std::stoll(incr_arg.AsString());
+    if (!absl::SimpleAtoi(incr_arg.AsString(), &increment)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
@@ -379,9 +382,7 @@ CommandResult HandleIncrBy(const astra::protocol::Command& command, CommandConte
   int64_t int_value = 0;
   if (value.has_value()) {
     try {
-      size_t pos;
-      int_value = std::stoll(value->value, &pos);
-      if (pos != value->value.size()) {
+      if (!absl::SimpleAtoi(value->value, &int_value)) {
         return CommandResult(false, "ERR value is not an integer or out of range");
       }
     } catch (...) {
@@ -390,7 +391,7 @@ CommandResult HandleIncrBy(const astra::protocol::Command& command, CommandConte
   }
   
   int_value += increment;
-  db->Set(key, std::to_string(int_value));
+  db->Set(key, absl::StrCat(int_value));
   
   std::array<absl::string_view, 2> aof_args = {key, incr_arg.AsString()};
   context->LogToAof("INCRBY", aof_args);
@@ -420,7 +421,9 @@ CommandResult HandleDecrBy(const astra::protocol::Command& command, CommandConte
   int64_t decrement;
   
   try {
-    decrement = std::stoll(decr_arg.AsString());
+    if (!absl::SimpleAtoi(decr_arg.AsString(), &decrement)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
@@ -430,9 +433,7 @@ CommandResult HandleDecrBy(const astra::protocol::Command& command, CommandConte
   int64_t int_value = 0;
   if (value.has_value()) {
     try {
-      size_t pos;
-      int_value = std::stoll(value->value, &pos);
-      if (pos != value->value.size()) {
+      if (!absl::SimpleAtoi(value->value, &int_value)) {
         return CommandResult(false, "ERR value is not an integer or out of range");
       }
     } catch (...) {
@@ -441,7 +442,7 @@ CommandResult HandleDecrBy(const astra::protocol::Command& command, CommandConte
   }
   
   int_value -= decrement;
-  db->Set(key, std::to_string(int_value));
+  db->Set(key, absl::StrCat(int_value));
   
   std::array<absl::string_view, 2> aof_args = {key, decr_arg.AsString()};
   context->LogToAof("DECRBY", aof_args);
@@ -572,7 +573,9 @@ CommandResult HandleSetEx(const astra::protocol::Command& command, CommandContex
   
   int64_t seconds;
   try {
-    seconds = std::stoll(seconds_arg.AsString());
+    if (!absl::SimpleAtoi(seconds_arg.AsString(), &seconds)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
     if (seconds < 0) {
       return CommandResult(false, "ERR invalid expire time");
     }
@@ -650,8 +653,12 @@ CommandResult HandleGetRange(const astra::protocol::Command& command, CommandCon
   int64_t start, end;
   
   try {
-    start = std::stoll(start_arg.AsString());
-    end = std::stoll(end_arg.AsString());
+    if (!absl::SimpleAtoi(start_arg.AsString(), &start)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+    if (!absl::SimpleAtoi(end_arg.AsString(), &end)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
@@ -684,7 +691,9 @@ CommandResult HandleSetRange(const astra::protocol::Command& command, CommandCon
   int64_t offset;
   
   try {
-    offset = std::stoll(offset_arg.AsString());
+    if (!absl::SimpleAtoi(offset_arg.AsString(), &offset)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
     if (offset < 0) {
       return CommandResult(false, "ERR offset is out of range");
     }

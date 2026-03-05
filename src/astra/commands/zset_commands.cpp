@@ -39,7 +39,9 @@ CommandResult HandleZAdd(const astra::protocol::Command& command, CommandContext
 
     double score;
     try {
-      score = std::stod(score_arg.AsString());
+      if (!absl::SimpleAtod(score_arg.AsString(), &score)) {
+        return CommandResult(false, "ERR value is not a valid float");
+      }
     } catch (...) {
       return CommandResult(false, "ERR value is not a valid float");
     }
@@ -75,8 +77,12 @@ CommandResult HandleZRange(const astra::protocol::Command& command, CommandConte
   int64_t start, stop;
   
   try {
-    start = std::stoll(start_arg.AsString());
-    stop = std::stoll(stop_arg.AsString());
+    if (!absl::SimpleAtoi(start_arg.AsString(), &start)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+    if (!absl::SimpleAtoi(stop_arg.AsString(), &stop)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
@@ -221,8 +227,12 @@ CommandResult HandleZCount(const astra::protocol::Command& command, CommandConte
   double min, max;
   
   try {
-    min = std::stod(min_arg.AsString());
-    max = std::stod(max_arg.AsString());
+    if (!absl::SimpleAtod(min_arg.AsString(), &min)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
+    if (!absl::SimpleAtod(max_arg.AsString(), &max)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not a valid float");
   }
@@ -255,7 +265,9 @@ CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandCont
   double increment;
   
   try {
-    increment = std::stod(incr_arg.AsString());
+    if (!absl::SimpleAtod(incr_arg.AsString(), &increment)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not a valid float");
   }

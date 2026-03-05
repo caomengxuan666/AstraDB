@@ -11,7 +11,13 @@
 #include <unordered_map>
 #include <functional>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
+#include <absl/functional/any_invocable.h>
 #include "astra/protocol/resp/resp_types.hpp"
 
 namespace astra::replication {
@@ -48,7 +54,7 @@ struct ReplicationConfig {
 // Replication Manager - handles master-slave replication
 class ReplicationManager {
  public:
-  using CommandCallback = std::function<void(const protocol::Command&)>;
+  using CommandCallback = absl::AnyInvocable<void(const protocol::Command&)>;
   
   ReplicationManager() noexcept = default;
   ~ReplicationManager() noexcept { Stop(); }
@@ -79,7 +85,7 @@ class ReplicationManager {
   // Stop replication
   void Stop() noexcept {
     running_.store(false, std::memory_order_release);
-    std::lock_guard<std::mutex> lock(slaves_mutex_);
+    absl::MutexLock lock(&slaves_mutex_);
     slaves_.clear();
     ASTRADB_LOG_INFO("Replication stopped");
   }
@@ -95,7 +101,7 @@ class ReplicationManager {
       return false;
     }
     
-    std::lock_guard<std::mutex> lock(slaves_mutex_);
+    absl::MutexLock lock(&slaves_mutex_);
     uint64_t id = next_slave_id_.fetch_add(1, std::memory_order_relaxed);
     slaves_[id] = std::make_unique<SlaveInfo>(id, host, port);
     
@@ -105,7 +111,7 @@ class ReplicationManager {
   
   // Remove slave (master only)
   bool RemoveSlave(uint64_t slave_id) noexcept {
-    std::lock_guard<std::mutex> lock(slaves_mutex_);
+    absl::MutexLock lock(&slaves_mutex_);
     auto it = slaves_.find(slave_id);
     if (it != slaves_.end()) {
       slaves_.erase(it);
@@ -125,14 +131,14 @@ class ReplicationManager {
     repl_offset_.fetch_add(1, std::memory_order_relaxed);
     
     // Store in backlog
-    std::lock_guard<std::mutex> lock(backlog_mutex_);
+    absl::MutexLock lock(&backlog_mutex_);
     if (repl_backlog_.size() >= config_.repl_backlog_size) {
       repl_backlog_.pop_front();
     }
     repl_backlog_.push_back(cmd);
     
     // Send to all slaves
-    std::lock_guard<std::mutex> slaves_lock(slaves_mutex_);
+    absl::MutexLock slaves_lock(&slaves_mutex_);
     for (auto& [id, slave] : slaves_) {
       if (slave->online.load(std::memory_order_acquire)) {
         // TODO: Send command to slave
@@ -167,14 +173,14 @@ class ReplicationManager {
   
   // Get number of connected slaves
   size_t GetSlaveCount() const noexcept {
-    std::lock_guard<std::mutex> lock(slaves_mutex_);
+    absl::MutexLock lock(&slaves_mutex_);
     return slaves_.size();
   }
   
   // Get slave info
   std::vector<std::pair<std::string, uint64_t>> GetSlaveInfo() const noexcept {
     std::vector<std::pair<std::string, uint64_t>> info;
-    std::lock_guard<std::mutex> lock(slaves_mutex_);
+    absl::MutexLock lock(&slaves_mutex_);
     for (const auto& [id, slave] : slaves_) {
       info.emplace_back(slave->host, slave->repl_offset);
     }
@@ -189,11 +195,11 @@ class ReplicationManager {
   std::atomic<uint64_t> repl_offset_{0};
   std::atomic<uint64_t> next_slave_id_{1};
   
-  std::unordered_map<uint64_t, std::unique_ptr<SlaveInfo>> slaves_;
-  mutable std::mutex slaves_mutex_;
+  absl::flat_hash_map<uint64_t, std::unique_ptr<SlaveInfo>> slaves_;
+  mutable absl::Mutex slaves_mutex_;
   
   std::deque<protocol::Command> repl_backlog_;
-  mutable std::mutex backlog_mutex_;
+  mutable absl::Mutex backlog_mutex_;
   
   CommandCallback command_callback_;
 };

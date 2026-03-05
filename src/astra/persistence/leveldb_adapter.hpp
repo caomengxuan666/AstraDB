@@ -5,7 +5,7 @@
 // ==============================================================================
 // Design Principles:
 // - noexcept for all performance-critical paths
-// - Abseil containers (absl::flat_hash_map) instead of std::unordered_map
+// - Abseil containers (absl::flat_hash_map) instead of absl::flat_hash_map
 // - absl::Span for zero-copy views
 // - Cross-platform: Linux/Windows/macOS
 // ==============================================================================
@@ -27,7 +27,9 @@
 #include <mutex>
 #include <atomic>
 
+#include <absl/synchronization/mutex.h>
 #include "astra/base/macros.hpp"
+#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::persistence {
@@ -155,7 +157,7 @@ class LevelDBAdapter {
 
   // Open database with options - returns true on success
   bool Open(const LevelDBOptions& options) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     
     if (is_open_.load(std::memory_order_acquire)) {
       return true;  // Already open
@@ -197,7 +199,7 @@ class LevelDBAdapter {
 
   // Close database
   void Close() noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     
     if (!is_open_.load(std::memory_order_acquire)) {
       return;
@@ -467,7 +469,7 @@ class LevelDBAdapter {
     result.push_back(':');
     result.append(key.data(), key.size());
     result.push_back(':');
-    result.append(std::to_string(index));
+    result.append(absl::StrCat(index));
     return result;
   }
 
@@ -478,7 +480,7 @@ class LevelDBAdapter {
     result.reserve(2 + 21 + 1 + key.size());  // 21 for max int64_t string
     result.push_back(static_cast<char>(KeyPrefix::kTTL));
     result.push_back(':');
-    result.append(std::to_string(expire_time_ms));
+    result.append(absl::StrCat(expire_time_ms));
     result.push_back(':');
     result.append(key.data(), key.size());
     return result;
@@ -534,7 +536,7 @@ class LevelDBAdapter {
   leveldb::Cache* cache_;
   const leveldb::FilterPolicy* filter_policy_;
   LevelDBOptions options_;
-  std::mutex mutex_;
+  absl::Mutex mutex_;
   std::atomic<bool> is_open_;
 };
 

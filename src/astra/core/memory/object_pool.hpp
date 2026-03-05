@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 
+#include <absl/functional/any_invocable.h>
 #include "astra/base/macros.hpp"
 
 namespace astra::core::memory {
@@ -32,8 +33,8 @@ namespace astra::core::memory {
 template <typename T>
 class ObjectPool final {
  public:
-  using Factory = std::function<T*()>;
-  using Deleter = std::function<void(T*)>;
+  using Factory = absl::AnyInvocable<T*()>;
+  using Deleter = absl::AnyInvocable<void(T*)>;
 
   // Constructor
   explicit ObjectPool(

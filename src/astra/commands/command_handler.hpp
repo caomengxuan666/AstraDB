@@ -15,8 +15,11 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <absl/functional/any_invocable.h>
 #include "astra/protocol/resp/resp_types.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/replication/replication_manager.hpp"
+#include <absl/functional/any_invocable.h>
 #include "database.hpp"
 
 namespace astra::commands {
@@ -44,7 +47,7 @@ class AofWriter;
 }
 
 // AOF callback type for logging write commands (zero-copy with absl::Span)
-using AofCallback = std::function<void(absl::string_view command, absl::Span<const absl::string_view> args)>;
+using AofCallback = absl::AnyInvocable<void(absl::string_view command, absl::Span<const absl::string_view> args)>;
 
 namespace astra::commands {
 
@@ -113,7 +116,7 @@ class CommandContext {
     static absl::flat_hash_set<std::string> empty;
     return empty;
   }
-  virtual bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const {
+  virtual bool IsWatchedKeyModified(const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const {
     (void)get_version;
     return false;
   }
@@ -147,8 +150,8 @@ struct CommandResult {
 };
 
 // Command handler function signature
-using CommandHandler = std::function<CommandResult(
-    const astra::protocol::Command& command, CommandContext* context)>;
+using CommandHandler = absl::AnyInvocable<CommandResult(
+    const astra::protocol::Command& command, CommandContext* context) const>;
 
 // Command routing strategy
 enum class RoutingStrategy {
@@ -219,7 +222,7 @@ class CommandRegistry {
     CommandHandler handler;
   };
 
-  std::unordered_map<std::string, CommandEntry> commands_;
+  absl::flat_hash_map<std::string, CommandEntry> commands_;
 };
 
 // Global command registry instance

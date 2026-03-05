@@ -1,6 +1,7 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
 
+#include <absl/synchronization/mutex.h>
 #include "btree_zset.hpp"
 
 namespace astra::container {

@@ -3,6 +3,7 @@
 
 #include "resp_parser.hpp"
 #include "astra/base/simd_utils.hpp"
+#include <absl/strings/numbers.h>
 #include <charconv>
 #include <algorithm>
 
@@ -249,8 +250,12 @@ std::optional<int64_t> RespParser::ParseInt(std::string_view str) {
 std::optional<double> RespParser::ParseDouble(std::string_view str) {
   // Simple atof for now
   std::string temp(str);
+  double result;
   try {
-    return std::stod(temp);
+    if (!absl::SimpleAtod(temp, &result)) {
+      return std::nullopt;
+    }
+    return result;
   } catch (...) {
     return std::nullopt;
   }

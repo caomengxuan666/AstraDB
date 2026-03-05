@@ -62,14 +62,14 @@ class IOContextThreadPool {
 IOContextThreadPool& GetGlobalThreadPool();
 
 // Global function for posting to main IO context (defined in thread_pool.cpp)
-extern std::function<void(std::function<void()>)> g_post_to_main_io_context_func;
+extern absl::AnyInvocable<void(absl::AnyInvocable<void()>)> g_post_to_main_io_context_func;
 
 // Simple helper for posting to main IO context (no thread pool overhead)
 // This is the simplest implementation for testing baseline performance
-inline void PostToMainIOContext(std::function<void()> work) {
+inline void PostToMainIOContext(absl::AnyInvocable<void()> work) {
   // This will be implemented by the Server class
   // For now, we use a global function
-  extern void PostToMainIOContextImpl(std::function<void()>);
+  extern void PostToMainIOContextImpl(absl::AnyInvocable<void()>);
   PostToMainIOContextImpl(std::move(work));
 }
 

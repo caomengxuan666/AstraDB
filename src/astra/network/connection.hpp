@@ -13,8 +13,11 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/inlined_vector.h>
 
+#include <absl/functional/any_invocable.h>
 #include "astra/protocol/resp/resp_types.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/protocol/resp/resp_parser.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/core/memory/buffer_pool.hpp"
 
 namespace astra::network {
@@ -27,7 +30,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
  public:
   using Socket = asio::ip::tcp::socket;
   using Executor = asio::io_context;
-  using CommandCallback = std::function<void(const protocol::Command&)>;
+  using CommandCallback = absl::AnyInvocable<void(const protocol::Command&) const>;
   
   explicit Connection(Socket socket, Executor& io_context, 
                     astra::core::memory::BufferPool* buffer_pool = nullptr);
@@ -89,7 +92,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   const absl::flat_hash_set<std::string>& GetWatchedKeys() const { return watched_keys_; }
   
   // Check if any watched key was modified
-  bool IsWatchedKeyModified(const std::function<uint64_t(const std::string&)>& get_version) const;
+  bool IsWatchedKeyModified(const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const;
   
   // Clear watched keys
   void ClearWatchedKeys();

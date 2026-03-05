@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <absl/synchronization/mutex.h>
 #include "leveldb_adapter.hpp"
 
 #include <absl/container/flat_hash_map.h>
@@ -26,7 +27,9 @@
 #include <fstream>
 #include <filesystem>
 
+#include <absl/synchronization/mutex.h>
 #include "astra/base/macros.hpp"
+#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::persistence {
@@ -99,7 +102,7 @@ class SnapshotManager {
       return false;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
 
     const auto start_time = absl::Now();
 
@@ -177,7 +180,7 @@ class SnapshotManager {
       return false;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
 
     // Find latest snapshot if name not provided
     std::string snapshot_path;
@@ -395,7 +398,7 @@ class SnapshotManager {
   }
 
   SnapshotOptions options_;
-  mutable std::mutex mutex_;
+  mutable absl::Mutex mutex_;
   std::atomic<bool> initialized_{false};
 };
 

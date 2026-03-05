@@ -48,8 +48,8 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
       }
       
       // Build client info string (simplified format)
-      result += "id=" + std::to_string(id) + " ";
-      result += "addr=" + ip + ":" + std::to_string(port) + " ";
+      result += absl::StrCat("id=", id, " ");
+      result += "addr=" + absl::StrCat(ip, ":", port) + " ";
       result += "name= ";  // Empty name for now
       result += "age=0 ";  // Age not tracked for now
       result += "idle=0 ";  // Idle time not tracked for now

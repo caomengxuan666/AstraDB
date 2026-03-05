@@ -74,7 +74,7 @@ int LuaScriptContext::LuaCall(lua_State* L) {
     if (lua_isstring(L, i)) {
       args.push_back(lua_tostring(L, i));
     } else if (lua_isnumber(L, i)) {
-      args.push_back(std::to_string(lua_tonumber(L, i)));
+      args.push_back(absl::StrCat(lua_tonumber(L, i)));
     } else if (lua_isboolean(L, i)) {
       args.push_back(lua_toboolean(L, i) ? "1" : "0");
     } else {
@@ -157,7 +157,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
         if (num == static_cast<int64_t>(num)) {
           results.push_back(RespValue(static_cast<int64_t>(num)));
         } else {
-          results.push_back(RespValue(std::to_string(num)));
+          results.push_back(RespValue(absl::StrCat(num)));
         }
       } else if (lua_isstring(lua_state_, -1)) {
         const char* str = lua_tostring(lua_state_, -1);
@@ -192,7 +192,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
       if (num == static_cast<int64_t>(num)) {
         results.push_back(RespValue(static_cast<int64_t>(num)));
       } else {
-        results.push_back(RespValue(std::to_string(num)));
+        results.push_back(RespValue(absl::StrCat(num)));
       }
     } else if (lua_isstring(lua_state_, i)) {
       const char* str = lua_tostring(lua_state_, i);
@@ -266,16 +266,16 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
     return CommandResult(false, "ERR script must be a string");
   }
 
-  if (!numkeys_arg.IsBulkString()) {
-    return CommandResult(false, "ERR numkeys must be a string");
-  }
-
   std::string script = script_arg.AsString();
+  if (!numkeys_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of numkeys argument");
+  }
   std::string numkeys_str = numkeys_arg.AsString();
-  
   int numkeys = 0;
   try {
-    numkeys = std::stoi(numkeys_str);
+    if (!absl::SimpleAtoi(numkeys_str, &numkeys)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
@@ -347,10 +347,12 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandCont
   if (!script) {
     return CommandResult(false, "NOSCRIPT No matching script. Please use EVAL.");
   }
-  
+
   int numkeys = 0;
   try {
-    numkeys = std::stoi(numkeys_str);
+    if (!absl::SimpleAtoi(numkeys_str, &numkeys)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }

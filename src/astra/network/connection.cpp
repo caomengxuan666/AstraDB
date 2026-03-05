@@ -1,8 +1,11 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
 
+#include <absl/functional/any_invocable.h>
 #include "connection.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
+#include <absl/strings/str_cat.h>
 #include <sstream>
 
 namespace astra::network {
@@ -35,7 +38,7 @@ std::string Connection::GetRemoteAddress() const {
   
   try {
     return socket_.remote_endpoint().address().to_string() + ":" + 
-           std::to_string(socket_.remote_endpoint().port());
+           absl::StrCat(socket_.remote_endpoint().port());
   } catch (...) {
     return "unknown";
   }
@@ -314,7 +317,7 @@ void Connection::WatchKey(const std::string& key, uint64_t version) {
 }
 
 bool Connection::IsWatchedKeyModified(
-    const std::function<uint64_t(const std::string&)>& get_version) const {
+    const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const {
   for (const auto& key : watched_keys_) {
     auto it = watched_key_versions_.find(key);
     if (it != watched_key_versions_.end()) {

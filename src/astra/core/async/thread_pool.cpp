@@ -1,15 +1,17 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
 
+#include <absl/functional/any_invocable.h>
 #include "thread_pool.hpp"
+#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::core::async {
 
 // Global function for posting to main IO context (defined in server.cpp)
-std::function<void(std::function<void()>)> g_post_to_main_io_context_func;
+absl::AnyInvocable<void(absl::AnyInvocable<void()>)> g_post_to_main_io_context_func;
 
-void PostToMainIOContextImpl(std::function<void()> work) {
+void PostToMainIOContextImpl(absl::AnyInvocable<void()> work) {
   if (g_post_to_main_io_context_func) {
     g_post_to_main_io_context_func(std::move(work));
   }

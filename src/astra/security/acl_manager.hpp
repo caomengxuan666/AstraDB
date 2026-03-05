@@ -8,6 +8,8 @@
 #include <functional>
 #include <mutex>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::security {
@@ -63,7 +65,7 @@ class AclManager {
   
   // Authenticate user
   bool Authenticate(const std::string& username, const std::string& password) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
       return false;
@@ -81,7 +83,7 @@ class AclManager {
   // Create user
   bool CreateUser(const std::string& username, const std::string& password, 
                   uint32_t permissions = 0, bool enabled = true) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     
     if (users_.find(username) != users_.end()) {
       return false;
@@ -100,7 +102,7 @@ class AclManager {
   
   // Check user permission
   bool CheckPermission(const std::string& username, AclPermission perm) const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
       return false;
@@ -110,7 +112,7 @@ class AclManager {
   
   // Get user info
   std::vector<std::string> GetUsers() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(&mutex_);
     std::vector<std::string> users;
     for (const auto& [name, user] : users_) {
       users.push_back(name);
@@ -119,8 +121,8 @@ class AclManager {
   }
   
  private:
-  mutable std::mutex mutex_;
-  std::unordered_map<std::string, AclUser> users_;
+  mutable absl::Mutex mutex_;
+  absl::flat_hash_map<std::string, AclUser> users_;
   std::atomic<bool> initialized_{false};
 };
 
