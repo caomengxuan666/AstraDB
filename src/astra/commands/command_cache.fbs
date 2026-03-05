@@ -1,0 +1,82 @@
+// ==============================================================================
+// AstraDB Command Parameter Cache FlatBuffers Schema
+// ==============================================================================
+// FlatBuffers-based serialization for cached command parameters
+// Zero-copy, efficient, schema-based
+// ==============================================================================
+
+namespace AstraDB.Commands;
+
+// Data types
+enum DataType : uint8 {
+  String = 0,
+  Integer = 1,
+  Float = 2,
+  Boolean = 3,
+  Binary = 4,
+  Array = 5,
+  Null = 255
+}
+
+// Command parameter value
+table CommandValue {
+  data_type: DataType;
+  
+  // Only one is set based on data_type
+  string_value: string;
+  int_value: int64;
+  float_value: double;
+  bool_value: bool;
+  binary_data: [ubyte];
+  array_values: [CommandValue];
+  
+  // Metadata
+  is_null: bool = false;
+}
+
+// Command parameter
+table CommandParameter {
+  name: string;
+  value: CommandValue;
+  index: int32 = -1;  // Position in command (-1 if not applicable)
+}
+
+// Parsed command cache entry
+table CommandCacheEntry {
+  command_name: string;
+  parameters: [CommandParameter];
+  param_count: uint32;
+  hash: string;  // Hash of command + parameters for quick lookup
+  
+  // Timestamps
+  created_at_ms: int64;
+  last_accessed_ms: int64;
+  access_count: uint32;
+  
+  // Metadata
+  is_read_only: bool = false;
+  estimated_size_bytes: uint32 = 0;
+}
+
+// Cache statistics
+table CacheStats {
+  total_entries: uint32;
+  total_size_bytes: uint64;
+  hit_count: uint64;
+  miss_count: uint64;
+  eviction_count: uint32;
+  
+  // Top commands by access count
+  top_commands: [string];
+  top_command_counts: [uint32];
+}
+
+// Cache snapshot for persistence
+table CacheSnapshot {
+  entries: [CommandCacheEntry];
+  stats: CacheStats;
+  snapshot_time_ms: int64;
+  version: string = "1.0.0";
+}
+
+root_type CacheSnapshot;

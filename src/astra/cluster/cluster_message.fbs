@@ -1,0 +1,159 @@
+// ==============================================================================
+// FlatBuffers Schema for Cluster Communication
+// ==============================================================================
+// License: Apache 2.0
+// ==============================================================================
+// Purpose: Efficient, zero-copy serialization for cluster node communication
+// Use Cases:
+//   - Node state synchronization (gossip protocol)
+//   - Slot assignment updates
+//   - Data migration messages
+//   - Configuration epoch changes
+//   - Heartbeat messages
+// ==============================================================================
+
+namespace AstraDB.Cluster;
+
+// Node role enum
+enum NodeRole : byte {
+  Master = 0,
+  Replica = 1,
+  Arbiter = 2
+}
+
+// Node status enum
+enum NodeStatus : byte {
+  Online = 0,
+  Suspect = 1,
+  Failed = 2,
+  Leaving = 3
+}
+
+// Message type enum
+enum MessageType : byte {
+  Heartbeat = 0,           // Regular heartbeat
+  NodeStateUpdate = 1,    // Node state change notification
+  SlotAssignment = 2,     // Slot assignment updates
+  DataMigration = 3,      // Data migration request/response
+  ConfigChange = 4,       // Configuration epoch change
+  SyncRequest = 5,        // Full cluster sync request
+  SyncResponse = 6        // Full cluster sync response
+}
+
+// Migration action enum
+enum MigrationAction : byte {
+  Importing = 0,
+  Migrating = 1,
+  Stable = 2
+}
+
+// Node ID (16 bytes)
+struct NodeId {
+  bytes: [ubyte:16];
+}
+
+// Slot range
+struct SlotRange {
+  start: ushort;
+  end: ushort;
+}
+
+// Node information
+table NodeInfo {
+  id: NodeId;
+  ip: string;
+  port: int;
+  gossip_port: int;
+  role: NodeRole;
+  status: NodeStatus;
+  config_epoch: ulong;
+  heartbeat: ulong;
+  shard_count: uint;
+  memory_used: ulong;
+  keys_count: ulong;
+  region: string;
+  replication_lag_ms: uint;
+}
+
+// Slot assignment info
+table SlotAssignment {
+  slot: ushort;
+  node_id: NodeId;
+  action: MigrationAction;
+  migration_source: NodeId;
+  migration_target: NodeId;
+}
+
+// Key-value pair for migration
+table KeyValue {
+  key: string;
+  value: [ubyte];
+  ttl_ms: ulong;
+  db_index: uint;
+  value_type: byte;  // 0=string, 1=hash, 2=list, 3=set, 4=zset
+}
+
+// Data migration message
+table DataMigration {
+  source_node: NodeId;
+  target_node: NodeId;
+  slot: ushort;
+  key_values: [KeyValue];
+  batch_id: ulong;
+  total_keys: uint;
+  current_offset: uint;
+  is_last: bool;
+}
+
+// Configuration change message
+table ConfigChange {
+  config_epoch: ulong;
+  node_id: NodeId;
+  change_type: string;
+  change_data: [ubyte];
+  timestamp: ulong;
+}
+
+// Cluster snapshot (for sync response)
+table ClusterSnapshot {
+  nodes: [NodeInfo];
+  slot_assignments: [SlotAssignment];
+  config_epoch: ulong;
+  total_slots: uint = 16384;
+  total_keys: ulong;
+  timestamp: ulong;
+}
+
+// Heartbeat message
+table Heartbeat {
+  node_id: NodeId;
+  config_epoch: ulong;
+  sequence: ulong;
+  timestamp: ulong;
+  load_stats: [ubyte];  // Serialized load statistics
+}
+
+// Main cluster message
+table ClusterMessage {
+  message_type: MessageType;
+  sequence: ulong;
+  timestamp: ulong;
+  source_node: NodeId;
+  target_node: NodeId;  // Empty for broadcast
+  
+  // Message payloads (union)
+  heartbeat: Heartbeat;
+  node_state: NodeInfo;
+  slot_assignment: SlotAssignment;
+  data_migration: DataMigration;
+  config_change: ConfigChange;
+  cluster_snapshot: ClusterSnapshot;
+  
+  // Additional metadata
+  compression: bool = false;
+  compression_type: string;
+  compressed_size: uint = 0;
+  original_size: uint = 0;
+}
+
+root_type ClusterMessage;

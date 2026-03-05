@@ -1,0 +1,94 @@
+// ==============================================================================
+// AstraDB Metrics FlatBuffers Schema
+// ==============================================================================
+// FlatBuffers-based serialization for metrics export
+// Zero-copy, efficient, schema-based
+// ==============================================================================
+
+namespace AstraDB.Metrics;
+
+// Metric types
+enum MetricType : uint8 {
+  Counter = 0,
+  Gauge = 1,
+  Histogram = 2,
+  Summary = 3
+}
+
+// Label for metrics
+table MetricLabel {
+  name: string;
+  value: string;
+}
+
+// Counter metric
+table CounterMetric {
+  name: string;
+  value: double;
+  labels: [MetricLabel];
+  help: string;
+}
+
+// Gauge metric
+table GaugeMetric {
+  name: string;
+  value: double;
+  labels: [MetricLabel];
+  help: string;
+}
+
+// Histogram bucket
+table HistogramBucket {
+  upper_bound: double;
+  cumulative_count: uint64;
+}
+
+// Histogram metric
+table HistogramMetric {
+  name: string;
+  sample_count: uint64;
+  sample_sum: double;
+  buckets: [HistogramBucket];
+  labels: [MetricLabel];
+  help: string;
+}
+
+// Quantile for summary
+table Quantile {
+  quantile: double;
+  value: double;
+}
+
+// Summary metric
+table SummaryMetric {
+  name: string;
+  sample_count: uint64;
+  sample_sum: double;
+  quantiles: [Quantile];
+  labels: [MetricLabel];
+  help: string;
+}
+
+// Generic metric wrapper
+table Metric {
+  metric_type: MetricType;
+  
+  // Only one is set
+  counter: CounterMetric;
+  gauge: GaugeMetric;
+  histogram: HistogramMetric;
+  summary: SummaryMetric;
+  
+  timestamp_ms: int64;
+}
+
+// Metrics batch for export
+table MetricsBatch {
+  metrics: [Metric];
+  timestamp_ms: int64;
+  host: string;
+  instance: string;
+  job: string;
+}
+
+root_type MetricsBatch;

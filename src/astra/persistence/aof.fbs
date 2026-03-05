@@ -1,0 +1,172 @@
+// ==============================================================================
+// AstraDB AOF FlatBuffers Schema
+// ==============================================================================
+// FlatBuffers-based serialization for AOF (Append-Only File) logs
+// Zero-copy, efficient, schema-based serialization for write operations
+// ==============================================================================
+
+namespace AstraDB.AOF;
+
+// AOF command types
+enum CommandType : uint8 {
+  String_Set = 0,
+  String_Del = 1,
+  String_Append = 2,
+  String_Incr = 3,
+  String_Decr = 4,
+  
+  Hash_Set = 10,
+  Hash_Del = 11,
+  Hash_IncrBy = 12,
+  
+  List_PushLeft = 20,
+  List_PushRight = 21,
+  List_PopLeft = 22,
+  List_PopRight = 23,
+  List_Remove = 24,
+  List_Set = 25,
+  List_Trim = 26,
+  
+  Set_Add = 30,
+  Set_Remove = 31,
+  Set_Members = 32,
+  Set_IsMember = 33,
+  
+  SortedSet_Add = 40,
+  SortedSet_Remove = 41,
+  SortedSet_IncrBy = 42,
+  SortedSet_Range = 43,
+  SortedSet_Rank = 44,
+  
+  Bitmap_Set = 50,
+  Bitmap_Get = 51,
+  Bitmap_BitCount = 52,
+  
+  HyperLogLog_Add = 60,
+  HyperLogLog_Count = 61,
+  
+  Generic_Expire = 70,
+  Generic_PExpire = 71,
+  Generic_TTL = 72,
+  Generic_Persist = 73,
+  
+  Database_Select = 80,
+  Database_FlushDB = 81,
+  Database_FlushAll = 82,
+  
+  Unknown = 255
+}
+
+// AOF entry header
+table EntryHeader {
+  command_type: CommandType;
+  db_index: int32 = 0;  // Database index (0-15)
+  timestamp_ms: int64;  // Unix timestamp in milliseconds
+  sequence: uint64;  // Sequence number for ordering
+  ttl_ms: int64 = 0;  // TTL in milliseconds (0 = no expiration)
+}
+
+// String command arguments
+table StringCommand {
+  key: string;
+  value: [ubyte];  // Binary value
+}
+
+// Hash command arguments
+table HashCommand {
+  key: string;
+  field: string;
+  value: string;
+  increment: double = 0.0;  // For HINCRBYFLOAT
+}
+
+// List command arguments
+table ListCommand {
+  key: string;
+  value: string;
+  index: int32 = -1;  // For LSET
+  start: int32 = 0;  // For LTRIM/LRANGE
+  stop: int32 = -1;  // For LTRIM/LRANGE
+  count: int32 = 0;  // For LREM
+}
+
+// Set command arguments
+table SetCommand {
+  key: string;
+  members: [string];  // For SADD
+}
+
+// Sorted set command arguments
+table SortedSetCommand {
+  key: string;
+  member: string;
+  score: double = 0.0;
+  increment: double = 0.0;  // For ZINCRBY
+  start: double = 0.0;  // For ZRANGE/ZREVRANGE
+  stop: double = -1.0;  // For ZRANGE/ZREVRANGE
+  with_scores: bool = false;  // For ZRANGE/ZREVRANGE
+}
+
+// Bitmap command arguments
+table BitmapCommand {
+  key: string;
+  offset: int64 = 0;
+  value: bool = false;
+  start: int64 = 0;  // For BITCOUNT
+  end: int64 = -1;  // For BITCOUNT
+}
+
+// HyperLogLog command arguments
+table HyperLogLogCommand {
+  key: string;
+  elements: [string];  // For PFADD
+}
+
+// Generic command arguments
+table GenericCommand {
+  key: string;
+  duration_ms: int64 = 0;  // For EXPIRE/PEXPIRE
+}
+
+// Database command arguments
+table DatabaseCommand {
+  db_index: int32 = 0;
+}
+
+// AOF entry - wrapper for all command types
+table AofEntry {
+  header: EntryHeader;
+  
+  // Command-specific arguments (only one is set)
+  string_cmd: StringCommand;
+  hash_cmd: HashCommand;
+  list_cmd: ListCommand;
+  set_cmd: SetCommand;
+  sortedset_cmd: SortedSetCommand;
+  bitmap_cmd: BitmapCommand;
+  hyperloglog_cmd: HyperLogLogCommand;
+  generic_cmd: GenericCommand;
+  database_cmd: DatabaseCommand;
+}
+
+// AOF file header
+table AofHeader {
+  magic: string;
+  version: string;
+  timestamp: int64;
+  git_branch: string;
+  git_commit: string;
+  db_count: int32 = 16;  // Number of databases
+  compression: bool = false;
+  compression_type: string;
+}
+
+// AOF batch - multiple entries written together
+table AofBatch {
+  header: AofHeader;
+  entries: [AofEntry];
+  entry_count: uint32;
+  total_size: uint64;
+}
+
+root_type AofEntry;

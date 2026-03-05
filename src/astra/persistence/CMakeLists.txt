@@ -9,31 +9,52 @@ target_include_directories(astra_persistence INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
 
-# Generate FlatBuffers headers
-if(TARGET flatbuffers::flatbuffers)
-  find_program(FLATC flatc PATHS ${flatbuffers_SOURCE_DIR} NO_DEFAULT_PATH)
+# Include FlatBuffers BuildFlatBuffers module
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake)
+endif()
+
+# Generate FlatBuffers headers for RDB schema
+if(TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
+  # Use official FlatBuffers CMake function
+  set(RDB_FBS ${CMAKE_CURRENT_SOURCE_DIR}/rdb.fbs)
+  set(RDB_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
   
-  if(FLATC)
-    set(RDB_FBS ${CMAKE_CURRENT_SOURCE_DIR}/rdb.fbs)
-    set(RDB_GENERATED_HEADER ${CMAKE_CURRENT_BINARY_DIR}/rdb_generated.h)
-    
-    add_custom_command(
-      OUTPUT ${RDB_GENERATED_HEADER}
-      COMMAND ${FLATC} --cpp --cpp-std c++17 -o ${CMAKE_CURRENT_BINARY_DIR} ${RDB_FBS}
-      DEPENDS ${RDB_FBS}
-      COMMENT "Generating FlatBuffers headers for RDB schema"
-      VERBATIM
-    )
-    
-    add_custom_target(rdb_flatbuffers_gen DEPENDS ${RDB_GENERATED_HEADER})
-    
-    target_include_directories(astra_persistence INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
-    
-    target_sources(astra_persistence INTERFACE ${RDB_GENERATED_HEADER})
-    target_link_libraries(astra_persistence INTERFACE flatbuffers::flatbuffers)
-  else()
-    message(WARNING "flatc not found, FlatBuffers support disabled")
-  endif()
+  build_flatbuffers(
+    "${RDB_FBS}"
+    ""  # No include dirs
+    "rdb_generated"
+    ""  # No additional dependencies
+    "${RDB_GENERATED_DIR}"
+    ""  # No binary schemas
+    ""  # No text schema copy
+  )
+  
+  # Make generated headers available
+  target_include_directories(astra_persistence INTERFACE ${RDB_GENERATED_DIR})
+  add_dependencies(astra_persistence rdb_generated)
+  
+  # Add FlatBuffers include directory
+  target_include_directories(astra_persistence INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
+  
+  message(STATUS "FlatBuffers RDB headers will be generated in ${RDB_GENERATED_DIR}")
+  
+  # Generate FlatBuffers headers for AOF schema
+  set(AOF_FBS ${CMAKE_CURRENT_SOURCE_DIR}/aof.fbs)
+  
+  build_flatbuffers(
+    "${AOF_FBS}"
+    ""  # No include dirs
+    "aof_generated"
+    ""  # No additional dependencies
+    "${RDB_GENERATED_DIR}"
+    ""  # No binary schemas
+    ""  # No text schema copy
+  )
+  
+  add_dependencies(astra_persistence aof_generated)
+  
+  message(STATUS "FlatBuffers AOF headers will be generated in ${RDB_GENERATED_DIR}")
 endif()
 
 # Link dependencies
