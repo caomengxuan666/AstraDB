@@ -379,8 +379,8 @@ CommandResult HandleGeoRadius(const protocol::Command& command, CommandContext* 
   
   auto db = context->GetDatabase();
   
-  // Get all members using ZRange
-  auto all_members = db->ZRange(key, 0, -1, true);
+  // Get all members using ZRangeByRank
+  auto all_members = db->ZRangeByRank(key, 0, -1, false, true);
   
   if (all_members.empty()) {
     protocol::RespValue resp;

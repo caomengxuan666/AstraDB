@@ -578,8 +578,8 @@ class Database {
     return zset->GetScore(member);
   }
 
-  std::vector<std::pair<std::string, double>> ZRange(
-      const std::string& key, int64_t start, int64_t stop, bool with_scores = false) {
+  std::vector<std::pair<std::string, double>> ZRangeByRank(
+      const std::string& key, int64_t start, int64_t stop, bool reverse = false, bool with_scores = false) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
@@ -632,6 +632,189 @@ class Database {
       return false;
     }
     return zset->Remove(member);
+  }
+
+  // ZREVRANGE - Return a range of members in a sorted set, by score, with scores ordered from high to low
+  std::vector<std::pair<std::string, double>> ZRange(
+      const std::string& key, int64_t start, int64_t stop, bool reverse, bool with_scores) {
+    if (!metadata_manager_.IsValid(key)) {
+      return {};
+    }
+    
+    auto zset = GetZSet(key);
+    if (!zset) {
+      return {};
+    }
+    
+    uint64_t size = zset->Size();
+    if (size == 0) {
+      return {};
+    }
+    
+    // Convert negative indices to positive
+    if (start < 0) {
+      start = static_cast<int64_t>(size) + start;
+      if (start < 0) start = 0;
+    }
+    
+    if (stop < 0) {
+      stop = static_cast<int64_t>(size) + stop;
+      if (stop < 0) stop = -1;
+    }
+    
+    // Clamp to valid range
+    if (start >= static_cast<int64_t>(size)) {
+      return {};
+    }
+    
+    if (stop >= static_cast<int64_t>(size)) {
+      stop = static_cast<int64_t>(size) - 1;
+    }
+    
+    return zset->GetRangeByRank(
+        static_cast<uint64_t>(start),
+        static_cast<uint64_t>(stop),
+        reverse,
+        with_scores
+    );
+  }
+
+  // ZPOPMIN - Remove and return the member with the lowest score in a sorted set
+  std::optional<std::pair<std::string, double>> ZPopMin(const std::string& key) {
+    if (!metadata_manager_.IsValid(key)) {
+      return std::nullopt;
+    }
+    
+    auto zset = GetZSet(key);
+    if (!zset || zset->Size() == 0) {
+      return std::nullopt;
+    }
+    
+    auto result = zset->GetRangeByRank(0, 0, false, true);
+    if (!result.empty()) {
+      auto [member, score] = result[0];
+      zset->Remove(member);
+      if (zset->Size() == 0) {
+        metadata_manager_.UnregisterKey(key);
+      }
+      return result[0];
+    }
+    
+    return std::nullopt;
+  }
+
+  // ZPOPMAX - Remove and return the member with the highest score in a sorted set
+  std::optional<std::pair<std::string, double>> ZPopMax(const std::string& key) {
+    if (!metadata_manager_.IsValid(key)) {
+      return std::nullopt;
+    }
+    
+    auto zset = GetZSet(key);
+    if (!zset || zset->Size() == 0) {
+      return std::nullopt;
+    }
+    
+    auto result = zset->GetRangeByRank(zset->Size() - 1, zset->Size() - 1, false, true);
+    if (!result.empty()) {
+      auto [member, score] = result[0];
+      zset->Remove(member);
+      if (zset->Size() == 0) {
+        metadata_manager_.UnregisterKey(key);
+      }
+      return result[0];
+    }
+    
+    return std::nullopt;
+  }
+
+  // ZRANGEBYSCORE - Return a range of members in a sorted set, by score
+  std::vector<std::pair<std::string, double>> ZRangeByScore(
+      const std::string& key,
+      const std::string& min_str,
+      const std::string& max_str,
+      bool reverse = false,
+      bool with_scores = false,
+      bool has_limit = false,
+      int64_t offset = 0,
+      int64_t count = -1) {
+    if (!metadata_manager_.IsValid(key)) {
+      return {};
+    }
+    
+    auto zset = GetZSet(key);
+    if (!zset) {
+      return {};
+    }
+    
+    // Parse min/max scores with possible prefixes (-inf, +inf, (, [)
+    auto parse_score = [](const std::string& s) -> std::pair<bool, double> {
+      if (s == "-inf" || s == "-INF") {
+        return {true, -std::numeric_limits<double>::infinity()};
+      }
+      if (s == "+inf" || s == "+INF" || s == "inf" || s == "INF") {
+        return {true, std::numeric_limits<double>::infinity()};
+      }
+      
+      bool exclusive = false;
+      std::string score_str = s;
+      if (!s.empty() && (s[0] == '(' || s[0] == '[')) {
+        exclusive = (s[0] == '(');
+        score_str = s.substr(1);
+      }
+      
+      double value;
+      if (absl::SimpleAtod(score_str, &value)) {
+        return {exclusive, value};
+      }
+      return {false, 0.0};
+    };
+    
+    auto [min_exclusive, min_score] = parse_score(min_str);
+    auto [max_exclusive, max_score] = parse_score(max_str);
+    
+    // Get range by score
+    auto results = zset->GetRangeByScore(min_score, max_score, with_scores);
+    
+    // Filter out exclusive boundaries
+    std::vector<std::pair<std::string, double>> filtered;
+    for (const auto& [member, score] : results) {
+      if (min_exclusive && score <= min_score) continue;
+      if (max_exclusive && score >= max_score) continue;
+      filtered.push_back({member, score});
+    }
+    
+    // Reverse if needed
+    if (reverse) {
+      std::reverse(filtered.begin(), filtered.end());
+    }
+    
+    // Apply LIMIT if specified
+    if (has_limit) {
+      std::vector<std::pair<std::string, double>> limited;
+      int64_t start = offset;
+      int64_t end = (count < 0) ? static_cast<int64_t>(filtered.size()) : (offset + count);
+      
+      if (start < 0) {
+        start = static_cast<int64_t>(filtered.size()) + start;
+        if (start < 0) start = 0;
+      }
+      
+      if (start >= static_cast<int64_t>(filtered.size())) {
+        return {};
+      }
+      
+      if (end > static_cast<int64_t>(filtered.size())) {
+        end = static_cast<int64_t>(filtered.size());
+      }
+      
+      for (int64_t i = start; i < end; ++i) {
+        limited.push_back(filtered[static_cast<size_t>(i)]);
+      }
+      
+      return limited;
+    }
+    
+    return filtered;
   }
 
   size_t ZCard(const std::string& key) {
