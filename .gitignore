@@ -80,3 +80,6 @@ build-release-debuginfo/
 _deps/
 compile_commands.json
 astradb.log
+
+# Distribution packages
+dist/
