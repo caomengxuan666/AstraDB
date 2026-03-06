@@ -1,0 +1,27 @@
+[Unit]
+Description=AstraDB - High-Performance Redis-Compatible Database
+After=network.target
+Documentation=https://github.com/caomengxuan666/AstraDB
+
+[Service]
+Type=notify
+User=astradb
+Group=astradb
+ExecStart=/opt/astradb/bin/astradb /etc/astradb/astradb.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/astradb /var/log/astradb /var/run/astradb
+
+# Performance settings
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

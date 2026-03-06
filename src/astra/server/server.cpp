@@ -98,6 +98,9 @@ Server::Server(const ServerConfig& config)
   // Initialize Pub/Sub manager
   pubsub_manager_ = std::make_unique<ServerPubSubManager>(this);
 
+  // Initialize blocking manager for blocking commands
+  blocking_manager_ = std::make_unique<commands::BlockingManager>(io_context_);
+
   ASTRADB_LOG_INFO("Server configured: host={}, port={}, max_connections={}, databases={}, shards={}, commands={}"
                    "{}, {}{}",
                    config_.host, config_.port,
@@ -474,6 +477,11 @@ class ServerCommandContext : public commands::CommandContext {
   // Get server pointer
   void* GetServer() const override {
     return static_cast<void*>(server_);
+  }
+
+  // Get blocking manager
+  commands::BlockingManager* GetBlockingManager() override {
+    return server_ ? server_->GetBlockingManager() : nullptr;
   }
 
  private:

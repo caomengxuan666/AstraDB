@@ -48,6 +48,7 @@
 #include <absl/synchronization/mutex.h>
 #include "astra/core/metrics.hpp"
 #include <absl/container/flat_hash_map.h>
+#include "astra/commands/blocking_manager.hpp"
 #include <absl/synchronization/mutex.h>
 #include "astra/core/async/executor.hpp"
 #include <absl/container/flat_hash_map.h>
@@ -188,6 +189,9 @@ class Server {
 
   // Get local shard manager (for internal use)
   LocalShardManager& GetLocalShardManager() { return local_shard_manager_; }
+  
+  // Get blocking manager (for internal use)
+  commands::BlockingManager* GetBlockingManager() { return blocking_manager_.get(); }
 
  private:
   void DoAccept();
@@ -240,6 +244,9 @@ class Server {
   // Cluster management (optional)
   std::unique_ptr<cluster::ShardManager> cluster_shard_manager_;
   std::unique_ptr<cluster::GossipManager> gossip_manager_;
+  
+  // Blocking manager (for blocking commands)
+  std::unique_ptr<commands::BlockingManager> blocking_manager_;
   
   // CORE components
   std::unique_ptr<core::async::Executor> executor_;

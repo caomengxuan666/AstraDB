@@ -56,6 +56,9 @@ using astra::protocol::RespValue;
 using astra::protocol::Command;
 using astra::protocol::RespType;
 
+// Forward declaration
+class BlockingManager;
+
 // Command context - contains database and connection state
 class CommandContext {
  public:
@@ -137,6 +140,9 @@ class CommandContext {
   
   // Get server pointer (optional - return nullptr if not available)
   virtual void* GetServer() const { return nullptr; }
+  
+  // Get blocking manager (optional - return nullptr if not available)
+  virtual class BlockingManager* GetBlockingManager() { return nullptr; }
   
  protected:
   AofCallback aof_callback_;

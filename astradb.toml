@@ -16,9 +16,9 @@ num_databases = 16
 num_shards = 16
 
 [logging]
-level = "debug"
+level = "trace"
 file = "astradb.log"
-async = true
+async = false
 queue_size = 8192
 
 [performance]
@@ -34,7 +34,7 @@ enable_compression = false
 # Use coroutines for command processing (default: true)
 # When enabled, commands are processed asynchronously using C++20 coroutines
 # When disabled, commands are processed synchronously (fallback mode)
-use_async_commands = false
+use_async_commands = true
 
 # =============================================================================
 # Persistence Configuration (LevelDB)

@@ -80,6 +80,7 @@ target_sources(astra_commands PRIVATE
   hyperloglog_commands.cpp
   geospatial_commands.cpp
   client_commands.cpp
+  blocking_manager.cpp
 )
 
 target_link_libraries(astra_commands PUBLIC
@@ -87,6 +88,7 @@ target_link_libraries(astra_commands PUBLIC
   astra_zset
   astra_base
   astra_protocol
+  asio::asio
   cxxopts::cxxopts
   tomlplusplus::tomlplusplus
   absl::random_random
