@@ -101,7 +101,9 @@ else()
   add_compile_options(-Wno-pedantic)
   
   # Disable stringop-overflow warnings for third-party libraries
-  add_compile_options(-Wno-error=stringop-overflow)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(-Wno-error=stringop-overflow)
+endif()
   
   # Note: -Werror disabled due to third-party library compatibility
   # Enable selectively for production code

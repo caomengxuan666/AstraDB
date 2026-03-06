@@ -34,7 +34,7 @@ enable_compression = false
 # Use coroutines for command processing (default: true)
 # When enabled, commands are processed asynchronously using C++20 coroutines
 # When disabled, commands are processed synchronously (fallback mode)
-use_async_commands = true
+use_async_commands = false
 
 # =============================================================================
 # Persistence Configuration (LevelDB)

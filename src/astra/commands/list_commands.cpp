@@ -505,9 +505,9 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
     return CommandResult(false, "ERR database not initialized");
   }
 
-  // Parse timeout (last argument)
+  // Parse timeout (last argument) - will be used for blocking implementation
   const auto& timeout_arg = command[command.ArgCount() - 1];
-  double timeout = 0.0;
+  [[maybe_unused]] double timeout = 0.0;
   
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
@@ -562,9 +562,9 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
     return CommandResult(false, "ERR database not initialized");
   }
 
-  // Parse timeout (last argument)
+  // Parse timeout (last argument) - will be used for blocking implementation
   const auto& timeout_arg = command[command.ArgCount() - 1];
-  double timeout = 0.0;
+  [[maybe_unused]] double timeout = 0.0;
   
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
@@ -631,8 +631,8 @@ CommandResult HandleBRPopLPush(const astra::protocol::Command& command, CommandC
     return CommandResult(false, "ERR wrong type of destination argument");
   }
 
-  // Parse timeout
-  double timeout = 0.0;
+  // Parse timeout - will be used for blocking implementation
+  [[maybe_unused]] double timeout = 0.0;
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -698,8 +698,8 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
     return CommandResult(false, "ERR syntax error");
   }
 
-  // Parse timeout
-  double timeout = 0.0;
+  // Parse timeout - will be used for blocking implementation
+  [[maybe_unused]] double timeout = 0.0;
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -768,9 +768,9 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
     return CommandResult(false, "ERR database not initialized");
   }
 
-  // Parse timeout (first argument)
+  // Parse timeout (first argument) - will be used for blocking implementation
   const auto& timeout_arg = command[0];
-  double timeout = 0.0;
+  [[maybe_unused]] double timeout = 0.0;
   
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());

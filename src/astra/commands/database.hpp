@@ -1142,7 +1142,7 @@ class Database {
 // Database manager - manages multiple databases
 class DatabaseManager {
  public:
-  DatabaseManager(size_t num_dbs = 16) : num_dbs_(num_dbs) {
+  explicit DatabaseManager(size_t num_dbs = 16) {
     databases_.reserve(num_dbs);
     for (size_t i = 0; i < num_dbs; ++i) {
       databases_.push_back(std::make_unique<Database>());
@@ -1163,7 +1163,6 @@ class DatabaseManager {
   }
 
  private:
-  size_t num_dbs_;
   std::vector<std::unique_ptr<Database>> databases_;
 };
 

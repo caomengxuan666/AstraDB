@@ -21,7 +21,7 @@ namespace astra::commands {
 struct CommandMetadata {
   std::string_view name;
   int arity;
-  std::string_view flags;
+  std::vector<std::string> flags;  // Changed from string_view to vector<string>
   RoutingStrategy routing;
   CommandHandler handler;
   bool is_write = false;

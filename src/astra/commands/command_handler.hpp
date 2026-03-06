@@ -169,27 +169,26 @@ enum class RoutingStrategy {
 struct CommandInfo {
   std::string name;
   int arity;  // Number of arguments. Positive for fixed, negative for variable (e.g., -2 means at least 1)
-  std::string flags;  // Command flags (readonly, fast, etc.)
+  std::vector<std::string> flags;  // Command flags (readonly, fast, etc.) - array of strings
   RoutingStrategy routing;  // How to route this command
   bool is_write = false;  // Whether this command modifies data
-  
+
   CommandInfo() : routing(RoutingStrategy::kNone) {}
-  CommandInfo(const std::string& n, int a, const std::string& f, bool w = false)
+  CommandInfo(const std::string& n, int a, const std::vector<std::string>& f, bool w = false)
       : name(n), arity(a), flags(f), routing(RoutingStrategy::kNone), is_write(w) {
     // Auto-detect is_write from flags if not explicitly set
-    if (!w && flags == "write") {
+    if (!w && std::find(f.begin(), f.end(), "write") != f.end()) {
       is_write = true;
     }
   }
-  CommandInfo(const std::string& n, int a, const std::string& f, RoutingStrategy r, bool w = false)
+  CommandInfo(const std::string& n, int a, const std::vector<std::string>& f, RoutingStrategy r, bool w = false)
       : name(n), arity(a), flags(f), routing(r), is_write(w) {
     // Auto-detect is_write from flags if not explicitly set
-    if (!w && flags == "write") {
+    if (!w && std::find(f.begin(), f.end(), "write") != f.end()) {
       is_write = true;
     }
   }
 };
-
 // Command entry in registry
 class CommandRegistry {
  public:
@@ -313,5 +312,8 @@ class CommandRegistry {
 
 // Global command registry instance
 CommandRegistry& GetGlobalCommandRegistry();
+
+// Set global command registry instance (called by Server)
+void SetGlobalCommandRegistry(CommandRegistry* registry);
 
 }  // namespace astra::commands

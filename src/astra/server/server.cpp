@@ -60,6 +60,9 @@ Server::Server(const ServerConfig& config)
   // Auto-register all commands (commands are registered via static initializers)
   RuntimeCommandRegistry::Instance().ApplyToRegistry(registry_);
   
+  // Set global registry so that command handlers can access it
+  commands::SetGlobalCommandRegistry(&registry_);
+  
   // Initialize persistence if enabled
   if (config_.persistence.enabled) {
     if (!InitPersistence()) {
@@ -724,10 +727,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   // No explicit yield needed - coroutine scheduling handles it
   ASTRADB_LOG_DEBUG("Executing command body: id={}, cmd={}", conn->GetId(), cmd.name);
 
-  // Helper to send response asynchronously
-  auto send_response = [this, conn](const commands::CommandResult& result) -> asio::awaitable<void> {
-    auto exec = co_await asio::this_coro::executor;
-    co_await asio::post(exec, asio::use_awaitable);
+  // Helper to send response synchronously
+  auto send_response = [this, conn](const commands::CommandResult& result) {
     SendResponse(conn, result);
   };
 
@@ -755,8 +756,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     double seconds = absl::ToDoubleSeconds(duration);
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
     
-    // Send response asynchronously
-    co_await send_response(result);
+    // Send response
+    send_response(result);
     co_return;
   }
 
@@ -766,14 +767,13 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
       auto error_result = commands::CommandResult(false, "ERR EXEC without MULTI");
       
       // Record metrics
-      auto duration = absl::Now() - start_time;
-      double seconds = absl::ToDoubleSeconds(duration);
-      astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
-      
-      // Send response
-      co_await send_response(error_result);
-      co_return;
-    }
+          auto duration = absl::Now() - start_time;
+          double seconds = absl::ToDoubleSeconds(duration);
+          astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, error_result.success, seconds);
+          
+          // Send response
+          send_response(error_result);
+          co_return;    }
 
     // Check if any watched keys were modified
     auto* db_for_watch = local_shard_manager_.GetShardByIndex(0);
@@ -790,7 +790,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
       astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
       
       // Send response
-      co_await send_response(result);
+      send_response(result);
       co_return;
     }
 
@@ -841,7 +841,7 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, response.IsArray(), seconds);
     
     // Send response
-    co_await send_response(commands::CommandResult(response));
+    send_response(commands::CommandResult(response));
     co_return;
   }
 
@@ -994,8 +994,8 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
     AppendToAof(cmd);
   }
 
-  // Send response asynchronously
-  co_await send_response(result);
+  // Send response
+  send_response(result);
 }
 
 void Server::SendResponse(std::shared_ptr<network::Connection> conn,
@@ -1006,25 +1006,40 @@ void Server::SendResponse(std::shared_ptr<network::Connection> conn,
   if (!result.success) {
     // Error response
     response = "-" + result.error + "\r\n";
+    ASTRADB_LOG_DEBUG("SendResponse: id={}, error='{}', response='{}'", 
+                      conn->GetId(), result.error, response);
   } else {
     // Success response - convert RespValue to string
     if (result.response.IsSimpleString()) {
       response = "+" + result.response.AsString() + "\r\n";
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=simple_string, value='{}', response='{}'", 
+                        conn->GetId(), result.response.AsString(), response);
     } else if (result.response.IsBulkString()) {
       const auto& str = result.response.AsString();
       response = absl::StrCat("$", str.length(), "\r\n", str, "\r\n");
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=bulk_string, len={}, response='{}'", 
+                        conn->GetId(), str.length(), response);
     } else if (result.response.IsInteger()) {
       response = absl::StrCat(":", result.response.AsInteger(), "\r\n");
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=integer, value={}, response='{}'", 
+                        conn->GetId(), result.response.AsInteger(), response);
     } else if (result.response.GetType() == protocol::RespType::kDouble) {
       response = absl::StrCat(",", result.response.AsDouble(), "\r\n");
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=double, value={}, response='{}'", 
+                        conn->GetId(), result.response.AsDouble(), response);
     } else if (result.response.IsArray()) {
       // Use RespBuilder for proper array serialization (including nested arrays)
       response = protocol::RespBuilder::Build(result.response);
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=array, array_size={}, response_len={}, response='{}'", 
+                        conn->GetId(), result.response.AsArray().size(), response.length(), 
+                        response.length() > 100 ? response.substr(0, 100) + "..." : response);
     } else if (result.response.IsNull()) {
       response = "$-1\r\n";
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=null, response='{}'", conn->GetId(), response);
     } else {
       // For other types, just return OK
       response = "+OK\r\n";
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=unknown, response='{}'", conn->GetId(), response);
     }
   }
   
@@ -1352,7 +1367,10 @@ void Server::AppendToAof(const protocol::Command& cmd) {
   }
 
   // Only persist write commands
-  if (cmd_info->flags == "read" || cmd_info->flags == "readonly") {
+  // Check if flags contains "read" or "readonly"
+  bool is_readonly = std::find(cmd_info->flags.begin(), cmd_info->flags.end(), "read") != cmd_info->flags.end() ||
+                     std::find(cmd_info->flags.begin(), cmd_info->flags.end(), "readonly") != cmd_info->flags.end();
+  if (is_readonly) {
     return;
   }
 

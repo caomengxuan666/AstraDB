@@ -189,15 +189,15 @@ endif()
 # Installation
 # ==============================================================================
 
-install(
-  TARGETS astradb
-  RUNTIME DESTINATION bin
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib)
+# Don't install anything automatically - we control installation in CMakeLists.txt
+# This prevents installing third-party dependencies and headers
 
-install(
-  DIRECTORY src/
-  DESTINATION include/astradb
-  FILES_MATCHING
-  PATTERN "*.h"
-  PATTERN "*.hpp")
+# Install headers only in development mode
+if(ASTRADB_BUILD_DEV_PACKAGE)
+  install(
+    DIRECTORY src/
+    DESTINATION include/astradb
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "*.hpp")
+endif()

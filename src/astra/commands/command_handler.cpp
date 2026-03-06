@@ -33,10 +33,13 @@ bool CommandRegistry::Exists(const std::string& name) const noexcept {
 
 const CommandInfo* CommandRegistry::GetInfo(const std::string& name) const noexcept {
   std::string upper_name = absl::AsciiStrToUpper(name);
+  ASTRADB_LOG_TRACE("GetInfo: name='{}', upper_name='{}'", name, upper_name);
   auto it = commands_.find(upper_name);
   if (it != commands_.end()) {
+    ASTRADB_LOG_TRACE("GetInfo: found command '{}'", name);
     return &it->second.info;
   }
+  ASTRADB_LOG_TRACE("GetInfo: command '{}' not found", name);
   return nullptr;
 }
 
@@ -155,12 +158,14 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
 }
 
 std::vector<std::string> CommandRegistry::GetCommandNames() const noexcept {
+  ASTRADB_LOG_TRACE("GetCommandNames: commands_.size()={}", commands_.size());
   std::vector<std::string> names;
   names.reserve(commands_.size());
   for (const auto& pair : commands_) {
     names.push_back(pair.first);
   }
   std::sort(names.begin(), names.end());
+  ASTRADB_LOG_TRACE("GetCommandNames: returning {} names", names.size());
   return names;
 }
 
@@ -216,9 +221,26 @@ void CommandRegistry::EvictLRUCacheEntry() const noexcept {
   cache_eviction_count_++;
 }
 
+// Static pointer to the global registry (initialized to nullptr)
+static CommandRegistry* g_global_registry = nullptr;
+
 CommandRegistry& GetGlobalCommandRegistry() {
-  static CommandRegistry registry;
-  return registry;
+  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: g_global_registry={}", 
+                    g_global_registry != nullptr ? "set" : "nullptr");
+  
+  if (g_global_registry != nullptr) {
+    ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning global registry");
+    return *g_global_registry;
+  }
+  
+  static CommandRegistry fallback_registry;
+  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning fallback registry");
+  return fallback_registry;
+}
+
+// Set the global registry instance (called by Server)
+void SetGlobalCommandRegistry(CommandRegistry* registry) {
+  g_global_registry = registry;
 }
 
 }  // namespace astra::commands

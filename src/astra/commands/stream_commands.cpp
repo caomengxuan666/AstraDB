@@ -24,10 +24,10 @@ StreamId::StreamId(const std::string& str) {
 
   std::vector<std::string> parts = absl::StrSplit(str, '-');
   if (parts.size() == 2) {
-    absl::SimpleAtoi(parts[0], reinterpret_cast<int64_t*>(&ms));
-    absl::SimpleAtoi(parts[1], reinterpret_cast<int64_t*>(&seq));
+    (void)absl::SimpleAtoi(parts[0], reinterpret_cast<int64_t*>(&ms));
+    (void)absl::SimpleAtoi(parts[1], reinterpret_cast<int64_t*>(&seq));
   } else if (parts.size() == 1) {
-    absl::SimpleAtoi(parts[0], reinterpret_cast<int64_t*>(&ms));
+    (void)absl::SimpleAtoi(parts[0], reinterpret_cast<int64_t*>(&ms));
     seq = 0;
   }
 }

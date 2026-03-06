@@ -12,17 +12,17 @@ namespace astra::network {
 
 std::atomic<uint64_t> Connection::next_id_(1);
 
-Connection::Connection(Socket socket, Executor& io_context, 
+Connection::Connection(Socket socket, Executor& io_context,
                       astra::core::memory::BufferPool* buffer_pool)
     : socket_(std::move(socket)),
       io_context_(io_context),
+      strand_(asio::make_strand(io_context)),
       id_(next_id_++),
       writing_(false),
       closing_(false),
       buffer_pool_(buffer_pool) {
   ASTRADB_LOG_INFO("New connection created: id={}, addr={}", id_, GetRemoteAddress());
 }
-
 Connection::~Connection() {
   ASTRADB_LOG_INFO("Connection destroyed: id={}", id_);
 }
@@ -115,7 +115,7 @@ void Connection::DoRead() {
   
   socket_.async_read_some(
     asio::buffer(*temp_buffer),
-    [this, self, temp_buffer](const asio::error_code& ec, size_t bytes_transferred) {
+    asio::bind_executor(strand_, [this, self, temp_buffer](const asio::error_code& ec, size_t bytes_transferred) {
       if (!ec && bytes_transferred > 0) {
         // Initialize or append to read buffer
         if (!read_buffer_) {
@@ -135,7 +135,7 @@ void Connection::DoRead() {
         read_buffer_->Append(temp_buffer->data(), bytes_transferred);
       }
       HandleRead(ec, bytes_transferred);
-    });
+    }));
 }
 
 void Connection::DoWrite() {
@@ -146,12 +146,50 @@ void Connection::DoWrite() {
   writing_ = true;
   auto self = shared_from_this();
   
+  // Capture the buffer size at the time of the write request
+  // This ensures we only write the data that was in the buffer when DoWrite was called
+  size_t write_size = write_buffer_->size();
+  
   asio::async_write(
     socket_,
-    asio::buffer(write_buffer_->data(), write_buffer_->size()),
-    [this, self](const asio::error_code& ec, size_t bytes_transferred) {
-      HandleWrite(ec, bytes_transferred);
-    });
+    asio::buffer(write_buffer_->data(), write_size),
+    asio::bind_executor(strand_, [this, self, write_size](const asio::error_code& ec, size_t bytes_transferred) {
+      writing_ = false;
+      
+      if (ec) {
+        ASTRADB_LOG_ERROR("Write error: id={}, error={}, bytes_transferred={}", 
+                          id_, ec.message(), bytes_transferred);
+        Close();
+        return;
+      }
+      
+      ASTRADB_LOG_DEBUG("Write complete: id={}, bytes_transferred={}, buffer_remaining={}", 
+                        id_, bytes_transferred, write_buffer_ ? write_buffer_->size() : 0);
+      
+      if (!write_buffer_) {
+        return;
+      }
+      
+      if (bytes_transferred < write_size) {
+        // Partial write, remove written bytes from buffer
+        size_t remaining = write_buffer_->size() - bytes_transferred;
+        std::memmove(write_buffer_->data(), 
+                     write_buffer_->data() + bytes_transferred, 
+                     remaining);
+        write_buffer_->Resize(remaining);
+        ASTRADB_LOG_DEBUG("Partial write: id={}, continuing with {} bytes", 
+                          id_, write_buffer_->size());
+        DoWrite();
+      } else {
+        // All data written, clear buffer
+        write_buffer_->Clear();
+        
+        // Check if there's more data to write (added while we were writing)
+        if (write_buffer_ && !write_buffer_->empty()) {
+          DoWrite();
+        }
+      }
+    }));
 }
 
 void Connection::HandleRead(const asio::error_code& ec, size_t bytes_transferred) {
@@ -212,12 +250,11 @@ void Connection::ProcessData() {
     return;
   }
   
+  ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer_size={}", 
+                    id_, read_buffer_->size());
+  
   // Parse RESP commands from read_buffer_
   std::string_view data(read_buffer_->data(), read_buffer_->size());
-  
-  ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer_size={}, data_size='{}'", 
-                    id_, read_buffer_->size(), data.size());
-  
   size_t consumed = 0;
   
   while (!data.empty()) {
@@ -235,8 +272,9 @@ void Connection::ProcessData() {
       return;
     }
     
-    // Calculate consumed bytes
+    // Calculate bytes consumed by this parse
     size_t data_size_before = data.size();
+    size_t bytes_consumed = data_size_before - data.size();
     
     // If it's an array, parse as command
     if (value->IsArray()) {
@@ -248,8 +286,11 @@ void Connection::ProcessData() {
       }
     }
     
-    // Update consumed bytes
-    consumed += (data_size_before - data.size());
+    // Update total consumed bytes
+    consumed += bytes_consumed;
+    
+    // Update data view for next iteration
+    data = std::string_view(read_buffer_->data() + consumed, read_buffer_->size() - consumed);
   }
   
   // Remove consumed data from read buffer
@@ -273,6 +314,27 @@ void Connection::ProcessData() {
 void Connection::ProcessCommand(const protocol::Command& cmd) {
   ASTRADB_LOG_DEBUG("Received command: id={}, name={}, args={}", 
                     id_, cmd.name, cmd.ArgCount());
+  
+  // Print command arguments
+  if (cmd.ArgCount() > 0) {
+    std::ostringstream oss;
+    oss << " args=[";
+    for (size_t i = 0; i < cmd.ArgCount(); ++i) {
+      if (i > 0) oss << ", ";
+      const auto& arg = cmd[i];
+      if (arg.IsBulkString()) {
+        oss << "'" << arg.AsString() << "'";
+      } else if (arg.IsSimpleString()) {
+        oss << "'" << arg.AsString() << "'";
+      } else if (arg.IsInteger()) {
+        oss << arg.AsInteger();
+      } else {
+        oss << "?";
+      }
+    }
+    oss << "]";
+    ASTRADB_LOG_DEBUG("Received command: id={}, name={}{}", id_, cmd.name, oss.str());
+  }
   
   // Call the command callback
   if (command_callback_) {

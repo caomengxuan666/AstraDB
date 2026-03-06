@@ -371,3 +371,122 @@ endif()
 # ==============================================================================
 
 include(cmake/ConfigSummary.cmake)
+
+# ==============================================================================
+# CPack Configuration - Package Generation
+# ==============================================================================
+set(CPACK_PACKAGE_NAME "astradb")
+set(CPACK_PACKAGE_VENDOR "caomengxuan666")
+set(CPACK_PACKAGE_CONTACT "2507560089@qq.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AstraDB - Ultra-high performance Redis-compatible database")
+set(CPACK_PACKAGE_DESCRIPTION "AstraDB is a high-performance, Redis-compatible database written in C++23. It aims to achieve 2x the performance of DragonflyDB with 50% less memory usage through shared-nothing multi-threaded architecture with C++23 coroutines.")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/caomengxuan666/AstraDB")
+set(CPACK_PACKAGE_LICENSE "Apache-2.0")
+set(CPACK_PACKAGE_MAINTAINER "caomengxuan666 <2507560089@qq.com>")
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+
+# Install only the essential files - use PROGRAMS to avoid dependency tracking
+install(PROGRAMS $<TARGET_FILE:astradb>
+    DESTINATION bin
+    COMPONENT Applications)
+
+# Install configuration files
+install(FILES astradb.toml
+    DESTINATION etc/astradb
+    COMPONENT Configuration)
+
+# Install documentation
+install(FILES README.md AstraDB_DESIGN.md PERFORMANCE.md LICENSE
+    DESTINATION share/doc/astradb
+    COMPONENT Documentation)
+
+# Create component groups
+set(CPACK_COMPONENTS_ALL Applications Configuration Documentation)
+set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+
+# Platform-specific configurations
+if(UNIX AND NOT APPLE)
+    # Linux-specific
+    set(CPACK_GENERATOR "DEB;TGZ;RPM")
+    
+    # DEB package settings
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.17), libgcc-s1, libstdc++6")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "database")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_COMPRESSION_TYPE "gzip")
+    
+    # Configure and install DEB control scripts
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/packaging/deb/postinst.in
+        ${CMAKE_CURRENT_BINARY_DIR}/deb/postinst
+        @ONLY
+    )
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/packaging/deb/prerm.in
+        ${CMAKE_CURRENT_BINARY_DIR}/deb/prerm
+        @ONLY
+    )
+    
+    # Make scripts executable
+    install(PROGRAMS
+        ${CMAKE_CURRENT_BINARY_DIR}/deb/postinst
+        ${CMAKE_CURRENT_BINARY_DIR}/deb/prerm
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Applications
+    )
+    
+    # Install systemd service file
+    install(FILES
+        ${CMAKE_SOURCE_DIR}/packaging/systemd/astradb.service
+        DESTINATION lib/systemd/system
+        COMPONENT Applications
+    )
+    
+    # Create postinst/prerm scripts for DEB
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_CURRENT_BINARY_DIR}/deb/postinst"
+        "${CMAKE_CURRENT_BINARY_DIR}/deb/prerm")
+    
+elseif(WIN32)
+    # Windows-specific
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    
+    # NSIS (MSI) package settings
+    set(CPACK_NSIS_DISPLAY_NAME "AstraDB ${PROJECT_VERSION}")
+    set(CPACK_NSIS_PACKAGE_NAME "AstraDB")
+    set(CPACK_NSIS_CONTACT "2507560089@qq.com")
+    set(CPACK_NSIS_HELP_LINK "https://github.com/caomengxuan666/AstraDB")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://github.com/caomengxuan666/AstraDB")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\astradb.exe")
+    set(CPACK_NSIS_MODIFY_PATH ON)
+    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "astradb.exe")
+    set(CPACK_NSIS_MENU_LINKS
+        "bin/astradb.exe" "AstraDB Server"
+        "https://github.com/caomengxuan666/AstraDB" "AstraDB GitHub")
+    
+    # Windows requires .exe extension
+    set(CPACK_PACKAGE_FILE_NAME "astradb-${PROJECT_VERSION}-windows-${CMAKE_SYSTEM_PROCESSOR}")
+    
+elseif(APPLE)
+    # macOS-specific
+    set(CPACK_GENERATOR "TGZ;DragNDrop")
+    set(CPACK_DMG_FORMAT "UDBZ")
+    set(CPACK_DMG_VOLUME_NAME "AstraDB ${PROJECT_VERSION}")
+    set(CPACK_DMG_BACKGROUND_IMAGE "${CMAKE_SOURCE_DIR}/packaging/macos/background.png")
+endif()
+
+# Common settings
+set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY 0)
+set(CPACK_VERBATIM_VARIABLES ON)
+set(CPACK_INSTALL_PREFIX "/opt/astradb")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/astradb")
+
+# Package output directory
+set(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_SOURCE_DIR}/dist")
+
+# Enable CPack
+include(CPack)

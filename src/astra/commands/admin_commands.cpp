@@ -73,33 +73,121 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
 
 // COMMAND - Redis command introspection
 CommandResult HandleCommand(const astra::protocol::Command& command, CommandContext* context) {
-  // COMMAND can be called with no args (returns all commands) or with subcommand
-  std::vector<RespValue> result;
+  ASTRADB_LOG_TRACE("HandleCommand: arg_count={}", command.ArgCount());
   
   if (command.ArgCount() == 0) {
-    // Return empty array for now - full implementation would list all commands
+    ASTRADB_LOG_TRACE("HandleCommand: returning full command info");
+    // Return all commands in the format expected by redis-cli
+    // Each command is an array: [name, arity, flags, first_key, last_key, step, "", 0, [category]]
+    auto& registry = GetGlobalCommandRegistry();
+    auto command_names = registry.GetCommandNames();
+    
+    ASTRADB_LOG_TRACE("HandleCommand: got {} command names", command_names.size());
+    
+    std::vector<RespValue> result;
+    for (const auto& name : command_names) {
+      const auto* info = registry.GetInfo(name);
+      if (info) {
+        std::vector<RespValue> cmd_array;
+        
+        // Command name
+        RespValue name_val;
+        name_val.SetString(info->name, protocol::RespType::kBulkString);
+        cmd_array.push_back(name_val);
+        
+        // Arity
+        RespValue arity_val;
+        arity_val.SetInteger(info->arity);
+        cmd_array.push_back(arity_val);
+        
+        // Flags (array of strings) - flags is now std::vector<std::string>
+        std::vector<RespValue> flags_array;
+        for (const auto& flag : info->flags) {
+          RespValue flag_val;
+          flag_val.SetString(flag, protocol::RespType::kBulkString);
+          flags_array.push_back(flag_val);
+        }
+        cmd_array.push_back(RespValue(std::move(flags_array)));
+        
+        // First key
+        RespValue first_key_val;
+        first_key_val.SetInteger(0);
+        cmd_array.push_back(first_key_val);
+        
+        // Last key
+        RespValue last_key_val;
+        last_key_val.SetInteger(0);
+        cmd_array.push_back(last_key_val);
+        
+        // Key step
+        RespValue step_val;
+        step_val.SetInteger(0);
+        cmd_array.push_back(step_val);
+        
+        // Tips (empty string)
+        RespValue tips_val;
+        tips_val.SetString("", protocol::RespType::kBulkString);
+        cmd_array.push_back(tips_val);
+        
+        // Microseconds (0)
+        RespValue microseconds_val;
+        microseconds_val.SetInteger(0);
+        cmd_array.push_back(microseconds_val);
+        
+        // Category (array with one element - use "server" as default)
+        std::vector<RespValue> category_array;
+        RespValue category_val;
+        category_val.SetString("server", protocol::RespType::kBulkString);
+        category_array.push_back(category_val);
+        cmd_array.push_back(RespValue(std::move(category_array)));
+        
+        result.push_back(RespValue(std::move(cmd_array)));
+      }
+    }
+    
     return CommandResult(RespValue(std::move(result)));
   }
   
   const auto& subcommand = command[0].AsString();
   
+  ASTRADB_LOG_TRACE("HandleCommand: subcommand='{}', subcommand.length()={}", subcommand, subcommand.length());
+  
   if (subcommand == "DOCS") {
-    // COMMAND DOCS - return command documentation
-    return CommandResult(RespValue(std::move(result)));
+    ASTRADB_LOG_TRACE("HandleCommand: DOCS branch, returning error");
+    // COMMAND DOCS - return command documentation (not implemented yet)
+    return CommandResult(false, "ERR COMMAND DOCS not implemented");
   } else if (subcommand == "COUNT") {
+    ASTRADB_LOG_TRACE("HandleCommand: COUNT branch, returning count");
     // COMMAND COUNT - return number of commands
     RespValue count;
     count.SetInteger(static_cast<int64_t>(RuntimeCommandRegistry::Instance().GetCommandCount()));
     return CommandResult(count);
   } else if (subcommand == "GETKEYS") {
+    ASTRADB_LOG_TRACE("HandleCommand: GETKEYS branch, returning error");
     // COMMAND GETKEYS - extract keys from a command
     return CommandResult(false, "ERR COMMAND GETKEYS not implemented");
   } else if (subcommand == "LIST") {
+    ASTRADB_LOG_TRACE("HandleCommand: LIST branch");
     // COMMAND LIST - return list of command names
+    auto& registry = GetGlobalCommandRegistry();
+    auto command_names = registry.GetCommandNames();
+    
+    ASTRADB_LOG_TRACE("HandleCommand: LIST branch, got {} command names", command_names.size());
+    
+    std::vector<RespValue> result;
+    for (const auto& name : command_names) {
+      RespValue name_val;
+      name_val.SetString(name, protocol::RespType::kBulkString);
+      result.push_back(name_val);
+    }
+    
+    ASTRADB_LOG_TRACE("HandleCommand: LIST branch, returning array with {} elements", result.size());
     return CommandResult(RespValue(std::move(result)));
   }
   
   // Return empty array for unknown subcommands
+  ASTRADB_LOG_TRACE("HandleCommand: unknown subcommand, returning empty array");
+  std::vector<RespValue> result;
   return CommandResult(RespValue(std::move(result)));
 }
 
@@ -455,19 +543,20 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
       return CommandResult(false, "ERR wrong number of arguments for 'cluster|getkeysinslot' command");
     }
     
-    uint16_t slot = 0;
-    int count = 0;
+    [[maybe_unused]] uint16_t slot = 0;
+    [[maybe_unused]] int count = 0;
     try {
       int temp_slot;
       if (!absl::SimpleAtoi(command[1].AsString(), &temp_slot)) {
         return CommandResult(false, "ERR invalid slot number");
       }
-      uint16_t slot = static_cast<uint16_t>(temp_slot);
+      slot = static_cast<uint16_t>(temp_slot);
       int temp_count;
       if (!absl::SimpleAtoi(command[2].AsString(), &temp_count)) {
         return CommandResult(false, "ERR invalid count number");
       }
       count = temp_count;
+      // slot and count are parsed for validation; reserved for future cluster slot management
     } catch (...) {
       return CommandResult(false, "ERR invalid slot or count");
     }
@@ -530,8 +619,6 @@ CommandResult HandleMigrate(const astra::protocol::Command& command, CommandCont
   // int timeout = std::stoi(command[4].AsString());
   
   // Parse options
-  bool copy = false;
-  bool replace = false;
   std::vector<std::string> keys;
   
   if (!key.empty()) {
@@ -541,9 +628,11 @@ CommandResult HandleMigrate(const astra::protocol::Command& command, CommandCont
   for (size_t i = 5; i < command.ArgCount(); ++i) {
     const auto& opt = command[i].AsString();
     if (opt == "COPY") {
-      copy = true;
+      // TODO: Implement COPY option (don't delete key from source)
+      (void)opt;  // Suppress unused variable warning
     } else if (opt == "REPLACE") {
-      replace = true;
+      // TODO: Implement REPLACE option (overwrite existing key)
+      (void)opt;  // Suppress unused variable warning
     } else if (opt == "KEYS") {
       // Remaining arguments are keys
       for (size_t j = i + 1; j < command.ArgCount(); ++j) {
@@ -624,22 +713,30 @@ CommandResult HandleType(const astra::protocol::Command& command, CommandContext
 
 // KEYS pattern - Find all keys matching pattern
 CommandResult HandleKeys(const astra::protocol::Command& command, CommandContext* context) {
+  ASTRADB_LOG_TRACE("HandleKeys: arg_count={}", command.ArgCount());
+  
   if (command.ArgCount() != 1) {
+    ASTRADB_LOG_TRACE("HandleKeys: wrong number of arguments");
     return CommandResult(false, "ERR wrong number of arguments for 'keys' command");
   }
 
   Database* db = context->GetDatabase();
   if (!db) {
+    ASTRADB_LOG_TRACE("HandleKeys: database not initialized");
     return CommandResult(false, "ERR database not initialized");
   }
 
   const auto& pattern_arg = command[0];
   if (!pattern_arg.IsBulkString()) {
+    ASTRADB_LOG_TRACE("HandleKeys: wrong type of pattern argument");
     return CommandResult(false, "ERR wrong type of pattern argument");
   }
 
   std::string pattern = pattern_arg.AsString();
+  ASTRADB_LOG_TRACE("HandleKeys: pattern='{}'", pattern);
+  
   auto all_keys = db->GetAllKeys();
+  ASTRADB_LOG_TRACE("HandleKeys: got {} keys", all_keys.size());
   
   std::vector<RespValue> result;
   for (const auto& key : all_keys) {
@@ -651,6 +748,7 @@ CommandResult HandleKeys(const astra::protocol::Command& command, CommandContext
     }
   }
   
+  ASTRADB_LOG_TRACE("HandleKeys: returning array with {} elements", result.size());
   return CommandResult(RespValue(std::move(result)));
 }
 
@@ -746,9 +844,9 @@ CommandResult HandleSelect(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all admin commands
-ASTRADB_REGISTER_COMMAND(PING, 1, "fast", RoutingStrategy::kNone, HandlePing);
+ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
-ASTRADB_REGISTER_COMMAND(COMMAND, 0, "readonly", RoutingStrategy::kNone, HandleCommand);
+ASTRADB_REGISTER_COMMAND(COMMAND, -1, "readonly,admin", RoutingStrategy::kNone, HandleCommand);
 ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug);
 ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
 ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, HandleMigrate);
@@ -758,7 +856,7 @@ ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, Handle
 ASTRADB_REGISTER_COMMAND(SAVE, 1, "admin", RoutingStrategy::kNone, HandleSave);
 ASTRADB_REGISTER_COMMAND(TYPE, 2, "readonly", RoutingStrategy::kByFirstKey, HandleType);
 ASTRADB_REGISTER_COMMAND(KEYS, 2, "readonly", RoutingStrategy::kNone, HandleKeys);
-ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly", RoutingStrategy::kNone, HandleDbSize);
+ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly,fast", RoutingStrategy::kNone, HandleDbSize);
 ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
 ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
 ASTRADB_REGISTER_COMMAND(SELECT, 2, "fast", RoutingStrategy::kNone, HandleSelect);

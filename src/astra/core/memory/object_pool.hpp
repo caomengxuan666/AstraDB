@@ -119,9 +119,8 @@ std::unique_ptr<T, typename ObjectPool<T>::Deleter> ObjectPool<T>::Acquire() {
   }
   
   return std::unique_ptr<T, Deleter>(obj, [this](T* obj) {
-    if (this) {
-      this->Release(obj);
-    }
+    // this pointer cannot be null in well-defined C++ code
+    this->Release(obj);
   });
 }
 

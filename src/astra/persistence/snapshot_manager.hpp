@@ -74,9 +74,9 @@ class SnapshotManager {
   SnapshotManager(const SnapshotManager&) = delete;
   SnapshotManager& operator=(const SnapshotManager&) = delete;
 
-  // Movable
-  SnapshotManager(SnapshotManager&&) noexcept = default;
-  SnapshotManager& operator=(SnapshotManager&&) noexcept = default;
+  // Not movable (contains mutex)
+  SnapshotManager(SnapshotManager&&) noexcept = delete;
+  SnapshotManager& operator=(SnapshotManager&&) noexcept = delete;
 
   // Initialize with options
   bool Init(const SnapshotOptions& options) noexcept {

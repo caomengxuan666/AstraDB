@@ -68,7 +68,7 @@ TEST(DashMapTest, ConcurrentWrites) {
   
   std::vector<std::thread> threads;
   for (int t = 0; t < num_threads; ++t) {
-    threads.emplace_back([&map, t, keys_per_thread]() {
+    threads.emplace_back([&map, t]() {
       int start = t * keys_per_thread;
       for (int i = 0; i < keys_per_thread; ++i) {
         int key = start + i;

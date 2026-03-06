@@ -165,7 +165,7 @@ class BufferPool final {
   mutable absl::Mutex mutex_;
   static constexpr size_t kNumBuckets = 4;
   std::unique_ptr<BufferBucket[]> buckets_;
-  size_t max_buffer_size_;
+  [[maybe_unused]] size_t max_buffer_size_;  // Reserved for future size limit enforcement
 };
 
 // ==============================================================================

@@ -150,9 +150,9 @@ class ShardManager {
   ShardManager(const ShardManager&) = delete;
   ShardManager& operator=(const ShardManager&) = delete;
 
-  // Movable
-  ShardManager(ShardManager&&) noexcept = default;
-  ShardManager& operator=(ShardManager&&) noexcept = default;
+  // Non-movable (std::atomic is not movable)
+  ShardManager(ShardManager&&) noexcept = delete;
+  ShardManager& operator=(ShardManager&&) noexcept = delete;
 
   // Initialize with number of shards
   bool Init(uint32_t shard_count, const NodeId& self_id) noexcept {

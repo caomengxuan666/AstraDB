@@ -16,8 +16,8 @@
 namespace astra::commands {
 namespace {
 
-// Generate random key
-std::string RandomKey(size_t length = 16) {
+// Generate random key (reserved for future use)
+[[maybe_unused]] static std::string RandomKey(size_t length = 16) {
   static const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   static std::mt19937 rng(std::random_device{}());
   static std::uniform_int_distribution<size_t> dist(0, sizeof(chars) - 2);

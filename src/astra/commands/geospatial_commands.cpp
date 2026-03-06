@@ -28,8 +28,8 @@ static inline double DegToRad(double deg) {
   return deg * M_PI / 180.0;
 }
 
-// Helper: Convert radians to degrees
-static inline double RadToDeg(double rad) {
+// Helper: Convert radians to degrees (reserved for future use)
+[[maybe_unused]] static inline double RadToDeg(double rad) {
   return rad * 180.0 / M_PI;
 }
 

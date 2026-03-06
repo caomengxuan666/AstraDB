@@ -109,6 +109,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   
   Socket socket_;
   Executor& io_context_;
+  asio::strand<asio::any_io_executor> strand_;
   
   uint64_t id_;
   static std::atomic<uint64_t> next_id_;

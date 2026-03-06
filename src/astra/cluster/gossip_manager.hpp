@@ -112,9 +112,9 @@ class GossipManager {
   GossipManager(const GossipManager&) = delete;
   GossipManager& operator=(const GossipManager&) = delete;
 
-  // Movable
-  GossipManager(GossipManager&&) noexcept = default;
-  GossipManager& operator=(GossipManager&&) noexcept = default;
+  // Non-movable (std::atomic is not movable)
+  GossipManager(GossipManager&&) noexcept = delete;
+  GossipManager& operator=(GossipManager&&) noexcept = delete;
 
   // Initialize with configuration
   bool Init(const ClusterConfig& config) noexcept {

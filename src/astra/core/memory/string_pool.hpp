@@ -119,9 +119,10 @@ class StringBlock final {
 class StringPool final {
  public:
   explicit StringPool(size_t block_size = StringBlock::kDefaultBlockSize)
-      : block_size_(block_size) {
-    // Pre-allocate one block
-    AddBlock();
+      : block_size_(block_size),
+        current_block_(new StringBlock(block_size)) {
+    // Pre-allocate one block (constructor runs in single-threaded context)
+    blocks_.push_back(current_block_);
   }
 
   ~StringPool() {
@@ -234,7 +235,7 @@ class StringPool final {
   }
 
  private:
-  void AddBlock(size_t size = 0) {
+  void AddBlock(size_t size = 0) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_) {
     if (size == 0) {
       size = block_size_;
     }
