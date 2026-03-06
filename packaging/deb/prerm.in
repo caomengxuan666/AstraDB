@@ -1,0 +1,24 @@
+#!/bin/bash
+# Pre-removal script for AstraDB
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop the service if it's running
+        if [ -f /etc/init.d/astradb ]; then
+            invoke-rc.d astradb stop || true
+        fi
+        
+        echo "AstraDB will be removed."
+        ;;
+        
+    failed-upgrade)
+        ;;
+        
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
