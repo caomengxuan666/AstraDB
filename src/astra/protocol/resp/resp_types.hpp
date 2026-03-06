@@ -162,7 +162,7 @@ class RespValue {
 // Command: Parsed command with arguments
 struct Command {
   std::string name;
-  std::vector<RespValue> args;
+  absl::InlinedVector<RespValue, 4> args;
   
   size_t ArgCount() const { return args.size(); }
   
