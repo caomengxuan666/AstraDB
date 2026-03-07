@@ -15,6 +15,14 @@
 
 #include "astra/protocol/resp/resp_types.hpp"
 
+namespace astra {
+
+namespace network {
+class Connection;
+}  // namespace network
+
+}  // namespace astra
+
 namespace astra::commands {
 
 // Blocked client structure
@@ -24,7 +32,8 @@ struct BlockedClient {
   astra::protocol::Command command;
   double timeout_seconds;
   std::chrono::steady_clock::time_point start_time;
-  std::function<void(astra::protocol::RespValue)> callback;
+  std::function<astra::protocol::RespValue(const astra::protocol::RespValue&)> callback;  // Returns result to send
+  astra::network::Connection* connection = nullptr;  // Save connection pointer for async response
 };
 
 // Blocking manager for Redis-style blocking commands (BLPOP, BRPOP, BZPOPMIN, etc.)

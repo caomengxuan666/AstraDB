@@ -716,7 +716,11 @@ void Server::HandleCommand(const protocol::Command& cmd,
     
     // Send response back on connection's thread
     asio::post(io_context_, [this, conn, result]() {
-      SendResponse(conn, result);
+      // Don't send response if command is in blocking state
+      // Blocking commands will send their response later when woken up
+      if (!result.IsBlocking()) {
+        SendResponse(conn, result);
+      }
     });
   });
 }
@@ -1003,7 +1007,11 @@ asio::awaitable<void> Server::HandleCommandAsync(const protocol::Command& cmd,
   }
 
   // Send response
-  send_response(result);
+  // Don't send response if command is in blocking state
+  // Blocking commands will send their response later when woken up
+  if (!result.IsBlocking()) {
+    send_response(result);
+  }
 }
 
 void Server::SendResponse(std::shared_ptr<network::Connection> conn,

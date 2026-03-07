@@ -581,12 +581,15 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
     blocked_client.command = command;
     blocked_client.timeout_seconds = timeout;
     blocked_client.start_time = std::chrono::steady_clock::now();
+    blocked_client.connection = context->GetConnection();  // Save connection pointer
     
     // Debug: check blocked_client.key after assignment
     ASTRADB_LOG_DEBUG("BLPOP: blocked_client.key='{}'", blocked_client.key);
     
     // Set callback to execute LPop when woken up
-    blocked_client.callback = [db, context, key = command[0].AsString()](const RespValue& notification) {
+    // The notification parameter contains information about why we were woken up
+    blocked_client.callback = [db, key = command[0].AsString()](const RespValue& notification) -> RespValue {
+      ASTRADB_LOG_DEBUG("BLPOP callback invoked for key='{}'", key);
       // When woken up, try to pop from the list
       auto value = db->LPop(key);
       if (value.has_value()) {
@@ -594,20 +597,12 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
         std::vector<RespValue> result;
         result.push_back(RespValue(key));
         result.push_back(RespValue(*value));
-        
-        // Send result via connection
-        auto* conn = context->GetConnection();
-        if (conn) {
-          auto builder = protocol::RespBuilder::Build(RespValue(std::move(result)));
-          conn->Send(builder);
-        }
+        ASTRADB_LOG_DEBUG("BLPOP callback: Got value for key='{}'", key);
+        return RespValue(std::move(result));
       } else {
-        // List still empty, send nil
-        auto* conn = context->GetConnection();
-        if (conn) {
-          auto builder = protocol::RespBuilder::Build(RespValue(RespType::kNullBulkString));
-          conn->Send(builder);
-        }
+        // List still empty
+        ASTRADB_LOG_DEBUG("BLPOP callback: List still empty for key='{}'", key);
+        return RespValue(RespType::kNullBulkString);
       }
     };
     
@@ -617,11 +612,13 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
     ASTRADB_LOG_DEBUG("BLPOP: About to call AddBlockedClient with key='{}'", key_copy);
     blocking_manager->AddBlockedClient(key_copy, std::move(blocked_client));
     
-    // Return nil for now (real response will be sent via callback)
-    return CommandResult(RespValue(RespType::kNullBulkString));
+    // Return blocking result (response will be sent later)
+    ASTRADB_LOG_DEBUG("BLPOP: Returning blocking result");
+    return CommandResult::Blocking();
   }
   
   // Non-blocking mode, return nil
+  ASTRADB_LOG_DEBUG("BLPOP: Returning nil (non-blocking mode)");
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
@@ -696,9 +693,10 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
     blocked_client.command = command;
     blocked_client.timeout_seconds = timeout;
     blocked_client.start_time = std::chrono::steady_clock::now();
+    blocked_client.connection = context->GetConnection();  // Save connection pointer
     
     // Set callback to execute RPop when woken up
-    blocked_client.callback = [db, context, key = command[0].AsString()](const RespValue& notification) {
+    blocked_client.callback = [db, key = command[0].AsString()](const RespValue& notification) -> RespValue {
       // When woken up, try to pop from the list
       auto value = db->RPop(key);
       if (value.has_value()) {
@@ -706,28 +704,18 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
         std::vector<RespValue> result;
         result.push_back(RespValue(key));
         result.push_back(RespValue(*value));
-        
-        // Send result via connection
-        auto* conn = context->GetConnection();
-        if (conn) {
-          auto builder = protocol::RespBuilder::Build(RespValue(std::move(result)));
-          conn->Send(builder);
-        }
+        return RespValue(std::move(result));
       } else {
         // List still empty, send nil
-        auto* conn = context->GetConnection();
-        if (conn) {
-          auto builder = protocol::RespBuilder::Build(RespValue(RespType::kNullBulkString));
-          conn->Send(builder);
-        }
+        return RespValue(RespType::kNullBulkString);
       }
     };
     
     // Add to blocking queue
     blocking_manager->AddBlockedClient(blocked_client.key, std::move(blocked_client));
     
-    // Return nil for now (real response will be sent via callback)
-    return CommandResult(RespValue(RespType::kNullBulkString));
+    // Return blocking result (response will be sent later)
+    return CommandResult::Blocking();
   }
   
   // Non-blocking mode, return nil

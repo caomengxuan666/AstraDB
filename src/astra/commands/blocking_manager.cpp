@@ -4,6 +4,8 @@
 #include "blocking_manager.hpp"
 
 #include "astra/base/logging.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/network/connection.hpp"
 #include <mutex>
 
 namespace astra::commands {
@@ -135,9 +137,11 @@ void BlockingManager::CleanExpiredRequests() {
           timeout_timers_.erase(it->client_id);
         }
         
-        // Send nil response via callback
-        if (it->callback) {
-          it->callback(astra::protocol::RespValue(astra::protocol::RespType::kNullBulkString));
+        // Send nil response via connection
+        if (it->connection) {
+          auto result = it->callback(astra::protocol::RespValue(astra::protocol::RespType::kNullBulkString));
+          auto builder = astra::protocol::RespBuilder::Build(result);
+          it->connection->Send(builder);
         }
         
         it = queue.erase(it);
@@ -174,6 +178,7 @@ void BlockingManager::HandleTimeout(uint64_t client_id) {
   
   // Remove from wait queues
   std::function<void(astra::protocol::RespValue)> callback;
+  astra::network::Connection* connection = nullptr;
   {
     std::unique_lock<std::shared_mutex> lock(wait_queues_mutex_);
     for (auto& [key, queue] : wait_queues_) {
@@ -181,6 +186,7 @@ void BlockingManager::HandleTimeout(uint64_t client_id) {
           [client_id](const BlockedClient& c) { return c.client_id == client_id; });
       if (it != queue.end()) {
         callback = it->callback;
+        connection = it->connection;
         queue.erase(it);
         
         // Clean up empty queues
@@ -198,9 +204,14 @@ void BlockingManager::HandleTimeout(uint64_t client_id) {
     timeout_timers_.erase(client_id);
   }
   
-  // Send nil response
-  if (callback) {
-    callback(astra::protocol::RespValue(astra::protocol::RespType::kNullBulkString));
+  // Send nil response via connection
+  if (connection) {
+    ASTRADB_LOG_DEBUG("HandleTimeout: Sending nil response via connection");
+    auto builder = astra::protocol::RespBuilder::Build(
+        astra::protocol::RespValue(astra::protocol::RespType::kNullBulkString));
+    connection->Send(builder);
+  } else {
+    ASTRADB_LOG_ERROR("HandleTimeout: Connection is null for client {}", client_id);
   }
 }
 
@@ -208,12 +219,18 @@ void BlockingManager::ProcessBlockedCommand(const BlockedClient& client) {
   ASTRADB_LOG_DEBUG("Processing blocked command for client {} on key {}",
                      client.client_id, client.key);
   
-  // The callback will execute the command with new data
-  // The command should already be saved in the BlockedClient structure
+  // The callback will execute the command with new data and return the result
   if (client.callback) {
-    // The callback is responsible for executing the command
-    // This allows flexibility for different blocking operations
-    client.callback(astra::protocol::RespValue(astra::protocol::RespType::kNull));
+    auto result = client.callback(astra::protocol::RespValue(astra::protocol::RespType::kNull));
+    
+    // Send result via connection
+    if (client.connection) {
+      ASTRADB_LOG_DEBUG("ProcessBlockedCommand: Sending response via connection");
+      auto builder = astra::protocol::RespBuilder::Build(result);
+      client.connection->Send(builder);
+    } else {
+      ASTRADB_LOG_ERROR("ProcessBlockedCommand: Connection is null for client {}", client.client_id);
+    }
   }
 }
 

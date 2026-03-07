@@ -153,10 +153,21 @@ struct CommandResult {
   RespValue response;
   bool success = true;
   std::string error;
+  bool is_blocking = false;  // Indicates if command is in blocking state
 
   CommandResult() = default;
   explicit CommandResult(RespValue resp) : response(std::move(resp)) {}
   CommandResult(bool ok, std::string err) : success(ok), error(std::move(err)) {}
+  
+  // Create a blocking result (command will respond later)
+  static CommandResult Blocking() {
+    CommandResult result;
+    result.is_blocking = true;
+    return result;
+  }
+  
+  // Check if result is in blocking state
+  bool IsBlocking() const { return is_blocking; }
 };
 
 // Command handler function signature
