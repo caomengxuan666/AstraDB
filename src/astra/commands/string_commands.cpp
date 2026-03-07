@@ -393,7 +393,8 @@ CommandResult HandleIncrBy(const astra::protocol::Command& command, CommandConte
   int_value += increment;
   db->Set(key, absl::StrCat(int_value));
   
-  std::array<absl::string_view, 2> aof_args = {key, incr_arg.AsString()};
+  std::string incr_str = incr_arg.AsString();
+  std::array<absl::string_view, 2> aof_args = {key, incr_str};
   context->LogToAof("INCRBY", aof_args);
   
   return CommandResult(RespValue(int_value));
@@ -444,7 +445,8 @@ CommandResult HandleDecrBy(const astra::protocol::Command& command, CommandConte
   int_value -= decrement;
   db->Set(key, absl::StrCat(int_value));
   
-  std::array<absl::string_view, 2> aof_args = {key, decr_arg.AsString()};
+  std::string decr_str = decr_arg.AsString();
+  std::array<absl::string_view, 2> aof_args = {key, decr_str};
   context->LogToAof("DECRBY", aof_args);
   
   return CommandResult(RespValue(int_value));
@@ -587,7 +589,8 @@ CommandResult HandleSetEx(const astra::protocol::Command& command, CommandContex
   db->SetExpireSeconds(key, seconds);
   
   // Log to AOF
-  std::array<absl::string_view, 3> aof_args = {key, seconds_arg.AsString(), value};
+  std::string seconds_str = seconds_arg.AsString();
+  std::array<absl::string_view, 3> aof_args = {key, seconds_str, value};
   context->LogToAof("SETEX", aof_args);
   
   RespValue response;

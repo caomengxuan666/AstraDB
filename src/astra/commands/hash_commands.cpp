@@ -170,7 +170,8 @@ CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, Comman
   double new_value = db->HIncrByFloat(key, field, increment);
   
   // Log to AOF
-  std::array<absl::string_view, 3> aof_args = {key, field, incr_arg.AsString()};
+  std::string incr_str = incr_arg.AsString();
+  std::array<absl::string_view, 3> aof_args = {key, field, incr_str};
   context->LogToAof("HINCRBYFLOAT", aof_args);
   
   return CommandResult(RespValue(new_value));

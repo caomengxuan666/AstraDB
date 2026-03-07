@@ -277,7 +277,8 @@ CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandCont
   double new_score = db->ZIncrBy(key, increment, member);
   
   // Log to AOF
-  std::array<absl::string_view, 3> aof_args = {key, incr_arg.AsString(), member};
+  std::string incr_str = incr_arg.AsString();
+  std::array<absl::string_view, 3> aof_args = {key, incr_str, member};
   context->LogToAof("ZINCRBY", aof_args);
   
   return CommandResult(RespValue(new_score));
