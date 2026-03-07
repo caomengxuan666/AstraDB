@@ -17,11 +17,11 @@ namespace astra::commands {
 // - Score: Geohash of the coordinates
 // - Member: The name of the location
 
-// Earth radius in different units
-constexpr double kEarthRadiusMeters = 6378137.0;
-constexpr double kEarthRadiusKm = 6378.137;
-constexpr double kEarthRadiusFeet = 20908792.0;
-constexpr double kEarthRadiusMiles = 3958.761;
+// Earth radius in different units (using quadratic mean radius for WGS-84)
+constexpr double kEarthRadiusMeters = 6372797.560856;
+constexpr double kEarthRadiusKm = 6372.797560856;
+constexpr double kEarthRadiusFeet = 20909579.7;
+constexpr double kEarthRadiusMiles = 3958.7600;
 
 // Helper: Convert degrees to radians
 static inline double DegToRad(double deg) {
@@ -33,54 +33,105 @@ static inline double DegToRad(double deg) {
   return rad * 180.0 / M_PI;
 }
 
+// Interleave lower bits of x and y (Redis implementation)
+// x goes to even positions, y goes to odd positions
+static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
+  static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
+                               0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
+                               0x0000FFFF0000FFFFULL};
+  static const unsigned int S[] = {1, 2, 4, 8, 16};
+
+  uint64_t x = xlo;
+  uint64_t y = ylo;
+
+  x = (x | (x << S[4])) & B[4];
+  y = (y | (y << S[4])) & B[4];
+
+  x = (x | (x << S[3])) & B[3];
+  y = (y | (y << S[3])) & B[3];
+
+  x = (x | (x << S[2])) & B[2];
+  y = (y | (y << S[2])) & B[2];
+
+  x = (x | (x << S[1])) & B[1];
+  y = (y | (y << S[1])) & B[1];
+
+  x = (x | (x << S[0])) & B[0];
+  y = (y | (y << S[0])) & B[0];
+
+  return x | (y << 1);
+}
+
+// Reverse the interleave process (Redis implementation)
+// Returns deinterleaved value where lower 32 bits are x, upper 32 bits are y
+static inline uint64_t deinterleave64(uint64_t interleaved) {
+  static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
+                               0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
+                               0x0000FFFF0000FFFFULL, 0x00000000FFFFFFFFULL};
+  static const unsigned int S[] = {0, 1, 2, 4, 8, 16};
+
+  uint64_t x = interleaved;
+  uint64_t y = interleaved >> 1;
+
+  x = (x | (x >> S[0])) & B[0];
+  y = (y | (y >> S[0])) & B[0];
+
+  x = (x | (x >> S[1])) & B[1];
+  y = (y | (y >> S[1])) & B[1];
+
+  x = (x | (x >> S[2])) & B[2];
+  y = (y | (y >> S[2])) & B[2];
+
+  x = (x | (x >> S[3])) & B[3];
+  y = (y | (y >> S[3])) & B[3];
+
+  x = (x | (x >> S[4])) & B[4];
+  y = (y | (y >> S[4])) & B[4];
+
+  x = (x | (x >> S[5])) & B[5];
+  y = (y | (y >> S[5])) & B[5];
+
+  return x | (y << 32);
+}
+
 // Helper: Calculate geohash (52-bit, similar to Redis)
 static uint64_t Geohash52(double longitude, double latitude) {
   // Redis uses a 52-bit geohash (26 bits for longitude, 26 bits for latitude)
   // Range: longitude [-180, 180], latitude [-85.05112878, 85.05112878]
   
-  // Normalize coordinates
-  double lon = (longitude + 180.0) / 360.0;  // [0, 1]
-  double lat = (latitude + 85.05112878) / 170.10225756;  // [0, 1]
+  // Normalize coordinates to [0, 1]
+  double lon = (longitude + 180.0) / 360.0;
+  double lat = (latitude + 85.05112878) / 170.10225756;
   
   // Clamp to valid range
   lon = std::max(0.0, std::min(1.0, lon));
   lat = std::max(0.0, std::min(1.0, lat));
   
-  // Interleave bits to create 52-bit geohash
-  uint64_t hash = 0;
-  for (int i = 0; i < 26; ++i) {
-    // Get bit i from latitude and longitude
-    uint64_t lat_bit = static_cast<uint64_t>(lat * (1ULL << 26)) & (1ULL << (25 - i));
-    uint64_t lon_bit = static_cast<uint64_t>(lon * (1ULL << 26)) & (1ULL << (25 - i));
-    
-    // Interleave: latitude bits in odd positions, longitude in even
-    hash |= (lat_bit << (2 * i + 1));
-    hash |= (lon_bit << (2 * i));
-  }
+  // Convert to 26-bit integer
+  uint32_t lon_int = static_cast<uint32_t>(lon * (1ULL << 26));
+  uint32_t lat_int = static_cast<uint32_t>(lat * (1ULL << 26));
   
-  return hash;
+  // Interleave bits: lat in even positions, lon in odd positions
+  // Redis calls: interleave64(lat_offset, long_offset)
+  return interleave64(lat_int, lon_int);
 }
 
 // Helper: Decode geohash to coordinates
 static void DecodeGeohash(uint64_t hash, double& longitude, double& latitude) {
-  double lon = 0.0, lat = 0.0;
+  // De-interleave bits
+  uint64_t deinterleaved = deinterleave64(hash);
   
-  for (int i = 0; i < 26; ++i) {
-    // Extract bits
-    uint64_t lat_bit = (hash >> (2 * i + 1)) & 1;
-    uint64_t lon_bit = (hash >> (2 * i)) & 1;
-    
-    // Reconstruct coordinates
-    lat += lat_bit * (1.0 / (1ULL << (i + 1)));
-    lon += lon_bit * (1.0 / (1ULL << (i + 1)));
-  }
+  // Extract lat (lower 32 bits) and lon (upper 32 bits)
+  uint32_t lat_int = static_cast<uint32_t>(deinterleaved);
+  uint32_t lon_int = static_cast<uint32_t>(deinterleaved >> 32);
   
-  // Denormalize
-  lon = lon * 360.0 - 180.0;
-  lat = lat * 170.10225756 - 85.05112878;
+  // Convert from 26-bit integer to [0, 1] range
+  double lat = static_cast<double>(lat_int) / (1ULL << 26);
+  double lon = static_cast<double>(lon_int) / (1ULL << 26);
   
-  longitude = lon;
-  latitude = lat;
+  // Denormalize to actual coordinates
+  latitude = lat * 170.10225756 - 85.05112878;
+  longitude = lon * 360.0 - 180.0;
 }
 
 // Helper: Calculate Haversine distance
@@ -105,6 +156,25 @@ static double HaversineDistance(double lon1, double lat1, double lon2, double la
   }
   
   return radius * c;
+}
+
+// Helper: Format distance to fixed-point string (4 decimal places, like Redis)
+static std::string FormatDistance(double distance) {
+  // Redis uses 4 decimal places for distance output
+  char buffer[128];
+  snprintf(buffer, sizeof(buffer), "%.4f", distance);
+  
+  // Remove trailing zeros after decimal point
+  std::string result(buffer);
+  size_t dot_pos = result.find('.');
+  if (dot_pos != std::string::npos) {
+    size_t last_non_zero = result.find_last_not_of('0');
+    if (last_non_zero != std::string::npos && last_non_zero > dot_pos) {
+      result = result.substr(0, last_non_zero + 1);
+    }
+  }
+  
+  return result;
 }
 
 // Helper: Convert geohash to geohash string (base32)
@@ -249,7 +319,7 @@ CommandResult HandleGeoDist(const protocol::Command& command, CommandContext* co
   double distance = HaversineDistance(lon1, lat1, lon2, lat2, unit);
   
   protocol::RespValue resp;
-  resp.SetString(absl::StrCat(distance), protocol::RespType::kBulkString);
+  resp.SetString(FormatDistance(distance), protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
@@ -424,7 +494,7 @@ CommandResult HandleGeoRadius(const protocol::Command& command, CommandContext* 
       item.emplace_back(member);
       
       if (withdist) {
-        item.emplace_back(distance);
+        item.emplace_back(FormatDistance(distance));
       }
       
       if (withcoord) {
