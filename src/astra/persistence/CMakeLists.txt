@@ -62,8 +62,10 @@ endif()
 
 # Link dependencies
 target_link_libraries(astra_persistence INTERFACE
-  astra_engine
+  astra_container
+  astra_base
   leveldb
+  zstd
   absl::strings
   absl::time
   absl::flat_hash_map

@@ -863,8 +863,74 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
   }
 
   if (!value.has_value()) {
-    // Source list is empty, return nil
-    // TODO: Implement real blocking with timeout and wait queues
+    // Source list is empty, implement blocking
+    if (timeout > 0) {
+      // Get blocking manager
+      auto* blocking_manager = context->GetBlockingManager();
+      if (!blocking_manager) {
+        // Blocking manager not available, return nil
+        return CommandResult(RespValue(RespType::kNullBulkString));
+      }
+      
+      // Get connection ID
+      uint64_t client_id = context->GetConnectionId();
+      
+      // Create blocked client with callback
+      BlockedClient blocked_client;
+      blocked_client.client_id = client_id;
+      blocked_client.key = source;  // Use source key
+      blocked_client.command = command;
+      blocked_client.timeout_seconds = timeout;
+      blocked_client.start_time = std::chrono::steady_clock::now();
+      blocked_client.connection = context->GetConnection();  // Save connection pointer
+      
+      // Set callback to execute move when woken up
+      blocked_client.callback = [db, source, dest, from, to](const RespValue& notification) -> RespValue {
+        // When woken up, try to move from source to dest
+        std::optional<std::string> value;
+        
+        if (from == "LEFT" && to == "LEFT") {
+          // LPOP then LPUSH
+          value = db->LPop(source);
+          if (value.has_value()) {
+            db->LPush(dest, *value);
+          }
+        } else if (from == "LEFT" && to == "RIGHT") {
+          // LPOP then RPUSH
+          value = db->LPop(source);
+          if (value.has_value()) {
+            db->RPush(dest, *value);
+          }
+        } else if (from == "RIGHT" && to == "LEFT") {
+          // RPOP then LPUSH
+          value = db->RPop(source);
+          if (value.has_value()) {
+            db->LPush(dest, *value);
+          }
+        } else if (from == "RIGHT" && to == "RIGHT") {
+          // RPOP then RPUSH
+          value = db->RPop(source);
+          if (value.has_value()) {
+            db->RPush(dest, *value);
+          }
+        }
+        
+        if (value.has_value()) {
+          return RespValue(*value);
+        } else {
+          // List still empty
+          return RespValue(RespType::kNullBulkString);
+        }
+      };
+      
+      // Add to blocking queue
+      blocking_manager->AddBlockedClient(source, std::move(blocked_client));
+      
+      // Return blocking result (response will be sent later)
+      return CommandResult::Blocking();
+    }
+    
+    // Non-blocking mode, return nil
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 
@@ -981,8 +1047,93 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
     }
   }
 
-  // All lists are empty, return nil
-  // TODO: Implement real blocking with timeout and wait queues
+  // All lists are empty, implement blocking
+  if (timeout > 0) {
+    // Get blocking manager
+    auto* blocking_manager = context->GetBlockingManager();
+    if (!blocking_manager) {
+      // Blocking manager not available, return nil
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    
+    // Get connection ID
+    uint64_t client_id = context->GetConnectionId();
+    
+    // Collect all keys for blocking
+    std::vector<std::string> keys;
+    for (size_t i = 1; i < count_idx; ++i) {
+      const auto& key_arg = command[i];
+      if (key_arg.IsBulkString()) {
+        keys.push_back(key_arg.AsString());
+      }
+    }
+    
+    if (!keys.empty()) {
+      // Create blocked client with callback
+      BlockedClient blocked_client;
+      blocked_client.client_id = client_id;
+      blocked_client.key = keys[0];  // Use first key for tracking
+      blocked_client.command = command;
+      blocked_client.timeout_seconds = timeout;
+      blocked_client.start_time = std::chrono::steady_clock::now();
+      blocked_client.connection = context->GetConnection();  // Save connection pointer
+      
+      // Set callback to execute pop when woken up
+      blocked_client.callback = [db, keys, count, direction](const RespValue& notification) -> RespValue {
+        // When woken up, try to pop from each key
+        for (const auto& key : keys) {
+          // Pop elements based on direction
+          std::vector<std::string> values;
+          bool popped = false;
+          
+          for (int64_t j = 0; j < count; ++j) {
+            if (direction == "LEFT") {
+              auto value = db->LPop(key);
+              if (value.has_value()) {
+                values.push_back(*value);
+                popped = true;
+              } else {
+                break;  // No more elements in this list
+              }
+            } else {
+              auto value = db->RPop(key);
+              if (value.has_value()) {
+                values.push_back(*value);
+                popped = true;
+              } else {
+                break;  // No more elements in this list
+              }
+            }
+          }
+          
+          if (popped) {
+            // Return [key, [value1, value2, ...]]
+            std::vector<RespValue> result;
+            result.push_back(RespValue(key));
+            
+            std::vector<RespValue> value_array;
+            for (const auto& val : values) {
+              value_array.push_back(RespValue(val));
+            }
+            result.push_back(RespValue(std::move(value_array)));
+            
+            return RespValue(std::move(result));
+          }
+        }
+        
+        // All lists still empty
+        return RespValue(RespType::kNullBulkString);
+      };
+      
+      // Add to blocking queue (use first key)
+      blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
+      
+      // Return blocking result (response will be sent later)
+      return CommandResult::Blocking();
+    }
+  }
+  
+  // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 

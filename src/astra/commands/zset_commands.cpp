@@ -7,6 +7,7 @@
 #include "zset_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "blocking_manager.hpp"
 
 namespace astra::commands {
 
@@ -390,8 +391,66 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
     }
   }
 
-  // All sorted sets are empty, return nil
-  // TODO: Implement real blocking with timeout and wait queues
+  // All sorted sets are empty, implement blocking
+  if (timeout > 0) {
+    // Get blocking manager
+    auto* blocking_manager = context->GetBlockingManager();
+    if (!blocking_manager) {
+      // Blocking manager not available, return nil
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    
+    // Get connection ID
+    uint64_t client_id = context->GetConnectionId();
+    
+    // Collect all keys for blocking
+    std::vector<std::string> keys;
+    for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
+      const auto& key_arg = command[i];
+      if (key_arg.IsBulkString()) {
+        keys.push_back(key_arg.AsString());
+      }
+    }
+    
+    if (!keys.empty()) {
+      // Create blocked client with callback
+      BlockedClient blocked_client;
+      blocked_client.client_id = client_id;
+      blocked_client.key = keys[0];  // Use first key for tracking
+      blocked_client.command = command;
+      blocked_client.timeout_seconds = timeout;
+      blocked_client.start_time = std::chrono::steady_clock::now();
+      blocked_client.connection = context->GetConnection();  // Save connection pointer
+      
+      // Set callback to execute pop when woken up
+      blocked_client.callback = [db, keys](const RespValue& notification) -> RespValue {
+        // When woken up, try to pop from each key
+        for (const auto& key : keys) {
+          // Pop the member with minimum score
+          auto result = db->ZPopMin(key);
+          if (result.has_value()) {
+            // Return [key, member, score]
+            std::vector<RespValue> resp;
+            resp.push_back(RespValue(key));
+            resp.push_back(RespValue(result->first));
+            resp.push_back(RespValue(result->second));
+            return RespValue(std::move(resp));
+          }
+        }
+        
+        // All sorted sets still empty
+        return RespValue(RespType::kNullBulkString);
+      };
+      
+      // Add to blocking queue (use first key)
+      blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
+      
+      // Return blocking result (response will be sent later)
+      return CommandResult::Blocking();
+    }
+  }
+  
+  // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
@@ -448,8 +507,66 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
     }
   }
 
-  // All sorted sets are empty, return nil
-  // TODO: Implement real blocking with timeout and wait queues
+  // All sorted sets are empty, implement blocking
+  if (timeout > 0) {
+    // Get blocking manager
+    auto* blocking_manager = context->GetBlockingManager();
+    if (!blocking_manager) {
+      // Blocking manager not available, return nil
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    
+    // Get connection ID
+    uint64_t client_id = context->GetConnectionId();
+    
+    // Collect all keys for blocking
+    std::vector<std::string> keys;
+    for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
+      const auto& key_arg = command[i];
+      if (key_arg.IsBulkString()) {
+        keys.push_back(key_arg.AsString());
+      }
+    }
+    
+    if (!keys.empty()) {
+      // Create blocked client with callback
+      BlockedClient blocked_client;
+      blocked_client.client_id = client_id;
+      blocked_client.key = keys[0];  // Use first key for tracking
+      blocked_client.command = command;
+      blocked_client.timeout_seconds = timeout;
+      blocked_client.start_time = std::chrono::steady_clock::now();
+      blocked_client.connection = context->GetConnection();  // Save connection pointer
+      
+      // Set callback to execute pop when woken up
+      blocked_client.callback = [db, keys](const RespValue& notification) -> RespValue {
+        // When woken up, try to pop from each key
+        for (const auto& key : keys) {
+          // Pop the member with maximum score
+          auto result = db->ZPopMax(key);
+          if (result.has_value()) {
+            // Return [key, member, score]
+            std::vector<RespValue> resp;
+            resp.push_back(RespValue(key));
+            resp.push_back(RespValue(result->first));
+            resp.push_back(RespValue(result->second));
+            return RespValue(std::move(resp));
+          }
+        }
+        
+        // All sorted sets still empty
+        return RespValue(RespType::kNullBulkString);
+      };
+      
+      // Add to blocking queue (use first key)
+      blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
+      
+      // Return blocking result (response will be sent later)
+      return CommandResult::Blocking();
+    }
+  }
+  
+  // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
@@ -599,8 +716,96 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
     }
   }
 
-  // All sorted sets are empty, return nil
-  // TODO: Implement real blocking with timeout and wait queues
+  // All sorted sets are empty, implement blocking
+  if (timeout > 0) {
+    // Get blocking manager
+    auto* blocking_manager = context->GetBlockingManager();
+    if (!blocking_manager) {
+      // Blocking manager not available, return nil
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    
+    // Get connection ID
+    uint64_t client_id = context->GetConnectionId();
+    
+    // Collect all keys for blocking
+    std::vector<std::string> keys;
+    for (size_t i = 1; i <= static_cast<size_t>(numkeys); ++i) {
+      const auto& key_arg = command[i];
+      if (key_arg.IsBulkString()) {
+        keys.push_back(key_arg.AsString());
+      }
+    }
+    
+    if (!keys.empty()) {
+      // Create blocked client with callback
+      BlockedClient blocked_client;
+      blocked_client.client_id = client_id;
+      blocked_client.key = keys[0];  // Use first key for tracking
+      blocked_client.command = command;
+      blocked_client.timeout_seconds = timeout;
+      blocked_client.start_time = std::chrono::steady_clock::now();
+      blocked_client.connection = context->GetConnection();  // Save connection pointer
+      
+      // Set callback to execute pop when woken up
+      blocked_client.callback = [db, keys, count, pop_max](const RespValue& notification) -> RespValue {
+        // When woken up, try to pop from each key
+        for (const auto& key : keys) {
+          // Pop multiple members
+          std::vector<std::pair<std::string, double>> results;
+          bool popped = false;
+          
+          for (int64_t j = 0; j < count; ++j) {
+            if (pop_max) {
+              auto result = db->ZPopMax(key);
+              if (result.has_value()) {
+                results.push_back(*result);
+                popped = true;
+              } else {
+                break;
+              }
+            } else {
+              auto result = db->ZPopMin(key);
+              if (result.has_value()) {
+                results.push_back(*result);
+                popped = true;
+              } else {
+                break;
+              }
+            }
+          }
+          
+          if (popped) {
+            // Return [key, [[member1, score1], [member2, score2], ...]]
+            std::vector<RespValue> outer_resp;
+            outer_resp.push_back(RespValue(key));
+            
+            std::vector<RespValue> inner_resp;
+            for (const auto& [member, score] : results) {
+              std::vector<RespValue> member_score;
+              member_score.push_back(RespValue(member));
+              member_score.push_back(RespValue(score));
+              inner_resp.push_back(RespValue(std::move(member_score)));
+            }
+            outer_resp.push_back(RespValue(std::move(inner_resp)));
+            
+            return RespValue(std::move(outer_resp));
+          }
+        }
+        
+        // All sorted sets still empty
+        return RespValue(RespType::kNullBulkString);
+      };
+      
+      // Add to blocking queue (use first key)
+      blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
+      
+      // Return blocking result (response will be sent later)
+      return CommandResult::Blocking();
+    }
+  }
+  
+  // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
