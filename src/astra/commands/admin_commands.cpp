@@ -8,7 +8,6 @@
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/storage/key_metadata.hpp"
-#include <absl/container/inlined_vector.h>
 #include <absl/strings/ascii.h>
 #include <chrono>
 #include <ctime>
@@ -86,7 +85,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
     
     ASTRADB_LOG_TRACE("HandleCommand: got {} command names", command_names.size());
     
-    absl::InlinedVector<RespValue, 32> result;
+    std::vector<RespValue> result;
     for (const auto& name : command_names) {
       const auto* info = registry.GetInfo(name);
       if (info) {
@@ -147,7 +146,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
       }
     }
     
-    return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
+    return CommandResult(RespValue(std::move(result)));
   }
   
   const auto& subcommand = command[0].AsString();
@@ -177,7 +176,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
     
     // Build documentation array according to Redis COMMAND DOCS spec
     // Format: array with documentation information
-    absl::InlinedVector<RespValue, 32> docs_array;
+    std::vector<RespValue> docs_array;
     
     // 1. Command name
     RespValue name_val;
@@ -278,7 +277,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
       docs_array.push_back(RespValue(args_docs));
     }
     
-    return CommandResult(RespValue(std::vector<RespValue>(docs_array.begin(), docs_array.end())));
+    return CommandResult(RespValue(std::move(docs_array)));
   } else if (subcommand == "COUNT") {
     ASTRADB_LOG_TRACE("HandleCommand: COUNT branch, returning count");
     // COMMAND COUNT - return number of commands
@@ -305,7 +304,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
     }
     
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch, returning array with {} elements", result.size());
-    return CommandResult(RespValue(result));
+    return CommandResult(RespValue(std::move(result)));
   }
   
   // Return empty array for unknown subcommands
@@ -504,7 +503,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
       result.push_back(RespValue(std::move(slot_info)));
     }
     
-    return CommandResult(RespValue(result));
+    return CommandResult(RespValue(std::move(result)));
     
   } else if (subcommand == "FORGET") {
     // CLUSTER FORGET <node_id>
@@ -872,7 +871,7 @@ CommandResult HandleKeys(const astra::protocol::Command& command, CommandContext
   }
   
   ASTRADB_LOG_TRACE("HandleKeys: returning array with {} elements", result.size());
-  return CommandResult(RespValue(result));
+  return CommandResult(RespValue(std::move(result)));
 }
 
 // DBSIZE - Return number of keys
