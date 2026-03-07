@@ -26,10 +26,10 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
 // BITFIELD key [GET encoding offset] [SET encoding offset value] [INCRBY encoding offset increment] [OVERFLOW WRAP|SAT|FAIL] - Perform bitfield operations
 CommandResult HandleBitField(const protocol::Command& command, CommandContext* context);
 
-// BITGET key offset - Get a single bit at offset
-CommandResult HandleBitGet(const protocol::Command& command, CommandContext* context);
+// GETBIT key offset - Get a single bit at offset
+CommandResult HandleGetBit(const protocol::Command& command, CommandContext* context);
 
-// BITSET key offset value - Set a single bit at offset
-CommandResult HandleBitSet(const protocol::Command& command, CommandContext* context);
+// SETBIT key offset value - Set a single bit at offset
+CommandResult HandleSetBit(const protocol::Command& command, CommandContext* context);
 
 }  // namespace astra::commands

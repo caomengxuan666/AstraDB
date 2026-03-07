@@ -588,10 +588,10 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
   return CommandResult(resp);
 }
 
-// BITGET key offset - Get a single bit at offset
-CommandResult HandleBitGet(const protocol::Command& command, CommandContext* context) {
+// GETBIT key offset - Get a single bit at offset
+CommandResult HandleGetBit(const protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitget' command");
+    return CommandResult(false, "ERR wrong number of arguments for 'getbit' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -621,10 +621,10 @@ CommandResult HandleBitGet(const protocol::Command& command, CommandContext* con
   return CommandResult(resp);
 }
 
-// BITSET key offset value - Set a single bit at offset
-CommandResult HandleBitSet(const protocol::Command& command, CommandContext* context) {
+// SETBIT key offset value - Set a single bit at offset
+CommandResult HandleSetBit(const protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitset' command");
+    return CommandResult(false, "ERR wrong number of arguments for 'setbit' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -665,7 +665,7 @@ ASTRADB_REGISTER_COMMAND(BITCOUNT, -2, "readonly", RoutingStrategy::kByFirstKey,
 ASTRADB_REGISTER_COMMAND(BITOP, -4, "write", RoutingStrategy::kNone, HandleBitOp);
 ASTRADB_REGISTER_COMMAND(BITPOS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleBitPos);
 ASTRADB_REGISTER_COMMAND(BITFIELD, -2, "write", RoutingStrategy::kByFirstKey, HandleBitField);
-ASTRADB_REGISTER_COMMAND(BITGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleBitGet);
-ASTRADB_REGISTER_COMMAND(BITSET, 4, "write", RoutingStrategy::kByFirstKey, HandleBitSet);
+ASTRADB_REGISTER_COMMAND(GETBIT, 3, "readonly", RoutingStrategy::kByFirstKey, HandleGetBit);
+ASTRADB_REGISTER_COMMAND(SETBIT, 4, "write", RoutingStrategy::kByFirstKey, HandleSetBit);
 
 }  // namespace astra::commands
