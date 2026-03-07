@@ -704,7 +704,8 @@ CommandResult HandleSetRange(const astra::protocol::Command& command, CommandCon
   size_t new_len = db->SetRange(key, offset, value);
   
   // Log to AOF
-  std::array<absl::string_view, 3> aof_args = {key, offset_arg.AsString(), value};
+  std::string offset_str = offset_arg.AsString();
+  std::array<absl::string_view, 3> aof_args = {key, offset_str, value};
   context->LogToAof("SETRANGE", aof_args);
   
   return CommandResult(RespValue(static_cast<int64_t>(new_len)));
