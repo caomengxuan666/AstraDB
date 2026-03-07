@@ -8,6 +8,7 @@
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "blocking_manager.hpp"
+#include <absl/container/inlined_vector.h>
 
 namespace astra::commands {
 
@@ -104,7 +105,7 @@ CommandResult HandleZRange(const astra::protocol::Command& command, CommandConte
 
   auto results = db->ZRangeByRank(key, start, stop, false, with_scores);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 32> array;
   array.reserve(results.size());
   for (const auto& [member, score] : results) {
     if (with_scores) {
@@ -115,7 +116,7 @@ CommandResult HandleZRange(const astra::protocol::Command& command, CommandConte
     }
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // ZREM key member [member ...]
@@ -383,11 +384,11 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
     auto result = db->ZPopMin(key);
     if (result.has_value()) {
       // Return [key, member, score]
-      std::vector<RespValue> resp;
+      absl::InlinedVector<RespValue, 32> resp;
       resp.push_back(RespValue(key));
       resp.push_back(RespValue(result->first));
       resp.push_back(RespValue(result->second));
-      return CommandResult(RespValue(std::move(resp)));
+      return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
     }
   }
 
@@ -430,11 +431,11 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
           auto result = db->ZPopMin(key);
           if (result.has_value()) {
             // Return [key, member, score]
-            std::vector<RespValue> resp;
+            absl::InlinedVector<RespValue, 32> resp;
             resp.push_back(RespValue(key));
             resp.push_back(RespValue(result->first));
             resp.push_back(RespValue(result->second));
-            return RespValue(std::move(resp));
+            return RespValue(std::vector<RespValue>(resp.begin(), resp.end()));
           }
         }
         
@@ -503,7 +504,7 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
       resp.push_back(RespValue(key));
       resp.push_back(RespValue(result->first));
       resp.push_back(RespValue(result->second));
-      return CommandResult(RespValue(std::move(resp)));
+      return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
     }
   }
 
@@ -546,11 +547,11 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
           auto result = db->ZPopMax(key);
           if (result.has_value()) {
             // Return [key, member, score]
-            std::vector<RespValue> resp;
+            absl::InlinedVector<RespValue, 32> resp;
             resp.push_back(RespValue(key));
             resp.push_back(RespValue(result->first));
             resp.push_back(RespValue(result->second));
-            return RespValue(std::move(resp));
+            return RespValue(std::vector<RespValue>(resp.begin(), resp.end()));
           }
         }
         
@@ -789,7 +790,7 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
             }
             outer_resp.push_back(RespValue(std::move(inner_resp)));
             
-            return RespValue(std::move(outer_resp));
+            return RespValue(std::vector<RespValue>(outer_resp.begin(), outer_resp.end()));
           }
         }
         
@@ -863,13 +864,13 @@ CommandResult HandleZRevRange(const astra::protocol::Command& command, CommandCo
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
-    std::vector<RespValue> resp;
+    absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
@@ -929,18 +930,18 @@ CommandResult HandleZRangeByScore(const astra::protocol::Command& command, Comma
   auto results = db->ZRangeByScore(key, min_str, max_str, false, with_scores, has_limit, offset, count);
   
   if (with_scores) {
-    std::vector<RespValue> resp;
+    absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
-    std::vector<RespValue> resp;
+    absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
@@ -1000,18 +1001,18 @@ CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command, Co
   auto results = db->ZRangeByScore(key, min_str, max_str, true, with_scores, has_limit, offset, count);
   
   if (with_scores) {
-    std::vector<RespValue> resp;
+    absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
-    std::vector<RespValue> resp;
+    absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::move(resp)));
+    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
@@ -1066,7 +1067,7 @@ CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandCont
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 
-  std::vector<RespValue> resp;
+  absl::InlinedVector<RespValue, 32> resp;
   for (const auto& [member, score] : results) {
     std::vector<RespValue> member_score;
     member_score.push_back(RespValue(member));
@@ -1074,7 +1075,7 @@ CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandCont
     resp.push_back(RespValue(std::move(member_score)));
   }
   
-  return CommandResult(RespValue(std::move(resp)));
+  return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
 }
 
 // ZPOPMAX key [count]
@@ -1128,7 +1129,7 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 
-  std::vector<RespValue> resp;
+  absl::InlinedVector<RespValue, 32> resp;
   for (const auto& [member, score] : results) {
     std::vector<RespValue> member_score;
     member_score.push_back(RespValue(member));
@@ -1136,7 +1137,7 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
     resp.push_back(RespValue(std::move(member_score)));
   }
   
-  return CommandResult(RespValue(std::move(resp)));
+  return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
 }
 
 // Auto-register all zset commands

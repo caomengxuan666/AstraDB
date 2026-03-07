@@ -9,6 +9,7 @@
 #include "blocking_manager.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/network/connection.hpp"
+#include <absl/container/inlined_vector.h>
 #include <algorithm>
 #include <sstream>
 #include <chrono>
@@ -299,13 +300,13 @@ CommandResult HandleLRange(const astra::protocol::Command& command, CommandConte
 
   auto values = db->LRange(key, start, stop);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 32> array;
   array.reserve(values.size());
   for (const auto& val : values) {
     array.push_back(RespValue(val));
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // LTRIM key start stop
@@ -550,10 +551,10 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
     auto value = db->LPop(key);
     if (value.has_value()) {
       // Return [key, value] array
-      std::vector<RespValue> result;
+      absl::InlinedVector<RespValue, 32> result;
       result.push_back(RespValue(key));
       result.push_back(RespValue(*value));
-      return CommandResult(RespValue(std::move(result)));
+      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -594,11 +595,11 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
       auto value = db->LPop(key);
       if (value.has_value()) {
         // Return [key, value] array
-        std::vector<RespValue> result;
+        absl::InlinedVector<RespValue, 32> result;
         result.push_back(RespValue(key));
         result.push_back(RespValue(*value));
         ASTRADB_LOG_DEBUG("BLPOP callback: Got value for key='{}'", key);
-        return RespValue(std::move(result));
+        return RespValue(std::vector<RespValue>(result.begin(), result.end()));
       } else {
         // List still empty
         ASTRADB_LOG_DEBUG("BLPOP callback: List still empty for key='{}'", key);
@@ -670,7 +671,7 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
       std::vector<RespValue> result;
       result.push_back(RespValue(key));
       result.push_back(RespValue(*value));
-      return CommandResult(RespValue(std::move(result)));
+      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -701,10 +702,10 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
       auto value = db->RPop(key);
       if (value.has_value()) {
         // Return [key, value] array
-        std::vector<RespValue> result;
+        absl::InlinedVector<RespValue, 32> result;
         result.push_back(RespValue(key));
         result.push_back(RespValue(*value));
-        return RespValue(std::move(result));
+        return RespValue(std::vector<RespValue>(result.begin(), result.end()));
       } else {
         // List still empty, send nil
         return RespValue(RespType::kNullBulkString);
@@ -1043,7 +1044,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
       }
       result.push_back(RespValue(std::move(value_array)));
       
-      return CommandResult(RespValue(std::move(result)));
+      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -1108,7 +1109,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
           
           if (popped) {
             // Return [key, [value1, value2, ...]]
-            std::vector<RespValue> result;
+            absl::InlinedVector<RespValue, 32> result;
             result.push_back(RespValue(key));
             
             std::vector<RespValue> value_array;
@@ -1117,7 +1118,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
             }
             result.push_back(RespValue(std::move(value_array)));
             
-            return RespValue(std::move(result));
+            return RespValue(std::vector<RespValue>(result.begin(), result.end()));
           }
         }
         

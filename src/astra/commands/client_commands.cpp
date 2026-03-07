@@ -13,9 +13,8 @@ namespace astra::commands {
 
 // CLIENT LIST - List all connected clients
 CommandResult HandleClientList(const protocol::Command& command, CommandContext* context) {
-  if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'client list' command");
-  }
+  // CLIENT LIST takes no arguments beyond the subcommand
+  // The subcommand is already handled by the router, so we accept 0 additional args
 
   // Get server from context
   auto server_ptr = context->GetServer();
@@ -62,11 +61,38 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
   return CommandResult(resp);
 }
 
+// CLIENT - Main client command router
+CommandResult HandleClient(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'client' command");
+  }
+
+  const auto& subcommand = command[0];
+  if (!subcommand.IsBulkString()) {
+    return CommandResult(false, "ERR subcommand must be a string");
+  }
+
+  std::string sub = subcommand.AsString();
+  std::transform(sub.begin(), sub.end(), sub.begin(), ::toupper);
+
+  // Route to appropriate subcommand handler
+  if (sub == "LIST") {
+    // Create a new command without the subcommand
+    return HandleClientList(command, context);
+  } else if (sub == "INFO") {
+    return HandleClientInfo(command, context);
+  } else if (sub == "KILL") {
+    return HandleClientKill(command, context);
+  } else {
+    return CommandResult(false, "ERR unknown subcommand '" + sub + "'");
+  }
+}
+
+
 // CLIENT INFO - Get information about the current client connection
 CommandResult HandleClientInfo(const protocol::Command& command, CommandContext* context) {
-  if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'client info' command");
-  }
+  // CLIENT INFO takes no arguments beyond the subcommand
+  // The subcommand is already handled by the router, so we accept 0 additional args
 
   // Get connection from context
   auto conn_ptr = context->GetConnection();
@@ -221,9 +247,9 @@ CommandResult HandleClientKill(const protocol::Command& command, CommandContext*
 }
 
 // Auto-register all client commands
-ASTRADB_REGISTER_COMMAND(CLIENT, -2, "readonly", RoutingStrategy::kByFirstKey, HandleClientInfo);
-ASTRADB_REGISTER_COMMAND(CLIENT_LIST, 2, "readonly", RoutingStrategy::kByFirstKey, HandleClientList);
-ASTRADB_REGISTER_COMMAND(CLIENT_INFO, 2, "readonly", RoutingStrategy::kByFirstKey, HandleClientInfo);
+ASTRADB_REGISTER_COMMAND(CLIENT, -2, "readonly", RoutingStrategy::kByFirstKey, HandleClient);
+ASTRADB_REGISTER_COMMAND(CLIENT_LIST, 1, "readonly", RoutingStrategy::kByFirstKey, HandleClientList);
+ASTRADB_REGISTER_COMMAND(CLIENT_INFO, 1, "readonly", RoutingStrategy::kByFirstKey, HandleClientInfo);
 ASTRADB_REGISTER_COMMAND(CLIENT_KILL, -2, "write", RoutingStrategy::kByFirstKey, HandleClientKill);
 
 }  // namespace astra::commands

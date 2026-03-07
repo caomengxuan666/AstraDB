@@ -4,6 +4,7 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/inlined_vector.h>
 #include <absl/types/variant.h>
 #include <string>
 #include <vector>

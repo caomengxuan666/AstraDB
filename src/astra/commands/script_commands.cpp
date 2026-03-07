@@ -135,7 +135,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   // Check if Lua returned a table (array)
   if (num_returns == 1 && lua_istable(lua_state_, 1)) {
     // Handle table return - convert Lua array to RESP array
-    std::vector<RespValue> results;
+    absl::InlinedVector<RespValue, 16> results;
     
     // Get the length of the Lua table
     int len = lua_objlen(lua_state_, 1);
@@ -171,12 +171,12 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
     } else if (results.size() == 1) {
       return CommandResult(std::move(results[0]));
     } else {
-      return CommandResult(RespValue(std::move(results)));
+      return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
     }
   }
   
   // Handle multiple return values
-  std::vector<RespValue> results;
+  absl::InlinedVector<RespValue, 16> results;
   for (int i = 1; i <= num_returns; ++i) {
     if (lua_isnil(lua_state_, i)) {
       results.push_back(RespValue(RespType::kNullBulkString));
@@ -203,7 +203,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   if (results.size() == 1) {
     return CommandResult(std::move(results[0]));
   } else {
-    return CommandResult(RespValue(std::move(results)));
+    return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
   }
 }
 
@@ -415,7 +415,7 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
     return CommandResult(flush_resp);
   } else if (subcommand == "EXISTS") {
     // SCRIPT EXISTS sha1 [sha1 ...]
-    std::vector<RespValue> results;
+    absl::InlinedVector<RespValue, 16> results;
     for (size_t i = 1; i < command.ArgCount(); ++i) {
       const auto& sha1_arg = command[i];
       if (!sha1_arg.IsBulkString()) {
@@ -425,7 +425,7 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
       bool exists = GetGlobalScriptCache().Exists(sha1);
       results.push_back(RespValue(static_cast<int64_t>(exists ? 1 : 0)));
     }
-    return CommandResult(RespValue(std::move(results)));
+    return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
   } else if (subcommand == "LOAD") {
     // SCRIPT LOAD script
     if (command.ArgCount() != 2) {

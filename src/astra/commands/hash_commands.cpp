@@ -195,14 +195,14 @@ CommandResult HandleHGetAll(const astra::protocol::Command& command, CommandCont
   std::string key = key_arg.AsString();
   auto hash = db->HGetAll(key);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(hash.size() * 2);
   for (const auto& [field, value] : hash) {
     array.emplace_back(RespValue(std::string(field)));
     array.emplace_back(RespValue(std::string(value)));
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HLEN key
@@ -245,13 +245,13 @@ CommandResult HandleHKeys(const astra::protocol::Command& command, CommandContex
   std::string key = key_arg.AsString();
   auto hash = db->HGetAll(key);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(hash.size());
   for (const auto& [field, _] : hash) {
     array.emplace_back(RespValue(std::string(field)));
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HVALS key - Get all values in a hash
@@ -273,13 +273,13 @@ CommandResult HandleHVals(const astra::protocol::Command& command, CommandContex
   std::string key = key_arg.AsString();
   auto hash = db->HGetAll(key);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(hash.size());
   for (const auto& [_, value] : hash) {
     array.emplace_back(RespValue(std::string(value)));
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HINCRBY key field increment
@@ -370,7 +370,7 @@ CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContex
   }
 
   auto results = db->HMGet(key, fields);
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(results.size());
   for (const auto& val : results) {
     if (val.has_value()) {
@@ -381,7 +381,7 @@ CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContex
     }
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // Auto-register all hash commands

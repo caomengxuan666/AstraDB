@@ -93,13 +93,13 @@ CommandResult HandleSMembers(const astra::protocol::Command& command, CommandCon
   std::string key = key_arg.AsString();
   auto members = db->SMembers(key);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(members.size());
   for (const auto& member : members) {
     array.emplace_back(RespValue(std::string(member)));
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // SISMEMBER key member

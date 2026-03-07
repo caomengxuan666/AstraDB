@@ -217,7 +217,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command, CommandContext
 
   auto results = db->MGet(keys);
 
-  std::vector<RespValue> array;
+  absl::InlinedVector<RespValue, 16> array;
   array.reserve(results.size());
   for (const auto& result : results) {
     if (result.has_value()) {
@@ -227,7 +227,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command, CommandContext
     }
   }
 
-  return CommandResult(RespValue(std::move(array)));
+  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // MSET key value [key value ...]

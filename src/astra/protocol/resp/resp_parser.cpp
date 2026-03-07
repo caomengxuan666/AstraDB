@@ -3,6 +3,7 @@
 
 #include "resp_parser.hpp"
 #include "astra/base/simd_utils.hpp"
+#include <absl/container/inlined_vector.h>
 #include <absl/strings/numbers.h>
 #include <charconv>
 #include <algorithm>
