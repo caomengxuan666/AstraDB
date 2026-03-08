@@ -4,6 +4,7 @@
 #include "hyperloglog_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/base/logging.hpp"
+#include <absl/strings/ascii.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -279,9 +280,110 @@ CommandResult HandlePfMerge(const protocol::Command& command, CommandContext* co
   return CommandResult(resp);
 }
 
+// PFDEBUG subkey key [arguments...] - Debug HyperLogLog internal structures
+CommandResult HandlePfDebug(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'PFDEBUG' command");
+  }
+
+  std::string subcommand = absl::AsciiStrToUpper(command[0].AsString());
+  std::string key = command[1].AsString();
+  
+  auto db = context->GetDatabase();
+  auto value = db->Get(key);
+  
+  if (!value.has_value() || value->value.size() != kHllBytes) {
+    return CommandResult(false, "ERR key does not contain a valid HyperLogLog structure");
+  }
+  
+  const std::string& hll_data = value->value;
+  
+  if (subcommand == "GETREG") {
+    // Get register value: PFDEBUG GETREG key index
+    if (command.ArgCount() != 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'PFDEBUG GETREG' command");
+    }
+    
+    int64_t idx;
+    if (!absl::SimpleAtoi(command[2].AsString(), &idx) || idx < 0 || idx >= static_cast<int64_t>(kHllRegisters)) {
+      return CommandResult(false, "ERR invalid register index");
+    }
+    
+    uint8_t reg = GetRegister(hll_data, idx);
+    protocol::RespValue resp;
+    resp.SetInteger(reg);
+    return CommandResult(resp);
+    
+  } else if (subcommand == "DENSE") {
+    // Show dense representation of registers
+    std::vector<protocol::RespValue> result;
+    for (size_t i = 0; i < kHllRegisters; ++i) {
+      uint8_t reg = GetRegister(hll_data, i);
+      result.emplace_back(static_cast<int64_t>(reg));
+    }
+    
+    protocol::RespValue resp;
+    resp.SetArray(std::move(result));
+    return CommandResult(resp);
+    
+  } else if (subcommand == "ENCODING") {
+    // Show encoding information
+    std::vector<protocol::RespValue> result;
+    result.emplace_back("dense");  // Always dense for our implementation
+    result.emplace_back(static_cast<int64_t>(kHllBytes));
+    result.emplace_back(static_cast<int64_t>(kHllRegisters));
+    
+    protocol::RespValue resp;
+    resp.SetArray(std::move(result));
+    return CommandResult(resp);
+    
+  } else {
+    return CommandResult(false, "ERR unknown PFDEBUG subcommand '" + subcommand + "'");
+  }
+}
+
+// PFSELFTEST - Test HyperLogLog implementation
+CommandResult HandlePfSelfTest(const protocol::Command& command, CommandContext* context) {
+  // Simple self-test: add known elements and check cardinality
+  [[maybe_unused]] Database* db = context->GetDatabase();
+  
+  // Test 1: Empty HLL should return 0
+  std::string empty_hll(kHllBytes, '\0');
+  uint64_t empty_estimate = EstimateCardinality(empty_hll);
+  if (empty_estimate != 0) {
+    return CommandResult(false, "ERR PFSELFTEST failed: empty HLL should estimate 0");
+  }
+  
+  // Test 2: HLL with 1000 elements should estimate ~1000 (with some error margin)
+  std::string test_hll(kHllBytes, '\0');
+  for (int i = 0; i < 1000; ++i) {
+    std::string element = "element_" + std::to_string(i);
+    uint64_t hash = MurmurHash64(element);
+    size_t reg_idx = hash >> 50;
+    uint8_t count = CountLeadingZeros(hash);
+    uint8_t current = GetRegister(test_hll, reg_idx);
+    if (count > current) {
+      SetRegister(test_hll, reg_idx, count);
+    }
+  }
+  
+  uint64_t test_estimate = EstimateCardinality(test_hll);
+  // Allow 20% error margin
+  if (test_estimate < 800 || test_estimate > 1200) {
+    return CommandResult(false, "ERR PFSELFTEST failed: estimate out of range");
+  }
+  
+  // All tests passed
+  protocol::RespValue resp;
+  resp.SetString("PASSED", protocol::RespType::kSimpleString);
+  return CommandResult(resp);
+}
+
 // Auto-register all HyperLogLog commands
 ASTRADB_REGISTER_COMMAND(PFADD, -2, "write", RoutingStrategy::kByFirstKey, HandlePfAdd);
 ASTRADB_REGISTER_COMMAND(PFCOUNT, -2, "readonly", RoutingStrategy::kByFirstKey, HandlePfCount);
 ASTRADB_REGISTER_COMMAND(PFMERGE, -2, "write", RoutingStrategy::kByFirstKey, HandlePfMerge);
+ASTRADB_REGISTER_COMMAND(PFDEBUG, -3, "readonly", RoutingStrategy::kByFirstKey, HandlePfDebug);
+ASTRADB_REGISTER_COMMAND(PFSELFTEST, 1, "readonly", RoutingStrategy::kNone, HandlePfSelfTest);
 
 }  // namespace astra::commands

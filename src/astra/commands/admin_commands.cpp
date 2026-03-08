@@ -2295,10 +2295,82 @@ CommandResult HandleSlowlog(const astra::protocol::Command& command, CommandCont
     RespValue result;
     result.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(result);
-    
-  } else {
-    return CommandResult(false, "ERR unknown SLOWLOG subcommand '" + subcommand + "'");
   }
+  
+  // Unknown subcommand
+  return CommandResult(false, "ERR unknown SLOWLOG subcommand '" + subcommand + "'");
+}
+
+// LOLWUT [version] [columns] [rows] - Display Redis ASCII art
+CommandResult HandleLolwut(const protocol::Command& command, CommandContext* context) {
+  [[maybe_unused]] Database* db = context->GetDatabase();
+  
+  // Parse optional parameters
+  int64_t version = 6;
+  int64_t columns = 80;
+  int64_t rows = 8;
+  
+  if (command.ArgCount() > 0) {
+    std::string first_arg = command[0].AsString();
+    if (first_arg != "LOLWUT") {
+      // First argument might be version
+      if (!absl::SimpleAtoi(command[0].AsString(), &version)) {
+        // If not a number, it's an error
+        return CommandResult(false, "ERR invalid version number");
+      }
+    }
+  }
+  
+  if (command.ArgCount() > 1) {
+    if (!absl::SimpleAtoi(command[1].AsString(), &columns)) {
+      return CommandResult(false, "ERR invalid columns number");
+    }
+  }
+  
+  if (command.ArgCount() > 2) {
+    if (!absl::SimpleAtoi(command[2].AsString(), &rows)) {
+      return CommandResult(false, "ERR invalid rows number");
+    }
+  }
+  
+  // Limit parameters to reasonable values
+  version = std::max(static_cast<int64_t>(1), std::min(static_cast<int64_t>(6), version));
+  columns = std::max(static_cast<int64_t>(10), std::min(static_cast<int64_t>(600), columns));
+  rows = std::max(static_cast<int64_t>(2), std::min(static_cast<int64_t>(50), rows));
+  
+  // Generate simple ASCII art (AstraDB logo)
+  std::string art = R"(
+  _____   _____   _____   _____ 
+ /  _  \ /  ___| /  ___| /  _  \
+ | | | | | |     | |     | | | |
+ | |_| | | |___  | |___  | |_| |
+ \_____/ \_____| \_____| \_____/ 
+ 
+  Redis-compatible NoSQL Database
+  Version 1.0.0 - High Performance
+  
+)";
+  
+  // Create multi-bulk response
+  std::vector<protocol::RespValue> result;
+  
+  // Add version info
+  std::vector<protocol::RespValue> info;
+  info.emplace_back(version);
+  info.emplace_back(columns);
+  info.emplace_back(rows);
+  result.emplace_back(protocol::RespValue(std::move(info)));
+  
+  // Add art lines
+  std::istringstream iss(art);
+  std::string line;
+  while (std::getline(iss, line)) {
+    result.emplace_back(line);
+  }
+  
+  protocol::RespValue resp;
+  resp.SetArray(std::move(result));
+  return CommandResult(resp);
 }
 
 // Auto-register all admin commands
@@ -2349,6 +2421,7 @@ ASTRADB_REGISTER_COMMAND(FAILOVER, -1, "admin", RoutingStrategy::kNone, HandleFa
 ASTRADB_REGISTER_COMMAND(LATENCY, -2, "readonly", RoutingStrategy::kNone, HandleLatency);
 ASTRADB_REGISTER_COMMAND(MONITOR, 1, "admin", RoutingStrategy::kNone, HandleMonitor);
 ASTRADB_REGISTER_COMMAND(SLOWLOG, -2, "readonly", RoutingStrategy::kNone, HandleSlowlog);
+ASTRADB_REGISTER_COMMAND(LOLWUT, -1, "readonly", RoutingStrategy::kNone, HandleLolwut);
 ASTRADB_REGISTER_COMMAND(SELECT, 2, "fast", RoutingStrategy::kNone, HandleSelect);
 ASTRADB_REGISTER_COMMAND(AUTH, -2, "no-auth", RoutingStrategy::kNone, HandleAuth);
 ASTRADB_REGISTER_COMMAND(ACL, -2, "admin", RoutingStrategy::kNone, HandleAcl);

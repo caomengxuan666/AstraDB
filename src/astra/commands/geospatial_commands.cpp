@@ -4,6 +4,7 @@
 #include "geospatial_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/base/logging.hpp"
+#include <absl/strings/ascii.h>
 #include <cmath>
 #include <sstream>
 #include <iomanip>
@@ -519,11 +520,374 @@ CommandResult HandleGeoRadius(const protocol::Command& command, CommandContext* 
   return CommandResult(resp);
 }
 
+// GEOSEARCH key [MEMBER member] [FROMLONLAT lon lat] [FROMLONLONBYMEMBER member radius unit] [BYRADIUS radius unit] [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]]
+CommandResult HandleGeoSearch(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GEOSEARCH' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Parse search type: BYLONLAT, BYRADIUS, BYBOX, or MEMBER
+  std::string search_type = absl::AsciiStrToUpper(command[1].AsString());
+  
+  double search_lon = 0.0, search_lat = 0.0;
+  double radius = 0.0;
+  std::string unit = "m";
+  bool by_member = false;
+  std::string member_name;
+
+  if (search_type == "FROMMEMBER") {
+    if (command.ArgCount() < 5) {
+      return CommandResult(false, "ERR wrong number of arguments for 'GEOSEARCH' command");
+    }
+    member_name = command[2].AsString();
+    std::string radius_arg = command[3].AsString();
+    unit = command[4].AsString();
+    
+    // Get member coordinates using ZScore and DecodeGeohash
+    auto score = db->ZScore(key, member_name);
+    if (!score.has_value()) {
+      return CommandResult(RespValue(std::vector<RespValue>()));
+    }
+    DecodeGeohash(static_cast<uint64_t>(*score), search_lon, search_lat);
+    by_member = true;
+
+  } else if (search_type == "FROMLONLAT") {
+    if (command.ArgCount() < 4) {
+      return CommandResult(false, "ERR wrong number of arguments for 'GEOSEARCH' command");
+    }
+    if (!absl::SimpleAtod(command[2].AsString(), &search_lon) ||
+        !absl::SimpleAtod(command[3].AsString(), &search_lat)) {
+      return CommandResult(false, "ERR invalid longitude or latitude");
+    }
+
+  } else if (search_type == "BYRADIUS") {
+    if (command.ArgCount() < 5) {
+      return CommandResult(false, "ERR wrong number of arguments for 'GEOSEARCH' command");
+    }
+    if (!absl::SimpleAtod(command[2].AsString(), &search_lon) ||
+        !absl::SimpleAtod(command[3].AsString(), &search_lat) ||
+        !absl::SimpleAtod(command[4].AsString(), &radius)) {
+      return CommandResult(false, "ERR invalid longitude, latitude or radius");
+    }
+    if (command.ArgCount() > 5) {
+      unit = command[5].AsString();
+    }
+
+  } else {
+    return CommandResult(false, "ERR unknown GEOSEARCH search type '" + search_type + "'");
+  }
+
+  // Parse options
+  size_t arg_idx = 5;
+  if (by_member) arg_idx = 5;
+  if (search_type == "BYRADIUS") arg_idx = 6;
+
+  bool withcoord = false;
+  bool withdist = false;
+  bool withhash = false;
+  int64_t count = -1;
+
+  while (arg_idx < command.ArgCount()) {
+    std::string opt = absl::AsciiStrToUpper(command[arg_idx].AsString());
+    
+    if (opt == "WITHCOORD") {
+      withcoord = true;
+      arg_idx++;
+    } else if (opt == "WITHDIST") {
+      withdist = true;
+      arg_idx++;
+    } else if (opt == "WITHHASH") {
+      withhash = true;
+      arg_idx++;
+    } else if (opt == "COUNT") {
+      if (arg_idx + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++arg_idx].AsString(), &count)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      arg_idx++;
+    } else {
+      return CommandResult(false, "ERR unknown option '" + opt + "'");
+    }
+  }
+
+  // Get all locations from the sorted set
+  auto all_locations = db->ZRange(key, 0, -1, false, true);
+  if (all_locations.empty()) {
+    return CommandResult(RespValue(std::vector<RespValue>()));
+  }
+
+  // Filter locations within radius
+  std::vector<std::tuple<std::string, double, double, int64_t>> results;  // member, lon, lat, hash
+  
+  for (const auto& [member, score] : all_locations) {
+    double lon, lat;
+    DecodeGeohash(static_cast<int64_t>(score), lon, lat);
+    
+    double dist = HaversineDistance(search_lon, search_lat, lon, lat, unit);
+    
+    if (dist <= radius || by_member) {
+      results.emplace_back(member, lon, lat, static_cast<int64_t>(score));
+    }
+  }
+
+  // Sort by distance (for BYRADIUS) or by score (for other types)
+  if (search_type == "BYRADIUS" || by_member) {
+    std::sort(results.begin(), results.end(), 
+      [search_lon, search_lat, unit](const auto& a, const auto& b) {
+        double dist_a = HaversineDistance(search_lon, search_lat, 
+                                            std::get<1>(a), std::get<2>(a), unit);
+        double dist_b = HaversineDistance(search_lon, search_lat, 
+                                            std::get<1>(b), std::get<2>(b), unit);
+        return dist_a < dist_b;
+      });
+  }
+
+  // Apply count limit
+  if (count > 0 && static_cast<size_t>(count) < results.size()) {
+    results.resize(count);
+  }
+
+  // Build response
+  std::vector<RespValue> response;
+  for (const auto& [member, lon, lat, hash] : results) {
+    std::vector<RespValue> item;
+    
+    item.emplace_back(member);
+    
+    if (withdist) {
+      double dist = HaversineDistance(search_lon, search_lat, lon, lat, unit);
+      item.emplace_back(dist);
+    }
+    
+    if (withhash) {
+      item.emplace_back(hash);
+    }
+    
+    if (withcoord) {
+      std::vector<RespValue> coord;
+      coord.emplace_back(lon);
+      coord.emplace_back(lat);
+      item.emplace_back(coord);
+    }
+    
+    response.emplace_back(RespValue(std::move(item)));
+  }
+
+  return CommandResult(RespValue(std::move(response)));
+}
+
+// GEOSEARCHSTORE destination key [MEMBER member] [FROMLONLAT lon lat] [FROMLONLONBYMEMBER member radius unit] [BYRADIUS radius unit] [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]]
+CommandResult HandleGeoSearchStore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 4) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GEOSEARCHSTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& dest_arg = command[0];
+  const auto& src_arg = command[1];
+  if (!dest_arg.IsBulkString() || !src_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string dest = dest_arg.AsString();
+  std::string src = src_arg.AsString();
+
+  // For simplicity, we'll return an error for now
+  // A proper implementation would:
+  // 1. Execute GEOSEARCH on src key
+  // 2. Store results in dest key as a sorted set
+  return CommandResult(false, "ERR GEOSEARCHSTORE not fully implemented yet");
+}
+
+// GEORADIUS_RO key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC]
+CommandResult HandleGeoRadiusRo(const astra::protocol::Command& command, CommandContext* context) {
+  // GEORADIUS_RO is a read-only version of GEORADIUS
+  // For now, we just call HandleGeoRadius
+  return HandleGeoRadius(command, context);
+}
+
+// GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC]
+CommandResult HandleGeoRadiusByMember(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 4) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GEORADIUSBYMEMBER' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& member_arg = command[1];
+  const auto& radius_arg = command[2];
+  const auto& unit_arg = command[3];
+
+  if (!key_arg.IsBulkString() || !member_arg.IsBulkString() || 
+      !radius_arg.IsBulkString() || !unit_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string member = member_arg.AsString();
+  
+  double radius;
+  if (!absl::SimpleAtod(radius_arg.AsString(), &radius)) {
+    return CommandResult(false, "ERR value is not a valid float");
+  }
+  
+  std::string unit = unit_arg.AsString();
+
+  // Get member coordinates using ZScore and DecodeGeohash
+  auto score = db->ZScore(key, member);
+  if (!score.has_value()) {
+    return CommandResult(RespValue(std::vector<RespValue>()));
+  }
+
+  double search_lon = 0.0, search_lat = 0.0;
+  DecodeGeohash(static_cast<uint64_t>(*score), search_lon, search_lat);
+
+  // Parse options
+  size_t arg_idx = 4;
+  bool withcoord = false;
+  bool withdist = false;
+  bool withhash = false;
+  int64_t count = -1;
+  bool ascending = true;
+
+  while (arg_idx < command.ArgCount()) {
+    std::string opt = absl::AsciiStrToUpper(command[arg_idx].AsString());
+    
+    if (opt == "WITHCOORD") {
+      withcoord = true;
+      arg_idx++;
+    } else if (opt == "WITHDIST") {
+      withdist = true;
+      arg_idx++;
+    } else if (opt == "WITHHASH") {
+      withhash = true;
+      arg_idx++;
+    } else if (opt == "COUNT") {
+      if (arg_idx + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++arg_idx].AsString(), &count)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      arg_idx++;
+      if (arg_idx < command.ArgCount() && 
+          absl::AsciiStrToUpper(command[arg_idx].AsString()) == "ANY") {
+        arg_idx++;
+      }
+    } else if (opt == "ASC") {
+      ascending = true;
+      arg_idx++;
+    } else if (opt == "DESC") {
+      ascending = false;
+      arg_idx++;
+    } else {
+      return CommandResult(false, "ERR unknown option '" + opt + "'");
+    }
+  }
+
+  // Get all locations from the sorted set
+  auto all_locations = db->ZRange(key, 0, -1, false, true);
+  if (all_locations.empty()) {
+    return CommandResult(RespValue(std::vector<RespValue>()));
+  }
+
+  // Filter locations within radius
+  std::vector<std::tuple<std::string, double, double, int64_t>> results;  // member, lon, lat, hash
+  
+  for (const auto& [loc_member, score] : all_locations) {
+    double lon, lat;
+    DecodeGeohash(static_cast<int64_t>(score), lon, lat);
+    
+    double dist = HaversineDistance(search_lon, search_lat, lon, lat, unit);
+    
+    if (dist <= radius) {
+      results.emplace_back(loc_member, lon, lat, static_cast<int64_t>(score));
+    }
+  }
+
+  // Sort by distance
+  std::sort(results.begin(), results.end(), 
+    [search_lon, search_lat, unit, ascending](const auto& a, const auto& b) {
+      double dist_a = HaversineDistance(search_lon, search_lat, 
+                                          std::get<1>(a), std::get<2>(a), unit);
+      double dist_b = HaversineDistance(search_lon, search_lat, 
+                                          std::get<1>(b), std::get<2>(b), unit);
+      return ascending ? (dist_a < dist_b) : (dist_a > dist_b);
+    });
+
+  // Apply count limit
+  if (count > 0 && static_cast<size_t>(count) < results.size()) {
+    results.resize(count);
+  }
+
+  // Build response
+  std::vector<RespValue> response;
+  for (const auto& [loc_member, lon, lat, hash] : results) {
+    std::vector<RespValue> item;
+    
+    item.emplace_back(loc_member);
+    
+    if (withdist) {
+      double dist = HaversineDistance(search_lon, search_lat, lon, lat, unit);
+      item.emplace_back(dist);
+    }
+    
+    if (withhash) {
+      item.emplace_back(hash);
+    }
+    
+    if (withcoord) {
+      std::vector<RespValue> coord;
+      coord.emplace_back(lon);
+      coord.emplace_back(lat);
+      item.emplace_back(coord);
+    }
+    
+    response.emplace_back(RespValue(std::move(item)));
+  }
+
+  return CommandResult(RespValue(std::move(response)));
+}
+
+// GEORADIUSBYMEMBER_RO - Read-only version of GEORADIUSBYMEMBER
+CommandResult HandleGeoRadiusByMemberRo(const astra::protocol::Command& command, CommandContext* context) {
+  // GEORADIUSBYMEMBER_RO is a read-only version of GEORADIUSBYMEMBER
+  // For now, we just call HandleGeoRadiusByMember
+  return HandleGeoRadiusByMember(command, context);
+}
+
 // Auto-register all geospatial commands
 ASTRADB_REGISTER_COMMAND(GEOADD, -5, "write", RoutingStrategy::kByFirstKey, HandleGeoAdd);
 ASTRADB_REGISTER_COMMAND(GEODIST, -4, "readonly", RoutingStrategy::kByFirstKey, HandleGeoDist);
 ASTRADB_REGISTER_COMMAND(GEOHASH, -2, "readonly", RoutingStrategy::kByFirstKey, HandleGeoHash);
 ASTRADB_REGISTER_COMMAND(GEOPOS, -2, "readonly", RoutingStrategy::kByFirstKey, HandleGeoPos);
 ASTRADB_REGISTER_COMMAND(GEORADIUS, -6, "readonly", RoutingStrategy::kByFirstKey, HandleGeoRadius);
+ASTRADB_REGISTER_COMMAND(GEOSEARCH, -3, "readonly", RoutingStrategy::kByFirstKey, HandleGeoSearch);
+ASTRADB_REGISTER_COMMAND(GEOSEARCHSTORE, -5, "write", RoutingStrategy::kByFirstKey, HandleGeoSearchStore);
+ASTRADB_REGISTER_COMMAND(GEORADIUS_RO, -6, "readonly", RoutingStrategy::kByFirstKey, HandleGeoRadiusRo);
+ASTRADB_REGISTER_COMMAND(GEORADIUSBYMEMBER, -4, "readonly", RoutingStrategy::kByFirstKey, HandleGeoRadiusByMember);
+ASTRADB_REGISTER_COMMAND(GEORADIUSBYMEMBER_RO, -4, "readonly", RoutingStrategy::kByFirstKey, HandleGeoRadiusByMemberRo);
 
 }  // namespace astra::commands

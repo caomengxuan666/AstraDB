@@ -1313,6 +1313,94 @@ CommandResult HandleSubstr(const astra::protocol::Command& command, CommandConte
   return HandleGetRange(command, context);
 }
 
+// LCS key1 key2 [LEN]
+CommandResult HandleLcs(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2 || command.ArgCount() > 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LCS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key1_arg = command[0];
+  const auto& key2_arg = command[1];
+
+  if (!key1_arg.IsBulkString() || !key2_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key1 = key1_arg.AsString();
+  std::string key2 = key2_arg.AsString();
+
+  auto value1 = db->Get(key1);
+  auto value2 = db->Get(key2);
+
+  if (!value1.has_value() || !value2.has_value()) {
+    return CommandResult(RespValue());
+  }
+
+  std::string str1 = value1->value;
+  std::string str2 = value2->value;
+
+  // Check if LEN option is provided
+  bool len_only = false;
+  if (command.ArgCount() == 3) {
+    std::string option = absl::AsciiStrToUpper(command[2].AsString());
+    if (option == "LEN") {
+      len_only = true;
+    } else {
+      return CommandResult(false, "ERR unknown option '" + option + "'");
+    }
+  }
+
+  // Compute Longest Common Subsequence using dynamic programming
+  int m = str1.length();
+  int n = str2.length();
+
+  // DP table to store lengths of LCS of substrings
+  std::vector<std::vector<int>> dp(m + 1, std::vector<int>(n + 1, 0));
+
+  for (int i = 1; i <= m; i++) {
+    for (int j = 1; j <= n; j++) {
+      if (str1[i - 1] == str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  int lcs_length = dp[m][n];
+
+  if (len_only) {
+    return CommandResult(RespValue(static_cast<int64_t>(lcs_length)));
+  }
+
+  // Backtrack to find the LCS string
+  std::string lcs;
+  int i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (str1[i - 1] == str2[j - 1]) {
+      lcs.push_back(str1[i - 1]);
+      i--;
+      j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+
+  // Reverse the LCS string since we built it backwards
+  std::reverse(lcs.begin(), lcs.end());
+
+  RespValue result;
+  result.SetString(lcs, RespType::kBulkString);
+  return CommandResult(result);
+}
+
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
@@ -1341,6 +1429,7 @@ ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, Han
 ASTRADB_REGISTER_COMMAND(STRALGO, -2, "readonly", RoutingStrategy::kNone, HandleStrAlgo);
 ASTRADB_REGISTER_COMMAND(SUBSTR, 4, "readonly", RoutingStrategy::kByFirstKey, HandleSubstr);
 ASTRADB_REGISTER_COMMAND(ECHO, 2, "readonly", RoutingStrategy::kNone, HandleEcho);
+ASTRADB_REGISTER_COMMAND(LCS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleLcs);
 
 // Advanced string commands (Redis 6.0+)
 ASTRADB_REGISTER_COMMAND(COPY, -3, "write", RoutingStrategy::kByFirstKey, HandleCopy);
