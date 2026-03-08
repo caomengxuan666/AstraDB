@@ -12,6 +12,34 @@
 
 namespace astra::commands {
 
+// Helper function to convert stream entry to RESP value
+protocol::RespValue StreamEntryToResp(const StreamId& id, 
+                                      const std::vector<std::pair<std::string, std::string>>& fields) {
+  std::vector<protocol::RespValue> entry_array;
+  
+  // Add ID
+  protocol::RespValue id_val;
+  id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
+  entry_array.push_back(id_val);
+  
+  // Add fields
+  std::vector<protocol::RespValue> fields_array;
+  for (const auto& [field, value] : fields) {
+    protocol::RespValue f, v;
+    f.SetString(field, protocol::RespType::kBulkString);
+    v.SetString(value, protocol::RespType::kBulkString);
+    fields_array.push_back(f);
+    fields_array.push_back(v);
+  }
+  protocol::RespValue fields_val;
+  fields_val.SetArray(std::move(fields_array));
+  entry_array.push_back(fields_val);
+  
+  protocol::RespValue entry_val;
+  entry_val.SetArray(std::move(entry_array));
+  return entry_val;
+}
+
 // ============== StreamId Implementation ==============
 
 StreamId::StreamId(const std::string& str) {
@@ -608,6 +636,387 @@ CommandResult HandleXInfo(const protocol::Command& command, CommandContext* cont
   return CommandResult(false, "ERR unknown subcommand");
 }
 
+// XCLAIM key group consumer min-idle-time ID [ID ...] [IDLE ms] [TIME ms-unix-time] [RETRYCOUNT count] [FORCE] [JUSTID]
+// Transfer ownership of pending stream entries to a different consumer
+CommandResult HandleXClaim(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 5) {
+    return CommandResult(false, "ERR wrong number of arguments for 'XCLAIM' command");
+  }
+
+  auto* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR no database available");
+  }
+
+  const std::string& key = command[0].AsString();
+  const std::string& group = command[1].AsString();
+  const std::string& consumer = command[2].AsString();
+  int64_t min_idle_time;
+  
+  if (!absl::SimpleAtoi(command[3].AsString(), &min_idle_time)) {
+    return CommandResult(false, "ERR invalid min-idle-time");
+  }
+
+  StreamData* stream = db->GetStream(key);
+  if (!stream) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  auto group_it = stream->groups.find(group);
+  if (group_it == stream->groups.end()) {
+    return CommandResult(false, "ERR no such group");
+  }
+
+  // Parse options and IDs
+  std::vector<StreamId> ids;
+  bool just_id = false;
+  int64_t idle_time_override = -1;
+  
+  for (size_t i = 4; i < command.ArgCount(); ++i) {
+    std::string arg = command[i].AsString();
+    
+    if (absl::AsciiStrToUpper(arg) == "JUSTID") {
+      just_id = true;
+    } else if (absl::AsciiStrToUpper(arg) == "IDLE") {
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++i].AsString(), &idle_time_override)) {
+        return CommandResult(false, "ERR invalid idle time");
+      }
+    } else {
+      // Treat as stream ID
+      ids.push_back(StreamId(arg));
+    }
+  }
+
+  std::vector<protocol::RespValue> result;
+  absl::Time now = absl::Now();
+  
+  for (const auto& id : ids) {
+    auto entry_it = group_it->second.pending_entries.find(id);
+    if (entry_it != group_it->second.pending_entries.end()) {
+      // Check idle time
+      auto idle_duration = now - entry_it->second.last_delivered;
+      int64_t idle_ms = absl::ToInt64Milliseconds(idle_duration);
+      
+      if (idle_ms >= min_idle_time || min_idle_time == 0) {
+        // Transfer to new consumer
+        entry_it->second.consumer = consumer;
+        entry_it->second.delivery_count++;
+        entry_it->second.last_delivered = now;
+        
+        if (just_id) {
+          protocol::RespValue id_val;
+          id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
+          result.push_back(id_val);
+        } else {
+          // Return full entry
+          protocol::RespValue entry_val = StreamEntryToResp(id, entry_it->second.entry.fields);
+          result.push_back(entry_val);
+        }
+      }
+    }
+  }
+
+  protocol::RespValue response;
+  response.SetArray(std::move(result));
+  return CommandResult(response);
+}
+
+// XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
+// Automatically claim entries from a consumer that is idle
+CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 5) {
+    return CommandResult(false, "ERR wrong number of arguments for 'XAUTOCLAIM' command");
+  }
+
+  auto* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR no database available");
+  }
+
+  const std::string& key = command[0].AsString();
+  const std::string& group = command[1].AsString();
+  const std::string& consumer = command[2].AsString();
+  int64_t min_idle_time;
+  
+  if (!absl::SimpleAtoi(command[3].AsString(), &min_idle_time)) {
+    return CommandResult(false, "ERR invalid min-idle-time");
+  }
+
+  StreamId start_id(command[4].AsString());
+  
+  // Parse options
+  size_t count = 100;
+  bool just_id = false;
+  
+  for (size_t i = 5; i < command.ArgCount(); ++i) {
+    std::string arg = command[i].AsString();
+    
+    if (absl::AsciiStrToUpper(arg) == "COUNT") {
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++i].AsString(), reinterpret_cast<int64_t*>(&count))) {
+        return CommandResult(false, "ERR invalid count");
+      }
+    } else if (absl::AsciiStrToUpper(arg) == "JUSTID") {
+      just_id = true;
+    }
+  }
+
+  StreamData* stream = db->GetStream(key);
+  if (!stream) {
+    // Return start ID and empty array
+    std::vector<protocol::RespValue> result;
+    protocol::RespValue next_id;
+    next_id.SetString(start_id.ToString(), protocol::RespType::kBulkString);
+    result.push_back(next_id);
+    
+    protocol::RespValue empty_arr;
+    result.push_back(empty_arr);
+    
+    protocol::RespValue response;
+    response.SetArray(std::move(result));
+    return CommandResult(response);
+  }
+
+  auto group_it = stream->groups.find(group);
+  if (group_it == stream->groups.end()) {
+    return CommandResult(false, "ERR no such group");
+  }
+
+  std::vector<protocol::RespValue> claimed;
+  StreamId next_id = start_id;
+  absl::Time now = absl::Now();
+  
+  for (auto& [id, pending] : group_it->second.pending_entries) {
+    if (claimed.size() >= count) {
+      next_id = id;
+      break;
+    }
+    
+    if (id <= start_id) {
+      continue;
+    }
+    
+    auto idle_duration = now - pending.last_delivered;
+    int64_t idle_ms = absl::ToInt64Milliseconds(idle_duration);
+    
+    if (idle_ms >= min_idle_time) {
+      pending.consumer = consumer;
+      pending.delivery_count++;
+      pending.last_delivered = now;
+      
+      if (just_id) {
+        protocol::RespValue id_val;
+        id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
+        claimed.push_back(id_val);
+      } else {
+        protocol::RespValue entry_val = StreamEntryToResp(id, pending.entry.fields);
+        claimed.push_back(entry_val);
+      }
+    }
+  }
+
+  std::vector<protocol::RespValue> result;
+  protocol::RespValue next_id_val;
+  next_id_val.SetString(next_id.ToString(), protocol::RespType::kBulkString);
+  result.push_back(next_id_val);
+  
+  protocol::RespValue claimed_arr;
+  claimed_arr.SetArray(std::move(claimed));
+  result.push_back(claimed_arr);
+  
+  protocol::RespValue response;
+  response.SetArray(std::move(result));
+  return CommandResult(response);
+}
+
+// XPENDING key group [start end count] [consumer]
+// Return information about pending entries in a stream group
+CommandResult HandleXPending(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'XPENDING' command");
+  }
+
+  auto* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR no database available");
+  }
+
+  const std::string& key = command[0].AsString();
+  const std::string& group = command[1].AsString();
+
+  StreamData* stream = db->GetStream(key);
+  if (!stream) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  auto group_it = stream->groups.find(group);
+  if (group_it == stream->groups.end()) {
+    return CommandResult(false, "ERR no such group");
+  }
+
+  // Simple case: just return count
+  if (command.ArgCount() == 2) {
+    protocol::RespValue response;
+    response.SetInteger(static_cast<int64_t>(group_it->second.pending_entries.size()));
+    return CommandResult(response);
+  }
+
+  // Detailed case: return range of pending entries
+  StreamId start_id("-");
+  StreamId end_id("+");
+  size_t count = 10;
+  std::string consumer_filter;
+
+  if (command.ArgCount() >= 3) {
+    start_id = StreamId(command[2].AsString());
+  }
+  if (command.ArgCount() >= 4) {
+    end_id = StreamId(command[3].AsString());
+  }
+  if (command.ArgCount() >= 5) {
+    if (!absl::SimpleAtoi(command[4].AsString(), reinterpret_cast<int64_t*>(&count))) {
+      return CommandResult(false, "ERR invalid count");
+    }
+  }
+  if (command.ArgCount() >= 6) {
+    consumer_filter = command[5].AsString();
+  }
+
+  std::vector<protocol::RespValue> result;
+  size_t processed = 0;
+  
+  for (const auto& [id, pending] : group_it->second.pending_entries) {
+    if (processed >= count) break;
+    
+    if (id < start_id || id > end_id) {
+      continue;
+    }
+    
+    if (!consumer_filter.empty() && pending.consumer != consumer_filter) {
+      continue;
+    }
+    
+    // Return [id, consumer, idle_time, delivery_count]
+    std::vector<protocol::RespValue> entry_info;
+    
+    protocol::RespValue id_val;
+    id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
+    entry_info.push_back(id_val);
+    
+    protocol::RespValue consumer_val;
+    consumer_val.SetString(pending.consumer, protocol::RespType::kBulkString);
+    entry_info.push_back(consumer_val);
+    
+    auto idle_duration = absl::Now() - pending.last_delivered;
+    protocol::RespValue idle_val;
+    idle_val.SetInteger(absl::ToInt64Milliseconds(idle_duration));
+    entry_info.push_back(idle_val);
+    
+    protocol::RespValue delivery_val;
+    delivery_val.SetInteger(pending.delivery_count);
+    entry_info.push_back(delivery_val);
+    
+    protocol::RespValue entry_arr;
+    entry_arr.SetArray(std::move(entry_info));
+    result.push_back(entry_arr);
+    
+    processed++;
+  }
+
+  protocol::RespValue response;
+  response.SetArray(std::move(result));
+  return CommandResult(response);
+}
+
+// XREVRANGE key end start [COUNT count]
+// Return a range of entries in reverse order
+CommandResult HandleXRevRange(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'XREVRANGE' command");
+  }
+
+  auto* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR no database available");
+  }
+
+  const std::string& key = command[0].AsString();
+  StreamId end_id(command[1].AsString());
+  StreamId start_id(command[2].AsString());
+
+  size_t count = SIZE_MAX;
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+    std::string arg = command[i].AsString();
+    if (absl::AsciiStrToUpper(arg) == "COUNT") {
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++i].AsString(), reinterpret_cast<int64_t*>(&count))) {
+        return CommandResult(false, "ERR invalid count");
+      }
+    }
+  }
+
+  StreamData* stream = db->GetStream(key);
+  if (!stream) {
+    protocol::RespValue response;
+    response.SetArray(std::vector<protocol::RespValue>{});
+    return CommandResult(response);
+  }
+
+  std::vector<protocol::RespValue> result;
+  size_t processed = 0;
+  
+  // Iterate in reverse order
+  for (auto it = stream->entries.rbegin(); it != stream->entries.rend(); ++it) {
+    if (processed >= count) break;
+    
+    if (it->id < start_id || it->id > end_id) {
+      continue;
+    }
+    
+    result.push_back(StreamEntryToResp(it->id, it->fields));
+    processed++;
+  }
+
+  protocol::RespValue response;
+  response.SetArray(std::move(result));
+  return CommandResult(response);
+}
+
+// XSETID key last-id
+// Set the last generated ID for a stream
+CommandResult HandleXSetId(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'XSETID' command");
+  }
+
+  auto* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR no database available");
+  }
+
+  const std::string& key = command[0].AsString();
+  StreamId last_id(command[1].AsString());
+
+  StreamData* stream = db->GetStream(key);
+  if (!stream) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  // Set the last generated ID
+  stream->last_id = last_id;
+
+  protocol::RespValue ok_val;
+  ok_val.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(ok_val);
+}
+
 // Register Stream commands
 ASTRADB_REGISTER_COMMAND(XADD, -5, "write", RoutingStrategy::kByFirstKey, HandleXAdd);
 ASTRADB_REGISTER_COMMAND(XREAD, -4, "readonly", RoutingStrategy::kNone, HandleXRead);
@@ -619,5 +1028,10 @@ ASTRADB_REGISTER_COMMAND(XGROUP, -4, "write", RoutingStrategy::kByFirstKey, Hand
 ASTRADB_REGISTER_COMMAND(XREADGROUP, -7, "write", RoutingStrategy::kNone, HandleXReadGroup);
 ASTRADB_REGISTER_COMMAND(XACK, -4, "write", RoutingStrategy::kByFirstKey, HandleXAck);
 ASTRADB_REGISTER_COMMAND(XINFO, -2, "readonly", RoutingStrategy::kByFirstKey, HandleXInfo);
+ASTRADB_REGISTER_COMMAND(XCLAIM, -5, "write", RoutingStrategy::kByFirstKey, HandleXClaim);
+ASTRADB_REGISTER_COMMAND(XAUTOCLAIM, -5, "write", RoutingStrategy::kByFirstKey, HandleXAutoClaim);
+ASTRADB_REGISTER_COMMAND(XPENDING, -2, "readonly", RoutingStrategy::kByFirstKey, HandleXPending);
+ASTRADB_REGISTER_COMMAND(XREVRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleXRevRange);
+ASTRADB_REGISTER_COMMAND(XSETID, 3, "write", RoutingStrategy::kByFirstKey, HandleXSetId);
 
 }  // namespace astra::commands

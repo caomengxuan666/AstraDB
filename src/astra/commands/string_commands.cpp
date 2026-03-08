@@ -887,6 +887,183 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
+// COPY source destination [DB destination-db] [REPLACE]
+CommandResult HandleCopy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'COPY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& source_arg = command[0];
+  const auto& dest_arg = command[1];
+
+  if (!source_arg.IsBulkString() || !dest_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string source = source_arg.AsString();
+  std::string destination = dest_arg.AsString();
+
+  // Check if source exists
+  auto source_value = db->Get(source);
+  if (!source_value.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  // Parse options
+  bool replace = false;
+  for (size_t i = 2; i < command.ArgCount(); ++i) {
+    if (command[i].IsBulkString()) {
+      std::string opt = command[i].AsString();
+      if (opt == "REPLACE") {
+        replace = true;
+      } else if (opt == "DB") {
+        // Skip DB argument and its value
+        i++;
+      }
+    }
+  }
+
+  // Check if destination exists (if not replace)
+  if (!replace) {
+    auto dest_value = db->Get(destination);
+    if (dest_value.has_value()) {
+      return CommandResult(RespValue(static_cast<int64_t>(0)));
+    }
+  }
+
+  // Copy the value
+  db->Set(destination, *source_value);
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+}
+
+// DUMP key - Serialize value
+CommandResult HandleDump(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'DUMP' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Simplified serialization: version + type + value
+  std::string serialized = "1:" + value->value;
+  
+  RespValue result;
+  result.SetString(serialized, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// RESTORE key ttl serialized-value [REPLACE]
+CommandResult HandleRestore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RESTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& ttl_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !ttl_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string ttl_str = ttl_arg.AsString();
+  std::string serialized = value_arg.AsString();
+
+  // Parse TTL
+  int64_t ttl;
+  if (!absl::SimpleAtoi(ttl_str, &ttl) || ttl < 0) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Parse serialized value (simplified: "1:value")
+  std::string value = serialized.substr(2);
+
+  // Parse options
+  bool replace = false;
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+    if (command[i].IsBulkString()) {
+      std::string opt = command[i].AsString();
+      if (opt == "REPLACE") {
+        replace = true;
+      }
+    }
+  }
+
+  // Check if destination exists (if not replace)
+  if (!replace) {
+    auto dest_value = db->Get(key);
+    if (dest_value.has_value()) {
+      return CommandResult(false, "BUSYKEY Target key name already exists.");
+    }
+  }
+
+  // Restore value
+  db->Set(key, StringValue(value));
+
+  // Set TTL if needed
+  if (ttl > 0) {
+    db->SetExpireSeconds(key, ttl / 1000);
+  }
+
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// UNLINK key [key ...] - Delete keys asynchronously
+CommandResult HandleUnlink(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'UNLINK' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  std::vector<std::string> keys;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    const auto& key_arg = command[i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  // For now, UNLINK behaves like DEL (can be optimized for async deletion)
+  size_t deleted = db->Del(keys);
+
+  return CommandResult(RespValue(static_cast<int64_t>(deleted)));
+}
+
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
@@ -911,5 +1088,11 @@ ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, Handle
 ASTRADB_REGISTER_COMMAND(GETRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleGetRange);
 ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, HandleSetRange);
 ASTRADB_REGISTER_COMMAND(STRALGO, -2, "readonly", RoutingStrategy::kNone, HandleStrAlgo);
+
+// Advanced string commands (Redis 6.0+)
+ASTRADB_REGISTER_COMMAND(COPY, -3, "write", RoutingStrategy::kByFirstKey, HandleCopy);
+ASTRADB_REGISTER_COMMAND(DUMP, 2, "readonly", RoutingStrategy::kByFirstKey, HandleDump);
+ASTRADB_REGISTER_COMMAND(RESTORE, -3, "write", RoutingStrategy::kByFirstKey, HandleRestore);
+ASTRADB_REGISTER_COMMAND(UNLINK, -2, "write", RoutingStrategy::kByFirstKey, HandleUnlink);
 
 }  // namespace astra::commands

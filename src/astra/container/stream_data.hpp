@@ -36,12 +36,20 @@ struct StreamEntry {
   std::vector<std::pair<std::string, std::string>> fields;  // field-value pairs
 };
 
+// Pending entry with consumer tracking
+struct PendingEntry {
+  StreamEntry entry;
+  std::string consumer;
+  int64_t delivery_count = 0;
+  absl::Time last_delivered;
+};
+
 // Consumer group state
 struct StreamConsumerGroup {
   std::string name;
   StreamId last_delivered_id;  // Last ID delivered to this group
   absl::flat_hash_map<std::string, StreamId> consumers;  // consumer name -> last seen
-  std::map<StreamId, StreamEntry> pending_entries;  // PEL: pending entries list
+  std::map<StreamId, PendingEntry> pending_entries;  // PEL: pending entries list
 };
 
 // Stream data structure
@@ -49,6 +57,7 @@ struct StreamData {
   std::deque<StreamEntry> entries;
   uint64_t last_generated_ms = 0;
   uint64_t last_generated_seq = 0;
+  StreamId last_id;  // Last generated ID
   absl::flat_hash_map<std::string, StreamConsumerGroup> groups;
   size_t max_len = 0;  // MAXLEN, 0 = unlimited
 
@@ -146,7 +155,15 @@ struct StreamData {
     for (const auto& entry : entries) {
       if (entry.id <= group.last_delivered_id) continue;
       result.push_back(entry);
-      group.pending_entries[entry.id] = entry;
+      
+      // Create pending entry
+      PendingEntry pending;
+      pending.entry = entry;
+      pending.consumer = consumer_name;
+      pending.delivery_count = 1;
+      pending.last_delivered = absl::Now();
+      group.pending_entries[entry.id] = pending;
+      
       if (result.size() >= count) break;
     }
 

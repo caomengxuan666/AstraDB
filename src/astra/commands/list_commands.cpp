@@ -1138,6 +1138,305 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
+// LMOVE source destination LEFT|RIGHT LEFT|RIGHT - Pop from one list and push to another
+CommandResult HandleLMove(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 4) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LMOVE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& source_arg = command[0];
+  const auto& dest_arg = command[1];
+  const auto& from_arg = command[2];
+  const auto& to_arg = command[3];
+
+  if (!source_arg.IsBulkString() || !dest_arg.IsBulkString() || 
+      !from_arg.IsBulkString() || !to_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string source = source_arg.AsString();
+  std::string destination = dest_arg.AsString();
+  std::string from = from_arg.AsString();
+  std::string to = to_arg.AsString();
+
+  // Validate directions
+  if ((from != "LEFT" && from != "RIGHT") || (to != "LEFT" && to != "RIGHT")) {
+    return CommandResult(false, "ERR syntax error");
+  }
+
+  // Pop from source
+  std::optional<std::string> element;
+  if (from == "LEFT") {
+    element = db->LPop(source);
+  } else {
+    element = db->RPop(source);
+  }
+
+  if (!element.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Push to destination
+  if (to == "LEFT") {
+    db->LPush(destination, element.value());
+  } else {
+    db->RPush(destination, element.value());
+  }
+
+  return CommandResult(RespValue(element.value()));
+}
+
+// LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count] - Pop from first non-empty list
+CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LMPOP' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& numkeys_arg = command[0];
+  if (!numkeys_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of numkeys argument");
+  }
+
+  int64_t numkeys;
+  if (!absl::SimpleAtoi(numkeys_arg.AsString(), &numkeys) || numkeys <= 0) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  if (command.ArgCount() < static_cast<size_t>(numkeys + 2)) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LMPOP' command");
+  }
+
+  std::vector<std::string> keys;
+  for (int64_t i = 0; i < numkeys; ++i) {
+    const auto& key_arg = command[static_cast<size_t>(i) + 1];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  const auto& dir_arg = command[static_cast<size_t>(numkeys) + 1];
+  if (!dir_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of direction argument");
+  }
+
+  std::string direction = dir_arg.AsString();
+  if (direction != "LEFT" && direction != "RIGHT") {
+    return CommandResult(false, "ERR syntax error");
+  }
+
+  // Parse COUNT option
+  size_t count = 1;
+  size_t pos = static_cast<size_t>(numkeys) + 2;
+  while (pos < command.ArgCount()) {
+    const auto& opt_arg = command[pos];
+    if (!opt_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of option argument");
+    }
+
+    std::string opt = opt_arg.AsString();
+    if (opt == "COUNT" && pos + 1 < command.ArgCount()) {
+      ++pos;
+      int64_t count_val;
+      if (!absl::SimpleAtoi(command[pos].AsString(), &count_val) || count_val <= 0) {
+        return CommandResult(false, "ERR count is not a valid positive integer");
+      }
+      count = static_cast<size_t>(count_val);
+    }
+    ++pos;
+  }
+
+  // Find first non-empty list
+  for (const auto& key : keys) {
+    size_t list_len = db->LLen(key);
+    if (list_len > 0) {
+      // Pop elements
+      std::vector<std::string> popped;
+      for (size_t i = 0; i < count && i < list_len; ++i) {
+        auto element = (direction == "LEFT") ? db->LPop(key) : db->RPop(key);
+        if (element.has_value()) {
+          popped.push_back(element.value());
+        }
+      }
+
+      // Build response
+      std::vector<RespValue> result;
+      result.emplace_back(RespValue(key));
+      
+      std::vector<RespValue> elements_array;
+      for (const auto& elem : popped) {
+        elements_array.emplace_back(RespValue(elem));
+      }
+      result.emplace_back(RespValue(std::move(elements_array)));
+
+      return CommandResult(RespValue(std::move(result)));
+    }
+  }
+
+  return CommandResult(RespValue(RespType::kNullArray));
+}
+
+// LPOS key element [rank rank] [COUNT count] - Return index of element in list
+CommandResult HandleLPos(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LPOS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& element_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !element_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string element = element_arg.AsString();
+
+  // Parse options
+  int64_t rank = 0;
+  size_t count = 1;
+
+  for (size_t i = 2; i < command.ArgCount(); ++i) {
+    const auto& opt_arg = command[i];
+    if (!opt_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of option argument");
+    }
+
+    std::string opt = opt_arg.AsString();
+    if (opt == "RANK" && i + 1 < command.ArgCount()) {
+      ++i;
+      if (!absl::SimpleAtoi(command[i].AsString(), &rank)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    } else if (opt == "COUNT" && i + 1 < command.ArgCount()) {
+      ++i;
+      int64_t count_val;
+      if (!absl::SimpleAtoi(command[i].AsString(), &count_val) || count_val < 0) {
+        return CommandResult(false, "ERR count is not a valid positive integer");
+      }
+      count = static_cast<size_t>(count_val);
+    }
+  }
+
+  // Get all elements
+  auto elements = db->LRange(key, 0, -1);
+  if (elements.empty()) {
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+  }
+
+  // Find matching elements
+  std::vector<int64_t> indices;
+  for (size_t i = 0; i < elements.size(); ++i) {
+    if (elements[i] == element) {
+      indices.push_back(static_cast<int64_t>(i));
+    }
+  }
+
+  // Apply rank
+  if (rank < 0) {
+    rank = static_cast<int64_t>(indices.size()) + rank;
+    if (rank < 0) rank = 0;
+  }
+
+  if (rank >= static_cast<int64_t>(indices.size())) {
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+  }
+
+  // Apply count
+  if (count == 1) {
+    return CommandResult(RespValue(indices[static_cast<size_t>(rank)]));
+  } else {
+    std::vector<RespValue> result;
+    size_t start = static_cast<size_t>(rank);
+    size_t end = std::min(start + count, indices.size());
+    for (size_t i = start; i < end; ++i) {
+      result.emplace_back(RespValue(indices[i]));
+    }
+    return CommandResult(RespValue(std::move(result)));
+  }
+}
+
+// LPUSHX key value - Push element to left only if list exists
+CommandResult HandleLPushX(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LPUSHX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& value_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  // Check if list exists
+  auto key_type = db->GetType(key);
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kList) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  // Push element
+  db->LPush(key, value);
+
+  return CommandResult(RespValue(static_cast<int64_t>(db->LLen(key))));
+}
+
+// RPUSHX key value - Push element to right only if list exists
+CommandResult HandleRPushX(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RPUSHX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& value_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  // Check if list exists
+  auto key_type = db->GetType(key);
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kList) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  // Push element
+  db->RPush(key, value);
+
+  return CommandResult(RespValue(static_cast<int64_t>(db->LLen(key))));
+}
+
 // Auto-register all list commands
 ASTRADB_REGISTER_COMMAND(LPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleLPush);
 ASTRADB_REGISTER_COMMAND(RPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleRPush);
@@ -1156,5 +1455,10 @@ ASTRADB_REGISTER_COMMAND(BRPOP, -2, "write", RoutingStrategy::kByFirstKey, Handl
 ASTRADB_REGISTER_COMMAND(BRPOPLPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleBRPopLPush);
 ASTRADB_REGISTER_COMMAND(BLMOVE, -5, "write", RoutingStrategy::kByFirstKey, HandleBLMove);
 ASTRADB_REGISTER_COMMAND(BLMPOP, -4, "write", RoutingStrategy::kByFirstKey, HandleBLMPop);
+ASTRADB_REGISTER_COMMAND(LMOVE, -5, "write", RoutingStrategy::kByFirstKey, HandleLMove);
+ASTRADB_REGISTER_COMMAND(LMPOP, -4, "write", RoutingStrategy::kNone, HandleLMPop);
+ASTRADB_REGISTER_COMMAND(LPOS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleLPos);
+ASTRADB_REGISTER_COMMAND(LPUSHX, 3, "write", RoutingStrategy::kByFirstKey, HandleLPushX);
+ASTRADB_REGISTER_COMMAND(RPUSHX, 3, "write", RoutingStrategy::kByFirstKey, HandleRPushX);
 
 }  // namespace astra::commands
