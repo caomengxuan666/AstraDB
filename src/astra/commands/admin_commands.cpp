@@ -2379,7 +2379,7 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
   // HELLO command is used for protocol version negotiation and authentication
   // Returns server information and can optionally set authentication
   
-  [[maybe_unused]] int64_t protover = 2;  // Default RESP2
+  int64_t protover = 2;  // Default RESP2
   
   // Parse protocol version if provided
   if (command.ArgCount() > 0) {
@@ -2398,19 +2398,45 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
   // For now, we skip AUTH and SETNAME parsing
   // A full implementation would handle authentication and client name setting
   
-  // Return server information as a map
-  absl::flat_hash_map<std::string, protocol::RespValue> result;
+  // Build server information
+  // RESP2 (protover=2 or no args): Return array format
+  // RESP3 (protover=3): Return map format
   
-  // Server information
-  result["server"] = protocol::RespValue("redis");
-  result["version"] = protocol::RespValue("7.4.1");  // Claim Redis 7.4.1 compatibility
-  result["proto"] = protocol::RespValue(protover);  // Protocol version
-  result["id"] = protocol::RespValue(static_cast<int64_t>(context->GetConnectionId()));  // Client ID
-  result["mode"] = protocol::RespValue("standalone");
-  result["role"] = protocol::RespValue("master");
-  result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());  // Empty array for modules
-  
-  return CommandResult(protocol::RespValue(std::move(result)));
+  if (protover == 2) {
+    // RESP2: Return array format
+    std::vector<protocol::RespValue> result;
+    result.reserve(14);
+    
+    result.push_back(protocol::RespValue("server"));
+    result.push_back(protocol::RespValue("redis"));
+    result.push_back(protocol::RespValue("version"));
+    result.push_back(protocol::RespValue("7.4.1"));
+    result.push_back(protocol::RespValue("proto"));
+    result.push_back(protocol::RespValue(protover));
+    result.push_back(protocol::RespValue("id"));
+    result.push_back(protocol::RespValue(static_cast<int64_t>(context->GetConnectionId())));
+    result.push_back(protocol::RespValue("mode"));
+    result.push_back(protocol::RespValue("standalone"));
+    result.push_back(protocol::RespValue("role"));
+    result.push_back(protocol::RespValue("master"));
+    result.push_back(protocol::RespValue("modules"));
+    result.push_back(protocol::RespValue(std::vector<protocol::RespValue>()));  // Empty array
+    
+    return CommandResult(protocol::RespValue(std::move(result)));
+  } else {
+    // RESP3: Return map format
+    absl::flat_hash_map<std::string, protocol::RespValue> result;
+    
+    result["server"] = protocol::RespValue("redis");
+    result["version"] = protocol::RespValue("7.4.1");
+    result["proto"] = protocol::RespValue(protover);
+    result["id"] = protocol::RespValue(static_cast<int64_t>(context->GetConnectionId()));
+    result["mode"] = protocol::RespValue("standalone");
+    result["role"] = protocol::RespValue("master");
+    result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());
+    
+    return CommandResult(protocol::RespValue(std::move(result)));
+  }
 }
 
 // QUIT - Closes the connection (deprecated in Redis 7.2)
