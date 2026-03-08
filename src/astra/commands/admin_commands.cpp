@@ -2406,35 +2406,35 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
     // RESP2: Return array format
     std::vector<protocol::RespValue> result;
     result.reserve(14);
-    
-    result.push_back(protocol::RespValue("server"));
-    result.push_back(protocol::RespValue("redis"));
-    result.push_back(protocol::RespValue("version"));
-    result.push_back(protocol::RespValue("7.4.1"));
-    result.push_back(protocol::RespValue("proto"));
+
+    result.push_back(protocol::RespValue(std::string("server")));
+    result.push_back(protocol::RespValue(std::string("redis")));
+    result.push_back(protocol::RespValue(std::string("version")));
+    result.push_back(protocol::RespValue(std::string("7.4.1")));
+    result.push_back(protocol::RespValue(std::string("proto")));
     result.push_back(protocol::RespValue(protover));
-    result.push_back(protocol::RespValue("id"));
+    result.push_back(protocol::RespValue(std::string("id")));
     result.push_back(protocol::RespValue(static_cast<int64_t>(context->GetConnectionId())));
-    result.push_back(protocol::RespValue("mode"));
-    result.push_back(protocol::RespValue("standalone"));
-    result.push_back(protocol::RespValue("role"));
-    result.push_back(protocol::RespValue("master"));
-    result.push_back(protocol::RespValue("modules"));
+    result.push_back(protocol::RespValue(std::string("mode")));
+    result.push_back(protocol::RespValue(std::string("standalone")));
+    result.push_back(protocol::RespValue(std::string("role")));
+    result.push_back(protocol::RespValue(std::string("master")));
+    result.push_back(protocol::RespValue(std::string("modules")));
     result.push_back(protocol::RespValue(std::vector<protocol::RespValue>()));  // Empty array
-    
+
     return CommandResult(protocol::RespValue(std::move(result)));
   } else {
     // RESP3: Return map format
     absl::flat_hash_map<std::string, protocol::RespValue> result;
-    
-    result["server"] = protocol::RespValue("redis");
-    result["version"] = protocol::RespValue("7.4.1");
+
+    result["server"] = protocol::RespValue(std::string("redis"));
+    result["version"] = protocol::RespValue(std::string("7.4.1"));
     result["proto"] = protocol::RespValue(protover);
     result["id"] = protocol::RespValue(static_cast<int64_t>(context->GetConnectionId()));
-    result["mode"] = protocol::RespValue("standalone");
-    result["role"] = protocol::RespValue("master");
+    result["mode"] = protocol::RespValue(std::string("standalone"));
+    result["role"] = protocol::RespValue(std::string("master"));
     result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());
-    
+
     return CommandResult(protocol::RespValue(std::move(result)));
   }
 }
