@@ -385,6 +385,320 @@ CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
+// HSTRLEN key field - Get the length of the value associated with field in the hash
+CommandResult HandleHStrLen(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HSTRLEN' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& field_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string field = field_arg.AsString();
+
+  auto value = db->HGet(key, field);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  return CommandResult(RespValue(static_cast<int64_t>(value.value().length())));
+}
+
+// HRANDFIELD key [count [WITHVALUES]] - Get one or more random fields from a hash
+CommandResult HandleHRandField(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1 || command.ArgCount() > 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HRANDFIELD' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  auto all_data = db->HGetAll(key);
+
+  if (all_data.empty()) {
+    return CommandResult(RespValue(RespType::kNullArray));
+  }
+
+  // Extract field names
+  std::vector<std::string> all_fields;
+  for (const auto& [field, value] : all_data) {
+    all_fields.push_back(field);
+  }
+
+  // Parse arguments
+  int64_t count = 1;
+  bool with_values = false;
+
+  if (command.ArgCount() >= 2) {
+    const auto& count_arg = command[1];
+    if (!count_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of count argument");
+    }
+    if (!absl::SimpleAtoi(count_arg.AsString(), &count)) {
+      return CommandResult(false, "ERR value is not an integer or out of range");
+    }
+  }
+
+  if (command.ArgCount() >= 3) {
+    const auto& opt_arg = command[2];
+    if (!opt_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of option argument");
+    }
+    if (opt_arg.AsString() == "WITHVALUES") {
+      with_values = true;
+    }
+  }
+
+  // Get random fields
+  std::vector<std::string> random_fields;
+  if (count > 0) {
+    // Get unique random fields (when count is positive)
+    size_t actual_count = static_cast<size_t>(std::min(count, static_cast<int64_t>(all_fields.size())));
+    std::vector<size_t> indices(all_fields.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::shuffle(indices.begin(), indices.end(), std::mt19937(std::random_device()()));
+    
+    for (size_t i = 0; i < actual_count; ++i) {
+      random_fields.push_back(all_fields[indices[i]]);
+    }
+  } else {
+    // Get fields with duplicates (when count is negative)
+    size_t actual_count = static_cast<size_t>(-count);
+    static absl::BitGen bitgen;
+    for (size_t i = 0; i < actual_count; ++i) {
+      size_t idx = absl::Uniform<size_t>(bitgen, 0, all_fields.size());
+      random_fields.push_back(all_fields[idx]);
+    }
+  }
+
+  // Build response
+  std::vector<RespValue> result;
+  if (with_values) {
+    for (const auto& field : random_fields) {
+      result.emplace_back(RespValue(field));
+      auto value = db->HGet(key, field);
+      if (value.has_value()) {
+        result.emplace_back(RespValue(value.value()));
+      } else {
+        result.emplace_back(RespValue(RespType::kNullBulkString));
+      }
+    }
+  } else {
+    for (const auto& field : random_fields) {
+      result.emplace_back(RespValue(field));
+    }
+  }
+
+  return CommandResult(RespValue(std::move(result)));
+}
+
+// HMSET key field value [field value ...] - Set multiple hash fields (deprecated in Redis 4+, but we support it)
+CommandResult HandleHMSet(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3 || command.ArgCount() % 2 == 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HMSET' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  for (size_t i = 1; i < command.ArgCount(); i += 2) {
+    const auto& field_arg = command[i];
+    const auto& value_arg = command[i + 1];
+
+    if (!field_arg.IsBulkString() || !value_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of field or value argument");
+    }
+
+    db->HSet(key, field_arg.AsString(), value_arg.AsString());
+  }
+
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// HTTL key field [field ...] - Get TTL of hash fields
+CommandResult HandleHTTL(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HTTL' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Check if key exists and is a hash
+  auto key_type = db->GetType(key);
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+    std::vector<RespValue> result(command.ArgCount() - 1, RespValue(static_cast<int64_t>(-2)));
+    return CommandResult(RespValue(std::move(result)));
+  }
+
+  std::vector<RespValue> result;
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    const auto& field_arg = command[i];
+    if (!field_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of field argument");
+    }
+
+    // For now, return -1 (no expiration) for all fields
+    // Full implementation would require per-field expiration support
+    result.emplace_back(RespValue(static_cast<int64_t>(-1)));
+  }
+
+  return CommandResult(RespValue(std::move(result)));
+}
+
+// HSCAN key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash fields
+CommandResult HandleHScan(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'HSCAN' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& cursor_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !cursor_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string cursor_str = cursor_arg.AsString();
+
+  uint64_t cursor;
+  if (!absl::SimpleAtoi(cursor_str, &cursor)) {
+    return CommandResult(false, "ERR invalid cursor");
+  }
+
+  // Get all fields from hash
+  auto all_data = db->HGetAll(key);
+  
+  // Extract field names
+  std::vector<std::string> all_fields;
+  for (const auto& [field, value] : all_data) {
+    all_fields.push_back(field);
+  }
+  
+  // Parse options
+  std::string pattern = "*";
+  size_t count = 10;
+
+  for (size_t i = 2; i < command.ArgCount(); ++i) {
+    const auto& arg = command[i];
+    if (!arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of option argument");
+    }
+
+    std::string opt = arg.AsString();
+    if (opt == "MATCH" && i + 1 < command.ArgCount()) {
+      pattern = command[++i].AsString();
+    } else if (opt == "COUNT" && i + 1 < command.ArgCount()) {
+      if (!absl::SimpleAtoi(command[++i].AsString(), &count)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    }
+  }
+
+  // Filter fields by pattern
+  std::vector<std::string> matched_fields;
+  for (const auto& field : all_fields) {
+    bool matches = false;
+    if (pattern == "*") {
+      matches = true;
+    } else if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
+      // *middle* - contains
+      std::string middle = pattern.substr(1, pattern.size() - 2);
+      matches = (field.find(middle) != std::string::npos);
+    } else if (pattern[0] == '*' && pattern.size() > 1) {
+      // *suffix - ends with
+      std::string suffix = pattern.substr(1);
+      matches = (field.size() >= suffix.size() && field.substr(field.size() - suffix.size()) == suffix);
+    } else if (pattern.back() == '*' && pattern.size() > 1) {
+      // prefix* - starts with
+      std::string prefix = pattern.substr(0, pattern.size() - 1);
+      matches = (field.size() >= prefix.size() && field.substr(0, prefix.size()) == prefix);
+    } else {
+      // exact match
+      matches = (field == pattern);
+    }
+
+    if (matches) {
+      matched_fields.push_back(field);
+    }
+  }
+
+  // Get current page
+  std::vector<RespValue> result_array;
+  size_t start = static_cast<size_t>(cursor);
+  size_t end = std::min(start + count, matched_fields.size());
+  
+  for (size_t i = start; i < end; ++i) {
+    const auto& field = matched_fields[i];
+    result_array.emplace_back(RespValue(field));
+    
+    auto value = db->HGet(key, field);
+    if (value.has_value()) {
+      result_array.emplace_back(RespValue(value.value()));
+    } else {
+      result_array.emplace_back(RespValue(RespType::kNullBulkString));
+    }
+  }
+
+  // Build response
+  std::vector<RespValue> response;
+  
+  // New cursor
+  uint64_t new_cursor = (end >= matched_fields.size()) ? 0 : end;
+  RespValue cursor_val;
+  cursor_val.SetString(std::to_string(new_cursor), RespType::kBulkString);
+  response.emplace_back(cursor_val);
+  
+  // Results
+  response.emplace_back(RespValue(std::move(result_array)));
+
+  return CommandResult(RespValue(std::move(response)));
+}
+
 // Auto-register all hash commands
 ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
 ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
@@ -398,5 +712,10 @@ ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey, Hand
 ASTRADB_REGISTER_COMMAND(HINCRBYFLOAT, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrByFloat);
 ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey, HandleHSetNx);
 ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHMGet);
+ASTRADB_REGISTER_COMMAND(HSTRLEN, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHStrLen);
+ASTRADB_REGISTER_COMMAND(HRANDFIELD, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHRandField);
+ASTRADB_REGISTER_COMMAND(HMSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHMSet);
+ASTRADB_REGISTER_COMMAND(HTTL, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHTTL);
+ASTRADB_REGISTER_COMMAND(HSCAN, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHScan);
 
 }  // namespace astra::commands
