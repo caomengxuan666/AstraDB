@@ -2390,6 +2390,9 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
     if (protover != 2 && protover != 3) {
       return CommandResult(false, "NOPROTO unsupported protocol version");
     }
+    
+    // Set the protocol version for this connection
+    context->SetProtocolVersion(static_cast<int>(protover));
   }
   
   // For now, we skip AUTH and SETNAME parsing
@@ -2402,7 +2405,7 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
   result["server"] = protocol::RespValue("redis");
   result["version"] = protocol::RespValue("7.4.1");  // Claim Redis 7.4.1 compatibility
   result["proto"] = protocol::RespValue(protover);  // Protocol version
-  result["id"] = protocol::RespValue(static_cast<int64_t>(0));  // Note: In a real implementation, this would be the actual client ID
+  result["id"] = protocol::RespValue(static_cast<int64_t>(context->GetConnectionId()));  // Client ID
   result["mode"] = protocol::RespValue("standalone");
   result["role"] = protocol::RespValue("master");
   result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());  // Empty array for modules
