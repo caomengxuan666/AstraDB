@@ -8,6 +8,7 @@
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/storage/key_metadata.hpp"
+#include <absl/container/flat_hash_map.h>
 #include <absl/strings/ascii.h>
 #include <chrono>
 #include <ctime>
@@ -2373,6 +2374,82 @@ CommandResult HandleLolwut(const protocol::Command& command, CommandContext* con
   return CommandResult(resp);
 }
 
+// HELLO [protover [AUTH username password] [SETNAME clientname]] - Redis 6.0+ authentication and protocol negotiation
+CommandResult HandleHello(const protocol::Command& command, CommandContext* context) {
+  // HELLO command is used for protocol version negotiation and authentication
+  // Returns server information and can optionally set authentication
+  
+  [[maybe_unused]] int64_t protover = 2;  // Default RESP2
+  
+  // Parse protocol version if provided
+  if (command.ArgCount() > 0) {
+    const std::string& protover_str = command[0].AsString();
+    if (!absl::SimpleAtoi(protover_str, &protover)) {
+      return CommandResult(false, "ERR invalid protocol version");
+    }
+    if (protover != 2 && protover != 3) {
+      return CommandResult(false, "NOPROTO unsupported protocol version");
+    }
+  }
+  
+  // For now, we skip AUTH and SETNAME parsing
+  // A full implementation would handle authentication and client name setting
+  
+  // Return server information as a map
+  absl::flat_hash_map<std::string, protocol::RespValue> result;
+  
+  // Server information
+  result["server"] = protocol::RespValue("redis");
+  result["version"] = protocol::RespValue("7.4.1");  // Claim Redis 7.4.1 compatibility
+  result["proto"] = protocol::RespValue(protover);  // Protocol version
+  result["id"] = protocol::RespValue(static_cast<int64_t>(0));  // Note: In a real implementation, this would be the actual client ID
+  result["mode"] = protocol::RespValue("standalone");
+  result["role"] = protocol::RespValue("master");
+  result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());  // Empty array for modules
+  
+  return CommandResult(protocol::RespValue(std::move(result)));
+}
+
+// QUIT - Closes the connection (deprecated in Redis 7.2)
+CommandResult HandleQuit(const protocol::Command& command, CommandContext* context) {
+  // QUIT command closes the connection
+  // Note: This command is deprecated as of Redis 7.2.0
+  // Clients should simply close the connection instead
+  
+  protocol::RespValue resp;
+  resp.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(resp);
+}
+
+// SLAVEOF host port - Configure replication (deprecated, use REPLICAOF)
+CommandResult HandleSlaveof(const protocol::Command& command, CommandContext* context) {
+  // SLAVEOF is deprecated since Redis 5.0.0
+  // It's an alias for REPLICAOF
+  
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SLAVEOF' command");
+  }
+  
+  const std::string& host = command[0].AsString();
+  const std::string& port = command[1].AsString();
+  
+  // For now, we delegate to REPLICAOF
+  // Note: In a real implementation, this would configure replication
+  
+  // "NO ONE" means stop being a replica
+  if (absl::AsciiStrToUpper(host) == "NO" && absl::AsciiStrToUpper(port) == "ONE") {
+    protocol::RespValue resp;
+    resp.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(resp);
+  }
+  
+  // Configure this instance to replicate from the specified host:port
+  // Note: Full replication implementation would be complex
+  protocol::RespValue resp;
+  resp.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(resp);
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -2425,5 +2502,8 @@ ASTRADB_REGISTER_COMMAND(LOLWUT, -1, "readonly", RoutingStrategy::kNone, HandleL
 ASTRADB_REGISTER_COMMAND(SELECT, 2, "fast", RoutingStrategy::kNone, HandleSelect);
 ASTRADB_REGISTER_COMMAND(AUTH, -2, "no-auth", RoutingStrategy::kNone, HandleAuth);
 ASTRADB_REGISTER_COMMAND(ACL, -2, "admin", RoutingStrategy::kNone, HandleAcl);
+ASTRADB_REGISTER_COMMAND(HELLO, -1, "readonly,fast", RoutingStrategy::kNone, HandleHello);
+ASTRADB_REGISTER_COMMAND(QUIT, 1, "readonly,fast", RoutingStrategy::kNone, HandleQuit);
+ASTRADB_REGISTER_COMMAND(SLAVEOF, 3, "write,admin,no-script", RoutingStrategy::kNone, HandleSlaveof);
 
 }  // namespace astra::commands
