@@ -27,27 +27,27 @@ static void EnsureBitmapSize(std::string& bitmap, int64_t bit_offset) {
   }
 }
 
-// Helper: Get bit at offset
+// Helper: Get bit at offset (MSB-first, bit 0 is the highest bit)
 static bool GetBit(const std::string& bitmap, int64_t offset) {
   if (offset < 0) {
     return false;
   }
   int64_t byte_offset = offset / 8;
-  int bit_in_byte = offset % 8;
+  int bit_in_byte = 7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
   if (byte_offset >= static_cast<int64_t>(bitmap.size())) {
     return false;
   }
   return (bitmap[byte_offset] >> bit_in_byte) & 1;
 }
 
-// Helper: Set bit at offset
+// Helper: Set bit at offset (MSB-first, bit 0 is the highest bit)
 static void SetBit(std::string& bitmap, int64_t offset, bool value) {
   if (offset < 0) {
     return;
   }
   EnsureBitmapSize(bitmap, offset);
   int64_t byte_offset = offset / 8;
-  int bit_in_byte = offset % 8;
+  int bit_in_byte = 7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
   if (value) {
     bitmap[byte_offset] |= (1 << bit_in_byte);
   } else {
@@ -222,6 +222,15 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
     bitmap = value->value;
   }
 
+  // If the key does not exist, from our point of view it is an infinite
+  // array of 0 bits. If the user is looking for the first clear bit return 0,
+  // If the user is looking for the first set bit, return -1.
+  if (!value.has_value()) {
+    protocol::RespValue resp;
+    resp.SetInteger(bit_value == 1 ? -1 : 0);
+    return CommandResult(resp);
+  }
+
   int64_t start = 0;
   int64_t end = static_cast<int64_t>(bitmap.size()) - 1;
 
@@ -270,12 +279,13 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
   if (start < 0) start = 0;
   if (end >= len) end = len - 1;
 
-  // Find the bit
+  // Find the bit (MSB-first: bit 0 is the highest bit in each byte)
   bool target_bit = (bit_value == 1);
   for (int64_t byte_idx = start; byte_idx <= end && byte_idx < len; ++byte_idx) {
     uint8_t byte = static_cast<uint8_t>(bitmap[byte_idx]);
     for (int bit_idx = 0; bit_idx < 8; ++bit_idx) {
-      bool current_bit = (byte >> bit_idx) & 1;
+      int actual_bit_idx = 7 - bit_idx;  // Redis uses MSB-first
+      bool current_bit = (byte >> actual_bit_idx) & 1;
       if (current_bit == target_bit) {
         protocol::RespValue resp;
         resp.SetInteger(byte_idx * 8 + bit_idx);
