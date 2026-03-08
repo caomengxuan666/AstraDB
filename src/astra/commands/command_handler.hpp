@@ -20,6 +20,7 @@
 #include <absl/functional/any_invocable.h>
 #include "astra/replication/replication_manager.hpp"
 #include <absl/functional/any_invocable.h>
+#include "astra/network/connection.hpp"
 #include "database.hpp"
 #include "command_cache_flatbuffers.hpp"
 
@@ -28,10 +29,6 @@ class PubSubManager;  // Forward declaration
 }
 
 // Forward declarations for optional types
-namespace astra::network {
-class Connection;
-}
-
 namespace astra::cluster {
 class GossipManager;
 class ShardManager;
@@ -137,6 +134,24 @@ class CommandContext {
   
   // Get connection pointer (optional - return nullptr if not available)
   virtual astra::network::Connection* GetConnection() const { return nullptr; }
+  
+  // ============== RESP Protocol Version Support ==============
+  // Get current RESP protocol version (default to 2)
+  virtual int GetProtocolVersion() const {
+    auto* conn = GetConnection();
+    if (conn) {
+      return conn->GetProtocolVersion();
+    }
+    return 2;  // Default to RESP2
+  }
+  
+  // Set RESP protocol version
+  virtual void SetProtocolVersion(int version) {
+    auto* conn = GetConnection();
+    if (conn) {
+      conn->SetProtocolVersion(version);
+    }
+  }
   
   // Get server pointer (optional - return nullptr if not available)
   virtual void* GetServer() const { return nullptr; }

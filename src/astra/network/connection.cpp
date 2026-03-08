@@ -81,6 +81,9 @@ void Connection::Reset(asio::ip::tcp::socket socket) {
   watched_keys_.clear();
   watched_key_versions_.clear();
 
+  // Reset RESP protocol version to default
+  protocol_version_ = 2;
+
   ASTRADB_LOG_DEBUG("Connection reset: id={}, addr={}", id_,
                     GetRemoteAddress());
 }

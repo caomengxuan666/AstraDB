@@ -554,6 +554,210 @@ class Database {
     return members[idx];
   }
 
+  // SMOVE source destination member
+  // Move member from source set to destination set
+  bool SMove(const std::string& source, const std::string& destination, const std::string& member) {
+    if (!metadata_manager_.IsValid(source)) {
+      return false;
+    }
+    
+    auto source_set = GetSet(source);
+    if (!source_set || !source_set->Contains(member)) {
+      return false;
+    }
+    
+    // Remove from source
+    source_set->Remove(member);
+    
+    // Add to destination
+    auto dest_set = GetSet(destination);
+    if (!dest_set) {
+      dest_set = std::make_shared<SetType>(16);
+      sets_.Insert(destination, dest_set);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
+    }
+    dest_set->Insert(member);
+    
+    return true;
+  }
+
+  // SINTER key [key ...]
+  // Return intersection of multiple sets
+  std::vector<std::string> SInter(const std::vector<std::string>& keys) {
+    if (keys.empty()) {
+      return {};
+    }
+    
+    // Get members from the first set
+    auto first_set = GetSet(keys[0]);
+    if (!first_set) {
+      return {};
+    }
+    
+    auto result = first_set->GetAll();
+    
+    // Intersect with remaining sets
+    for (size_t i = 1; i < keys.size(); ++i) {
+      if (!metadata_manager_.IsValid(keys[i])) {
+        return {};
+      }
+      
+      auto current_set = GetSet(keys[i]);
+      if (!current_set) {
+        return {};
+      }
+      
+      // Find intersection
+      std::vector<std::string> temp;
+      auto current_members = current_set->GetAll();
+      std::unordered_set<std::string> current_set_members(current_members.begin(), current_members.end());
+      
+      for (const auto& member : result) {
+        if (current_set_members.find(member) != current_set_members.end()) {
+          temp.push_back(member);
+        }
+      }
+      
+      result = std::move(temp);
+      
+      if (result.empty()) {
+        break;
+      }
+    }
+    
+    return result;
+  }
+
+  // SUNION key [key ...]
+  // Return union of multiple sets
+  std::vector<std::string> SUnion(const std::vector<std::string>& keys) {
+    std::unordered_set<std::string> union_set;
+    
+    for (const auto& key : keys) {
+      if (!metadata_manager_.IsValid(key)) {
+        continue;
+      }
+      
+      auto set = GetSet(key);
+      if (set) {
+        auto members = set->GetAll();
+        union_set.insert(members.begin(), members.end());
+      }
+    }
+    
+    return std::vector<std::string>(union_set.begin(), union_set.end());
+  }
+
+  // SDIFF key [key ...]
+  // Return difference of multiple sets (first set minus all others)
+  std::vector<std::string> SDiff(const std::vector<std::string>& keys) {
+    if (keys.empty()) {
+      return {};
+    }
+    
+    // Get members from the first set
+    auto first_set = GetSet(keys[0]);
+    if (!first_set) {
+      return {};
+    }
+    
+    auto result = first_set->GetAll();
+    
+    // Remove members from all other sets
+    for (size_t i = 1; i < keys.size(); ++i) {
+      if (!metadata_manager_.IsValid(keys[i])) {
+        continue;
+      }
+      
+      auto current_set = GetSet(keys[i]);
+      if (current_set) {
+        auto current_members = current_set->GetAll();
+        std::unordered_set<std::string> current_set_members(current_members.begin(), current_members.end());
+        
+        // Remove members that exist in current set
+        auto it = result.begin();
+        while (it != result.end()) {
+          if (current_set_members.find(*it) != current_set_members.end()) {
+            it = result.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  // SINTERSTORE destination key [key ...]
+  // Store intersection in destination set, return number of members
+  size_t SInterStore(const std::string& destination, const std::vector<std::string>& keys) {
+    auto members = SInter(keys);
+    
+    // Clear destination set if it exists
+    auto dest_set = GetSet(destination);
+    if (dest_set) {
+      dest_set->Clear();
+    } else {
+      dest_set = std::make_shared<SetType>(members.size());
+      sets_.Insert(destination, dest_set);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
+    }
+    
+    // Add members to destination
+    for (const auto& member : members) {
+      dest_set->Insert(member);
+    }
+    
+    return members.size();
+  }
+
+  // SUNIONSTORE destination key [key ...]
+  // Store union in destination set, return number of members
+  size_t SUnionStore(const std::string& destination, const std::vector<std::string>& keys) {
+    auto members = SUnion(keys);
+    
+    // Clear destination set if it exists
+    auto dest_set = GetSet(destination);
+    if (dest_set) {
+      dest_set->Clear();
+    } else {
+      dest_set = std::make_shared<SetType>(members.size());
+      sets_.Insert(destination, dest_set);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
+    }
+    
+    // Add members to destination
+    for (const auto& member : members) {
+      dest_set->Insert(member);
+    }
+    
+    return members.size();
+  }
+
+  // SDIFFSTORE destination key [key ...]
+  // Store difference in destination set, return number of members
+  size_t SDiffStore(const std::string& destination, const std::vector<std::string>& keys) {
+    auto members = SDiff(keys);
+    
+    // Clear destination set if it exists
+    auto dest_set = GetSet(destination);
+    if (dest_set) {
+      dest_set->Clear();
+    } else {
+      dest_set = std::make_shared<SetType>(members.size());
+      sets_.Insert(destination, dest_set);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
+    }
+    
+    // Add members to destination
+    for (const auto& member : members) {
+      dest_set->Insert(member);
+    }
+    
+    return members.size();
+  }
+
   // ========== Sorted Set Operations ==========
 
   bool ZAdd(const std::string& key, double score, const std::string& member) {
@@ -867,6 +1071,215 @@ class Database {
     return zset->GetRank(member, reverse);
   }
 
+  // ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
+  // Store union of sorted sets at keys in destination
+  size_t ZUnionStore(const std::string& destination, size_t numkeys, 
+                     const std::vector<std::string>& keys,
+                     const std::vector<double>& weights,
+                     const std::string& aggregate) {
+    if (keys.size() != numkeys) {
+      return 0;
+    }
+
+    // Aggregate all members from all sets with weights
+    std::unordered_map<std::string, double> aggregated_scores;
+
+    for (size_t i = 0; i < numkeys; ++i) {
+      if (!metadata_manager_.IsValid(keys[i])) {
+        continue;
+      }
+
+      auto zset = GetZSet(keys[i]);
+      if (!zset) {
+        continue;
+      }
+
+      auto members = zset->GetRangeByRank(0, zset->Size() - 1, false, true);
+      double weight = (i < weights.size()) ? weights[i] : 1.0;
+
+      for (const auto& [member, score] : members) {
+        double weighted_score = score * weight;
+        auto it = aggregated_scores.find(member);
+        
+        if (it == aggregated_scores.end()) {
+          aggregated_scores[member] = weighted_score;
+        } else {
+          // Apply aggregation function
+          if (aggregate == "SUM") {
+            it->second += weighted_score;
+          } else if (aggregate == "MIN") {
+            it->second = std::min(it->second, weighted_score);
+          } else if (aggregate == "MAX") {
+            it->second = std::max(it->second, weighted_score);
+          }
+        }
+      }
+    }
+
+    // Clear destination set if it exists
+    auto dest_zset = GetZSet(destination);
+    if (dest_zset) {
+      dest_zset->Clear();
+    } else {
+      dest_zset = std::make_shared<ZSetType>(aggregated_scores.size());
+      zsets_.Insert(destination, dest_zset);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+    }
+
+    // Add aggregated members to destination
+    for (const auto& [member, score] : aggregated_scores) {
+      dest_zset->Add(member, score);
+    }
+
+    return aggregated_scores.size();
+  }
+
+  // ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
+  // Store intersection of sorted sets at keys in destination
+  size_t ZInterStore(const std::string& destination, size_t numkeys,
+                     const std::vector<std::string>& keys,
+                     const std::vector<double>& weights,
+                     const std::string& aggregate) {
+    if (keys.size() != numkeys || numkeys == 0) {
+      return 0;
+    }
+
+    // Get members from the first set
+    auto first_zset = GetZSet(keys[0]);
+    if (!first_zset) {
+      return 0;
+    }
+
+    auto first_members = first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
+    std::unordered_map<std::string, double> intersection_scores;
+
+    for (const auto& [member, score] : first_members) {
+      intersection_scores[member] = score * ((weights.size() > 0) ? weights[0] : 1.0);
+    }
+
+    // Intersect with remaining sets
+    for (size_t i = 1; i < numkeys; ++i) {
+      if (!metadata_manager_.IsValid(keys[i])) {
+        return 0;
+      }
+
+      auto current_zset = GetZSet(keys[i]);
+      if (!current_zset) {
+        return 0;
+      }
+
+      auto current_members = current_zset->GetRangeByRank(0, current_zset->Size() - 1, false, true);
+      std::unordered_map<std::string, double> current_map(current_members.begin(), current_members.end());
+      double weight = (i < weights.size()) ? weights[i] : 1.0;
+
+      std::unordered_map<std::string, double> temp;
+      for (const auto& [member, score] : intersection_scores) {
+        auto it = current_map.find(member);
+        if (it != current_map.end()) {
+          double weighted_score = it->second * weight;
+          if (aggregate == "SUM") {
+            temp[member] = score + weighted_score;
+          } else if (aggregate == "MIN") {
+            temp[member] = std::min(score, weighted_score);
+          } else if (aggregate == "MAX") {
+            temp[member] = std::max(score, weighted_score);
+          }
+        }
+      }
+
+      intersection_scores = std::move(temp);
+
+      if (intersection_scores.empty()) {
+        return 0;
+      }
+    }
+
+    // Clear destination set if it exists
+    auto dest_zset = GetZSet(destination);
+    if (dest_zset) {
+      dest_zset->Clear();
+    } else {
+      dest_zset = std::make_shared<ZSetType>(intersection_scores.size());
+      zsets_.Insert(destination, dest_zset);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+    }
+
+    // Add intersection members to destination
+    for (const auto& [member, score] : intersection_scores) {
+      dest_zset->Add(member, score);
+    }
+
+    return intersection_scores.size();
+  }
+
+  // ZDIFF numkeys key [key ...]
+  // Return difference of sorted sets (first set minus all others)
+  std::vector<std::pair<std::string, double>> ZDiff(size_t numkeys, const std::vector<std::string>& keys) {
+    if (keys.size() != numkeys || numkeys == 0) {
+      return {};
+    }
+
+    // Get members from the first set
+    auto first_zset = GetZSet(keys[0]);
+    if (!first_zset) {
+      return {};
+    }
+
+    auto result = first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
+    std::unordered_map<std::string, double> result_map(result.begin(), result.end());
+
+    // Remove members from all other sets
+    for (size_t i = 1; i < numkeys; ++i) {
+      if (!metadata_manager_.IsValid(keys[i])) {
+        continue;
+      }
+
+      auto current_zset = GetZSet(keys[i]);
+      if (current_zset) {
+        auto current_members = current_zset->GetRangeByRank(0, current_zset->Size() - 1, false, true);
+        std::unordered_set<std::string> current_set;
+        for (const auto& [member, _] : current_members) {
+          current_set.insert(member);
+        }
+
+        // Remove members that exist in current set
+        auto it = result.begin();
+        while (it != result.end()) {
+          if (current_set.find(it->first) != current_set.end()) {
+            it = result.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // ZDIFFSTORE destination numkeys key [key ...]
+  // Store difference of sorted sets in destination
+  size_t ZDiffStore(const std::string& destination, size_t numkeys, const std::vector<std::string>& keys) {
+    auto members = ZDiff(numkeys, keys);
+
+    // Clear destination set if it exists
+    auto dest_zset = GetZSet(destination);
+    if (dest_zset) {
+      dest_zset->Clear();
+    } else {
+      dest_zset = std::make_shared<ZSetType>(members.size());
+      zsets_.Insert(destination, dest_zset);
+      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+    }
+
+    // Add members to destination
+    for (const auto& [member, score] : members) {
+      dest_zset->Add(member, score);
+    }
+
+    return members.size();
+  }
+
   // ========== List Operations ==========
 
   bool LPush(const std::string& key, const std::string& value) {
@@ -1055,6 +1468,10 @@ class Database {
 
   int64_t GetTtlMs(const std::string& key) {
     return metadata_manager_.GetTtlMs(key);
+  }
+
+  std::optional<int64_t> GetExpireTimeMs(const std::string& key) {
+    return metadata_manager_.GetExpireTimeMs(key);
   }
 
   bool Persist(const std::string& key) {

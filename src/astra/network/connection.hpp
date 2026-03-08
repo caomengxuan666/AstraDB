@@ -69,6 +69,13 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // Get client name
   const std::string& GetClientName() const { return client_name_; }
 
+  // ============== RESP Protocol Version ==============
+  // Get RESP protocol version (2 or 3)
+  int GetProtocolVersion() const { return protocol_version_; }
+
+  // Set RESP protocol version
+  void SetProtocolVersion(int version) { protocol_version_ = version; }
+
   // Reset connection state (for object pool reuse)
   void Reset(asio::ip::tcp::socket socket);
 
@@ -138,6 +145,9 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
   // Client name
   std::string client_name_;
+
+  // ============== RESP Protocol Version ==============
+  int protocol_version_ = 2;  // Default to RESP2
 
   // ============== Transaction State ==============
   bool in_transaction_ = false;

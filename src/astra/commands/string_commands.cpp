@@ -7,6 +7,10 @@
 #include "string_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include <absl/strings/ascii.h>
+#include <absl/strings/numbers.h>
+#include <sstream>
+#include <iomanip>
 
 namespace astra::commands {
 
@@ -263,6 +267,53 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
   RespValue response;
   response.SetString("OK", RespType::kSimpleString);
   return CommandResult(response);
+}
+
+// MSETNX key value [key value ...]
+CommandResult HandleMSetNx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() == 0 || command.ArgCount() % 2 != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'MSETNX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  // Check if all keys don't exist
+  for (size_t i = 0; i < command.ArgCount(); i += 2) {
+    const auto& key_arg = command[i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+
+    auto existing = db->Get(key_arg.AsString());
+    if (existing.has_value()) {
+      return CommandResult(RespValue(static_cast<int64_t>(0)));
+    }
+  }
+
+  // All keys don't exist, set them all
+  for (size_t i = 0; i < command.ArgCount(); i += 2) {
+    const auto& key_arg = command[i];
+    const auto& value_arg = command[i + 1];
+
+    if (!value_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of value argument");
+    }
+
+    db->Set(key_arg.AsString(), StringValue(value_arg.AsString()));
+  }
+
+  // Log to AOF
+  std::vector<absl::string_view> aof_args;
+  aof_args.reserve(command.ArgCount());
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    aof_args.emplace_back(command[i].AsString());
+  }
+  context->LogToAof("MSETNX", absl::MakeSpan(aof_args));
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
 }
 
 // INCR key
@@ -714,6 +765,105 @@ CommandResult HandleSetRange(const astra::protocol::Command& command, CommandCon
   return CommandResult(RespValue(static_cast<int64_t>(new_len)));
 }
 
+// STRALGO ALGORITHM ... - String algorithm command (Redis 6.0+)
+// Simplified implementation for LCS algorithm
+CommandResult HandleStrAlgo(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'STRALGO' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& algo_arg = command[0];
+  if (!algo_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of algorithm argument");
+  }
+
+  std::string algo = algo_arg.AsString();
+  
+  if (algo == "LCS") {
+    // LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN len]
+    // Simplified: just return LCS string between two keys
+    if (command.ArgCount() < 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'STRALGO LCS'");
+    }
+
+    const auto& key1_arg = command[1];
+    const auto& key2_arg = command[2];
+    
+    if (!key1_arg.IsBulkString() || !key2_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+
+    auto str1_opt = db->Get(key1_arg.AsString());
+    auto str2_opt = db->Get(key2_arg.AsString());
+
+    if (!str1_opt || !str2_opt) {
+      return CommandResult(RespValue(""));  // Return empty string if either key doesn't exist
+    }
+
+    // Simple LCS implementation (can be optimized)
+    const std::string& str1 = str1_opt->value;
+    const std::string& str2 = str2_opt->value;
+    
+    // Parse options
+    bool return_len = false;
+    bool return_idx = false;
+    for (size_t i = 3; i < command.ArgCount(); ++i) {
+      if (command[i].IsBulkString()) {
+        std::string opt = command[i].AsString();
+        if (opt == "LEN") {
+          return_len = true;
+        } else if (opt == "IDX") {
+          return_idx = true;
+        }
+      }
+    }
+
+    if (return_len || return_idx) {
+      // For now, only support simple LCS string return
+      return CommandResult(false, "ERR STRALGO LCS IDX/LEN not implemented yet");
+    }
+
+    // Compute LCS using dynamic programming
+    size_t m = str1.length();
+    size_t n = str2.length();
+    std::vector<std::vector<size_t>> dp(m + 1, std::vector<size_t>(n + 1, 0));
+
+    for (size_t i = 1; i <= m; ++i) {
+      for (size_t j = 1; j <= n; ++j) {
+        if (str1[i - 1] == str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    // Backtrack to find LCS string
+    std::string lcs;
+    size_t i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (str1[i - 1] == str2[j - 1]) {
+        lcs = str1[i - 1] + lcs;
+        --i;
+        --j;
+      } else if (dp[i - 1][j] > dp[i][j - 1]) {
+        --i;
+      } else {
+        --j;
+      }
+    }
+
+    return CommandResult(RespValue(lcs));
+  } else {
+    return CommandResult(false, "ERR unknown algorithm for STRALGO");
+  }
+}
+
 // EXISTS key [key ...]
 CommandResult HandleExists(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() == 0) {
@@ -741,12 +891,523 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
+// COPY source destination [DB destination-db] [REPLACE]
+CommandResult HandleCopy(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'COPY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& source_arg = command[0];
+  const auto& dest_arg = command[1];
+
+  if (!source_arg.IsBulkString() || !dest_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string source = source_arg.AsString();
+  std::string destination = dest_arg.AsString();
+
+  // Check if source exists
+  auto source_value = db->Get(source);
+  if (!source_value.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  // Parse options
+  bool replace = false;
+  for (size_t i = 2; i < command.ArgCount(); ++i) {
+    if (command[i].IsBulkString()) {
+      std::string opt = command[i].AsString();
+      if (opt == "REPLACE") {
+        replace = true;
+      } else if (opt == "DB") {
+        // Skip DB argument and its value
+        i++;
+      }
+    }
+  }
+
+  // Check if destination exists (if not replace)
+  if (!replace) {
+    auto dest_value = db->Get(destination);
+    if (dest_value.has_value()) {
+      return CommandResult(RespValue(static_cast<int64_t>(0)));
+    }
+  }
+
+  // Copy the value
+  db->Set(destination, *source_value);
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+}
+
+// DUMP key - Serialize value
+CommandResult HandleDump(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'DUMP' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Simplified serialization: version + type + value
+  std::string serialized = "1:" + value->value;
+  
+  RespValue result;
+  result.SetString(serialized, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// RESTORE key ttl serialized-value [REPLACE]
+CommandResult HandleRestore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RESTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& ttl_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !ttl_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string ttl_str = ttl_arg.AsString();
+  std::string serialized = value_arg.AsString();
+
+  // Parse TTL
+  int64_t ttl;
+  if (!absl::SimpleAtoi(ttl_str, &ttl) || ttl < 0) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Parse serialized value (simplified: "1:value")
+  std::string value = serialized.substr(2);
+
+  // Parse options
+  bool replace = false;
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+    if (command[i].IsBulkString()) {
+      std::string opt = command[i].AsString();
+      if (opt == "REPLACE") {
+        replace = true;
+      }
+    }
+  }
+
+  // Check if destination exists (if not replace)
+  if (!replace) {
+    auto dest_value = db->Get(key);
+    if (dest_value.has_value()) {
+      return CommandResult(false, "BUSYKEY Target key name already exists.");
+    }
+  }
+
+  // Restore value
+  db->Set(key, StringValue(value));
+
+  // Set TTL if needed
+  if (ttl > 0) {
+    db->SetExpireSeconds(key, ttl / 1000);
+  }
+
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// UNLINK key [key ...] - Delete keys asynchronously
+CommandResult HandleUnlink(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'UNLINK' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  std::vector<std::string> keys;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    const auto& key_arg = command[i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  // For now, UNLINK behaves like DEL (can be optimized for async deletion)
+  size_t deleted = db->Del(keys);
+
+  return CommandResult(RespValue(static_cast<int64_t>(deleted)));
+}
+
+// GETDEL key - Get the value and delete the key
+CommandResult HandleGetDel(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETDEL' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Delete the key
+  db->Del(key);
+
+  // Return the value
+  RespValue result;
+  result.SetString(value->value, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// GETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST]
+CommandResult HandleGetEx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETEX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Parse options
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "EX") {
+      // EX seconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t seconds;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &seconds) || seconds <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireSeconds(key, seconds);
+    } else if (option == "PX") {
+      // PX milliseconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t milliseconds;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &milliseconds) || milliseconds <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds);
+    } else if (option == "EXAT") {
+      // EXAT unix-time-seconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t timestamp;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &timestamp) || timestamp <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, timestamp * 1000);
+    } else if (option == "PXAT") {
+      // PXAT unix-time-milliseconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t timestamp;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &timestamp) || timestamp <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, timestamp);
+    } else if (option == "PERSIST") {
+      // Remove expiration
+      db->Persist(key);
+    } else {
+      return CommandResult(false, "ERR syntax error");
+    }
+  }
+
+  // Return the value
+  RespValue result;
+  result.SetString(value->value, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// ECHO message
+CommandResult HandleEcho(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ECHO' command");
+  }
+
+  const auto& message_arg = command[0];
+
+  if (!message_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of message argument");
+  }
+
+  std::string message = message_arg.AsString();
+
+  RespValue result;
+  result.SetString(message, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// INCRBYFLOAT key increment
+CommandResult HandleIncrByFloat(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'INCRBYFLOAT' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& increment_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !increment_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string increment_str = increment_arg.AsString();
+
+  // Parse increment as double
+  double increment;
+  if (!absl::SimpleAtod(increment_str, &increment)) {
+    return CommandResult(false, "ERR value is not a valid float");
+  }
+
+  // Check if key exists and has valid value
+  auto value = db->Get(key);
+  double current_value = 0.0;
+  
+  if (value.has_value()) {
+    if (!absl::SimpleAtod(value->value, &current_value)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
+  }
+
+  // Perform increment
+  double new_value = current_value + increment;
+
+  // Format result without trailing zeros
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(17) << new_value;
+  std::string result_str = oss.str();
+
+  // Remove trailing zeros
+  size_t dot_pos = result_str.find('.');
+  if (dot_pos != std::string::npos) {
+    size_t last_non_zero = result_str.find_last_not_of('0');
+    if (last_non_zero != std::string::npos && last_non_zero > dot_pos) {
+      result_str = result_str.substr(0, last_non_zero + 1);
+    }
+    // Remove trailing dot
+    if (result_str.back() == '.') {
+      result_str.pop_back();
+    }
+  }
+
+  db->Set(key, result_str);
+
+  RespValue result;
+  result.SetString(result_str, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// PSETEX key milliseconds value
+CommandResult HandlePSetEx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'PSETEX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& ms_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !ms_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string ms_str = ms_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  // Parse milliseconds
+  int64_t milliseconds;
+  if (!absl::SimpleAtoi(ms_str, &milliseconds) || milliseconds <= 0) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Set value and expiration
+  db->Set(key, value);
+  db->SetExpireMs(key, astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds);
+
+  RespValue result;
+  result.SetString("OK", RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// SUBSTR key start end (deprecated, same as GETRANGE)
+CommandResult HandleSubstr(const astra::protocol::Command& command, CommandContext* context) {
+  // SUBSTR is just an alias for GETRANGE
+  return HandleGetRange(command, context);
+}
+
+// LCS key1 key2 [LEN]
+CommandResult HandleLcs(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2 || command.ArgCount() > 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LCS' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key1_arg = command[0];
+  const auto& key2_arg = command[1];
+
+  if (!key1_arg.IsBulkString() || !key2_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key1 = key1_arg.AsString();
+  std::string key2 = key2_arg.AsString();
+
+  auto value1 = db->Get(key1);
+  auto value2 = db->Get(key2);
+
+  if (!value1.has_value() || !value2.has_value()) {
+    return CommandResult(RespValue());
+  }
+
+  std::string str1 = value1->value;
+  std::string str2 = value2->value;
+
+  // Check if LEN option is provided
+  bool len_only = false;
+  if (command.ArgCount() == 3) {
+    std::string option = absl::AsciiStrToUpper(command[2].AsString());
+    if (option == "LEN") {
+      len_only = true;
+    } else {
+      return CommandResult(false, "ERR unknown option '" + option + "'");
+    }
+  }
+
+  // Compute Longest Common Subsequence using dynamic programming
+  int m = str1.length();
+  int n = str2.length();
+
+  // DP table to store lengths of LCS of substrings
+  std::vector<std::vector<int>> dp(m + 1, std::vector<int>(n + 1, 0));
+
+  for (int i = 1; i <= m; i++) {
+    for (int j = 1; j <= n; j++) {
+      if (str1[i - 1] == str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  int lcs_length = dp[m][n];
+
+  if (len_only) {
+    return CommandResult(RespValue(static_cast<int64_t>(lcs_length)));
+  }
+
+  // Backtrack to find the LCS string
+  std::string lcs;
+  int i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (str1[i - 1] == str2[j - 1]) {
+      lcs.push_back(str1[i - 1]);
+      i--;
+      j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+
+  // Reverse the LCS string since we built it backwards
+  std::reverse(lcs.begin(), lcs.end());
+
+  RespValue result;
+  result.SetString(lcs, RespType::kBulkString);
+  return CommandResult(result);
+}
+
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
 ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kByFirstKey, HandleDel);
 ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);
 ASTRADB_REGISTER_COMMAND(MSET, -3, "write", RoutingStrategy::kNone, HandleMSet);
+ASTRADB_REGISTER_COMMAND(MSETNX, -3, "write", RoutingStrategy::kNone, HandleMSetNx);
 ASTRADB_REGISTER_COMMAND(EXISTS, -2, "readonly", RoutingStrategy::kByFirstKey, HandleExists);
 
 // Increment/Decrement commands
@@ -754,6 +1415,7 @@ ASTRADB_REGISTER_COMMAND(INCR, 2, "write", RoutingStrategy::kByFirstKey, HandleI
 ASTRADB_REGISTER_COMMAND(DECR, 2, "write", RoutingStrategy::kByFirstKey, HandleDecr);
 ASTRADB_REGISTER_COMMAND(INCRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleIncrBy);
 ASTRADB_REGISTER_COMMAND(DECRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleDecrBy);
+ASTRADB_REGISTER_COMMAND(INCRBYFLOAT, 3, "write", RoutingStrategy::kByFirstKey, HandleIncrByFloat);
 
 // String manipulation commands
 ASTRADB_REGISTER_COMMAND(APPEND, 3, "write", RoutingStrategy::kByFirstKey, HandleAppend);
@@ -761,7 +1423,20 @@ ASTRADB_REGISTER_COMMAND(STRLEN, 2, "readonly", RoutingStrategy::kByFirstKey, Ha
 ASTRADB_REGISTER_COMMAND(GETSET, 3, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
 ASTRADB_REGISTER_COMMAND(SETEX, 4, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
 ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
+ASTRADB_REGISTER_COMMAND(PSETEX, 4, "write", RoutingStrategy::kByFirstKey, HandlePSetEx);
 ASTRADB_REGISTER_COMMAND(GETRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleGetRange);
 ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, HandleSetRange);
+ASTRADB_REGISTER_COMMAND(STRALGO, -2, "readonly", RoutingStrategy::kNone, HandleStrAlgo);
+ASTRADB_REGISTER_COMMAND(SUBSTR, 4, "readonly", RoutingStrategy::kByFirstKey, HandleSubstr);
+ASTRADB_REGISTER_COMMAND(ECHO, 2, "readonly", RoutingStrategy::kNone, HandleEcho);
+ASTRADB_REGISTER_COMMAND(LCS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleLcs);
+
+// Advanced string commands (Redis 6.0+)
+ASTRADB_REGISTER_COMMAND(COPY, -3, "write", RoutingStrategy::kByFirstKey, HandleCopy);
+ASTRADB_REGISTER_COMMAND(DUMP, 2, "readonly", RoutingStrategy::kByFirstKey, HandleDump);
+ASTRADB_REGISTER_COMMAND(RESTORE, -3, "write", RoutingStrategy::kByFirstKey, HandleRestore);
+ASTRADB_REGISTER_COMMAND(UNLINK, -2, "write", RoutingStrategy::kByFirstKey, HandleUnlink);
+ASTRADB_REGISTER_COMMAND(GETDEL, 2, "write", RoutingStrategy::kByFirstKey, HandleGetDel);
+ASTRADB_REGISTER_COMMAND(GETEX, -2, "write", RoutingStrategy::kByFirstKey, HandleGetEx);
 
 }  // namespace astra::commands

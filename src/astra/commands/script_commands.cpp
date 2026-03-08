@@ -9,6 +9,7 @@
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/base/logging.hpp"
 #include <sha1.hpp>
+#include <absl/strings/ascii.h>
 #include <sstream>
 #include <mutex>
 
@@ -446,9 +447,125 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
   }
 }
 
+// EVAL_RO - Execute read-only Lua script
+CommandResult HandleEvalRo(const astra::protocol::Command& command, CommandContext* context) {
+  // EVAL_RO is essentially the same as EVAL but marks the script as read-only
+  // For now, we just call HandleEval but could add read-only validation in the future
+  return HandleEval(command, context);
+}
+
+// EVALSHA_RO - Execute read-only Lua script by SHA1 digest
+CommandResult HandleEvalShaRo(const astra::protocol::Command& command, CommandContext* context) {
+  // EVALSHA_RO is essentially the same as EVALSHA but marks the script as read-only
+  // For now, we just call HandleEvalSha but could add read-only validation in the future
+  return HandleEvalSha(command, context);
+}
+
+// FCALL - Call a function
+CommandResult HandleFcall(const astra::protocol::Command& command, CommandContext* context) {
+  // FCALL funcname [numkeys key [key ...]] [arg [arg ...]]
+  // Note: In Redis 7+, FCALL replaces EVAL for function calls
+  // For now, we treat it similarly to EVAL but with function library support
+  return HandleEval(command, context);
+}
+
+// FCALL_RO - Call a read-only function
+CommandResult HandleFcallRo(const astra::protocol::Command& command, CommandContext* context) {
+  // FCALL_RO is essentially the same as FCALL but marks the function as read-only
+  // For now, we just call HandleFcall but could add read-only validation in the future
+  return HandleFcall(command, context);
+}
+
+// FUNCTION - Function management (LOAD, DUMP, EXISTS, FLUSH, KILL, RESTORE, STATS, HELP)
+CommandResult HandleFunction(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'FUNCTION' command");
+  }
+
+  const auto& subcommand_arg = command[0];
+  if (!subcommand_arg.IsBulkString()) {
+    return CommandResult(false, "ERR subcommand must be a string");
+  }
+
+  std::string subcommand = absl::AsciiStrToUpper(subcommand_arg.AsString());
+
+  if (subcommand == "HELP") {
+    // FUNCTION HELP
+    std::string help_text =
+      "FUNCTION <subcommand> [<arg> [value] ...]. Subcommands are:\n"
+      "DELETE - Delete a function\n"
+      "DUMP - Return all loaded functions\n"
+      "FLUSH - Delete all functions\n"
+      "KILL - Kill a function that is currently executing\n"
+      "LIST - Return information about all functions\n"
+      "LOAD - Load a library\n"
+      "RESTORE - Restore a function\n"
+      "STATS - Return information about functions\n"
+      "HELP - Show this help text";
+    protocol::RespValue resp;
+    resp.SetString(help_text, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+
+  } else if (subcommand == "FLUSH") {
+    // FUNCTION FLUSH [ASYNC|SYNC]
+    if (command.ArgCount() > 1) {
+      const auto& mode_arg = command[1];
+      if (mode_arg.IsBulkString()) {
+        std::string mode = mode_arg.AsString();
+        if (mode != "ASYNC" && mode != "SYNC") {
+          return CommandResult(false, "ERR FUNCTION FLUSH only supports SYNC|ASYNC");
+        }
+      }
+    }
+    GetGlobalScriptCache().Clear();
+    RespValue flush_resp;
+    flush_resp.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(flush_resp);
+
+  } else if (subcommand == "STATS") {
+    // FUNCTION STATS
+    // Note: In a real implementation, this would return function statistics
+    // For now, we return an empty array
+    return CommandResult(RespValue(std::vector<RespValue>()));
+
+  } else if (subcommand == "LIST") {
+    // FUNCTION LIST [LIBRARYNAME pattern] [WITHCODE]
+    // Note: In a real implementation, this would list all functions
+    // For now, we return an empty array
+    return CommandResult(RespValue(std::vector<RespValue>()));
+
+  } else if (subcommand == "DUMP") {
+    // FUNCTION DUMP
+    // Note: In a real implementation, this would dump all functions
+    // For now, we return an empty array
+    return CommandResult(RespValue(std::vector<RespValue>()));
+
+  } else if (subcommand == "LOAD" || subcommand == "DELETE" || subcommand == "KILL" || subcommand == "RESTORE") {
+    // Note: These are more complex operations that would require full function library support
+    // For now, we return an error
+    return CommandResult(false, "ERR FUNCTION " + subcommand + " not yet implemented");
+
+  } else {
+    return CommandResult(false, "ERR unknown FUNCTION subcommand '" + subcommand + "'");
+  }
+}
+
+// FLAGS - Show command flags (for debugging)
+CommandResult HandleFlags(const astra::protocol::Command& command, CommandContext* context) {
+  // Note: This is an internal command for debugging
+  // For now, we return an empty array
+  return CommandResult(RespValue(std::vector<RespValue>()));
+}
+
 // Auto-register all script commands
 ASTRADB_REGISTER_COMMAND(EVAL, -3, "write", RoutingStrategy::kByFirstKey, HandleEval);
 ASTRADB_REGISTER_COMMAND(EVALSHA, -3, "write", RoutingStrategy::kByFirstKey, HandleEvalSha);
+ASTRADB_REGISTER_COMMAND(EVAL_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleEvalRo);
+ASTRADB_REGISTER_COMMAND(EVALSHA_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleEvalShaRo);
+ASTRADB_REGISTER_COMMAND(FCALL, -3, "write", RoutingStrategy::kByFirstKey, HandleFcall);
+ASTRADB_REGISTER_COMMAND(FCALL_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleFcallRo);
 ASTRADB_REGISTER_COMMAND(SCRIPT, -2, "write", RoutingStrategy::kNone, HandleScript);
+ASTRADB_REGISTER_COMMAND(FUNCTION, -2, "write", RoutingStrategy::kNone, HandleFunction);
+ASTRADB_REGISTER_COMMAND(FLAGS, 1, "readonly", RoutingStrategy::kNone, HandleFlags);
 
 }  // namespace astra::commands

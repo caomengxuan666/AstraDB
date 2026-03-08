@@ -203,7 +203,7 @@ CommandResult HandleClientInfo(const protocol::Command& command, CommandContext*
   info << "cmd=client\n";  // Last command
   info << "user=default\n";  // User name
   info << "redir=-1\n";  // Redirect
-  info << "resp=2\n";  // RESP version
+  info << "resp=" << conn->GetProtocolVersion() << "\n";  // RESP version from connection
   
   protocol::RespValue resp;
   resp.SetString(info.str(), protocol::RespType::kBulkString);
