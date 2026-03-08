@@ -1132,13 +1132,13 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
   if (!db) {
     std::vector<RespValue> result;
     RespValue cursor_val;
-    cursor_val.SetInteger(0);
+    cursor_val.SetString("0", protocol::RespType::kBulkString);
     result.push_back(cursor_val);
-    
+
     RespValue keys_val;
     keys_val.SetArray({});
     result.push_back(keys_val);
-    
+
     return CommandResult(RespValue(std::move(result)));
   }
 
@@ -1157,10 +1157,10 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
   // Simplified cursor logic (for now, return all keys at once)
   // In a real implementation, this should use actual cursor-based iteration
   std::vector<RespValue> result;
-  
+
   // New cursor (0 indicates end of iteration)
   RespValue cursor_val;
-  cursor_val.SetInteger(0);
+  cursor_val.SetString("0", protocol::RespType::kBulkString);
   result.push_back(cursor_val);
   
   // Keys array
