@@ -1148,8 +1148,39 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
   // Filter keys by pattern
   std::vector<std::string> filtered_keys;
   for (const auto& key : keys) {
-    // Simple glob pattern matching (supports * wildcards)
-    if (match_pattern == "*" || key.find(match_pattern) != std::string::npos) {
+    // Glob pattern matching
+    bool matches = false;
+    if (match_pattern == "*") {
+      // Match all keys
+      matches = true;
+    } else if (match_pattern.find('*') == std::string::npos && match_pattern.find('?') == std::string::npos) {
+      // No wildcards, exact match
+      matches = (key == match_pattern);
+    } else {
+      // Simple glob pattern matching (supports * wildcards at start, end, or both)
+      std::string pattern = match_pattern;
+      std::string target = key;
+
+      // Handle pattern like "prefix*" or "*suffix" or "*middle*" or "pre*fix"
+      if (pattern[0] == '*' && pattern.back() == '*') {
+        // *middle* - contains
+        std::string middle = pattern.substr(1, pattern.size() - 2);
+        matches = (target.find(middle) != std::string::npos);
+      } else if (pattern[0] == '*') {
+        // *suffix - ends with
+        std::string suffix = pattern.substr(1);
+        matches = (target.size() >= suffix.size() && target.substr(target.size() - suffix.size()) == suffix);
+      } else if (pattern.back() == '*') {
+        // prefix* - starts with
+        std::string prefix = pattern.substr(0, pattern.size() - 1);
+        matches = (target.size() >= prefix.size() && target.substr(0, prefix.size()) == prefix);
+      } else {
+        // pre*fix - more complex pattern, use simple substring match for now
+        matches = (target.find(pattern) != std::string::npos);
+      }
+    }
+
+    if (matches) {
       filtered_keys.push_back(key);
     }
   }
