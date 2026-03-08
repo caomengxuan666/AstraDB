@@ -49,9 +49,14 @@ cmakehub_use(cpm)
 # ==============================================================================
 # Git Version Information
 # ==============================================================================
+# CMakeHub - Unified CMake Module Manager
+# ==============================================================================
 
-# Load GetGitRevisionDescription module directly
-include(${CMAKE_CURRENT_SOURCE_DIR}/.cmakehub/cache/git_version/master/cmake/GetGitRevisionDescription.cmake)
+# Load CMakeHub loader
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/hub/loader.cmake)
+
+# Load GetGitRevisionDescription module using CMakeHub
+cmakehub_use(git_version)
 
 # Find Git first (required for git_version module)
 find_package(Git QUIET)
