@@ -1470,6 +1470,10 @@ class Database {
     return metadata_manager_.GetTtlMs(key);
   }
 
+  std::optional<int64_t> GetExpireTimeMs(const std::string& key) {
+    return metadata_manager_.GetExpireTimeMs(key);
+  }
+
   bool Persist(const std::string& key) {
     return metadata_manager_.Persist(key);
   }

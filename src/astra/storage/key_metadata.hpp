@@ -177,6 +177,20 @@ class KeyMetadataManager {
     return ttl_ms / 1000;  // Convert to seconds
   }
 
+  // Get expire time
+  std::optional<int64_t> GetExpireTimeMs(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return std::nullopt;  // Key does not exist
+    }
+    
+    if (metadata.IsExpired()) {
+      return std::nullopt;  // Key is expired
+    }
+    
+    return metadata.expire_time_ms;
+  }
+
   // Remove expiration
   bool Persist(const std::string& key) {
     KeyMetadata metadata;

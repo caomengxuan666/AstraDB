@@ -283,11 +283,69 @@ CommandResult HandlePersist(const astra::protocol::Command& command, CommandCont
   }
 }
 
+// EXPIRETIME key - returns the absolute Unix timestamp (in seconds) at which the key will expire
+CommandResult HandleExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'EXPIRETIME' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  
+  // Get the expire time
+  auto expire_time_ms = db->GetExpireTimeMs(key);
+  if (expire_time_ms.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(*expire_time_ms / 1000)));
+  } else {
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
+  }
+}
+
+// PEXPIRETIME key - returns the absolute Unix timestamp (in milliseconds) at which the key will expire
+CommandResult HandlePExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'PEXPIRETIME' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  
+  // Get the expire time
+  auto expire_time_ms = db->GetExpireTimeMs(key);
+  if (expire_time_ms.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(*expire_time_ms)));
+  } else {
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
+  }
+}
+
 // Auto-register all TTL commands
 ASTRADB_REGISTER_COMMAND(EXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandleExpire);
 ASTRADB_REGISTER_COMMAND(EXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandleExpireAt);
 ASTRADB_REGISTER_COMMAND(PEXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpire);
 ASTRADB_REGISTER_COMMAND(PEXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpireAt);
+ASTRADB_REGISTER_COMMAND(EXPIRETIME, 2, "readonly", RoutingStrategy::kByFirstKey, HandleExpireTime);
+ASTRADB_REGISTER_COMMAND(PEXPIRETIME, 2, "readonly", RoutingStrategy::kByFirstKey, HandlePExpireTime);
 ASTRADB_REGISTER_COMMAND(TTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleTTL);
 ASTRADB_REGISTER_COMMAND(PTTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandlePTTL);
 ASTRADB_REGISTER_COMMAND(PERSIST, 2, "write", RoutingStrategy::kByFirstKey, HandlePersist);

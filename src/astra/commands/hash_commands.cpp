@@ -7,8 +7,73 @@
 #include "hash_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include <absl/strings/ascii.h>
+#include <absl/container/flat_hash_map.h>
 
 namespace astra::commands {
+
+// Global map to store hash field expiration times
+// Format: key -> field -> expire_time_ms
+using HashFieldExpireMap = absl::flat_hash_map<std::string, absl::flat_hash_map<std::string, int64_t>>;
+static HashFieldExpireMap g_hash_field_expires;
+
+// Helper function to check if a hash field is expired
+bool IsHashFieldExpired(const std::string& key, const std::string& field) {
+  auto key_it = g_hash_field_expires.find(key);
+  if (key_it == g_hash_field_expires.end()) {
+    return false;  // No expiration set
+  }
+  
+  auto field_it = key_it->second.find(field);
+  if (field_it == key_it->second.end()) {
+    return false;  // No expiration set
+  }
+  
+  return field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs();
+}
+
+// Helper function to clean up expired hash fields
+void CleanupExpiredHashFields(Database* db, const std::string& key) {
+  auto key_it = g_hash_field_expires.find(key);
+  if (key_it == g_hash_field_expires.end()) {
+    return;
+  }
+  
+  int64_t now = astra::storage::KeyMetadata::GetCurrentTimeMs();
+  std::vector<std::string> expired_fields;
+  
+  for (const auto& [field, expire_time] : key_it->second) {
+    if (expire_time <= now) {
+      expired_fields.push_back(field);
+    }
+  }
+  
+  // Delete expired fields
+  for (const auto& field : expired_fields) {
+    db->HDel(key, field);
+    key_it->second.erase(field);
+  }
+}
+
+// Helper function to get hash field TTL in milliseconds
+int64_t GetHashFieldTtlMs(const std::string& key, const std::string& field) {
+  auto key_it = g_hash_field_expires.find(key);
+  if (key_it == g_hash_field_expires.end()) {
+    return -1;  // No expiration set
+  }
+  
+  auto field_it = key_it->second.find(field);
+  if (field_it == key_it->second.end()) {
+    return -1;  // No expiration set
+  }
+  
+  int64_t ttl_ms = field_it->second - astra::storage::KeyMetadata::GetCurrentTimeMs();
+  if (ttl_ms <= 0) {
+    return -2;  // Field is expired
+  }
+  
+  return ttl_ms;
+}
 
 // HSET key field value [field value ...]
 CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext* context) {
@@ -700,22 +765,999 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
 }
 
 // Auto-register all hash commands
+
 ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
+
 ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
+
 ASTRADB_REGISTER_COMMAND(HDEL, -3, "write", RoutingStrategy::kByFirstKey, HandleHDel);
+
 ASTRADB_REGISTER_COMMAND(HEXISTS, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
+
 ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
+
 ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
+
 ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHKeys);
+
 ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHVals);
+
 ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrBy);
+
 ASTRADB_REGISTER_COMMAND(HINCRBYFLOAT, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrByFloat);
+
 ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey, HandleHSetNx);
+
 ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHMGet);
+
 ASTRADB_REGISTER_COMMAND(HSTRLEN, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHStrLen);
+
 ASTRADB_REGISTER_COMMAND(HRANDFIELD, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHRandField);
+
 ASTRADB_REGISTER_COMMAND(HMSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHMSet);
+
 ASTRADB_REGISTER_COMMAND(HTTL, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHTTL);
+
 ASTRADB_REGISTER_COMMAND(HSCAN, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHScan);
+
+
+
+// ========== Hash Field TTL Commands ==========
+
+
+
+// HEXPIRE key field seconds [NX|XX|GT|LT]
+
+CommandResult HandleHExpire(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() < 3) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIRE' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+  const auto& seconds_arg = command[2];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !seconds_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+  std::string seconds_str = seconds_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Parse seconds
+
+  int64_t seconds;
+
+  if (!absl::SimpleAtoi(seconds_str, &seconds) || seconds <= 0) {
+
+    return CommandResult(false, "ERR value is not an integer or out of range");
+
+  }
+
+
+
+  // Parse options
+
+  bool nx = false;  // Only set if no expiration
+
+  bool xx = false;  // Only set if has expiration
+
+  bool gt = false;  // Only set if new TTL > current TTL
+
+  bool lt = false;  // Only set if new TTL < current TTL
+
+
+
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "NX") nx = true;
+
+    else if (option == "XX") xx = true;
+
+    else if (option == "GT") gt = true;
+
+    else if (option == "LT") lt = true;
+
+    else return CommandResult(false, "ERR syntax error");
+
+  }
+
+
+
+  // Check current TTL
+
+  int64_t current_ttl = GetHashFieldTtlMs(key, field);
+
+
+
+  // Apply conditions
+
+  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (gt && (current_ttl == -1 || current_ttl >= seconds * 1000)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (lt && (current_ttl == -1 || current_ttl <= seconds * 1000)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+
+
+  // Set expiration
+
+  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + seconds * 1000;
+
+  g_hash_field_expires[key][field] = expire_time_ms;
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+
+}
+
+
+
+// HEXPIREAT key field unix-time-seconds [NX|XX|GT|LT]
+
+CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() < 3) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIREAT' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+  const auto& timestamp_arg = command[2];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !timestamp_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+  std::string timestamp_str = timestamp_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Parse timestamp
+
+  int64_t timestamp;
+
+  if (!absl::SimpleAtoi(timestamp_str, &timestamp) || timestamp <= 0) {
+
+    return CommandResult(false, "ERR value is not an integer or out of range");
+
+  }
+
+
+
+  // Parse options
+
+  bool nx = false;
+
+  bool xx = false;
+
+  bool gt = false;
+
+  bool lt = false;
+
+
+
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "NX") nx = true;
+
+    else if (option == "XX") xx = true;
+
+    else if (option == "GT") gt = true;
+
+    else if (option == "LT") lt = true;
+
+    else return CommandResult(false, "ERR syntax error");
+
+  }
+
+
+
+  // Check current TTL
+
+  int64_t current_ttl = GetHashFieldTtlMs(key, field);
+
+  int64_t new_expire_time_ms = timestamp * 1000;
+
+
+
+  // Apply conditions
+
+  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (gt && (current_ttl == -1 || new_expire_time_ms <= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (lt && (current_ttl == -1 || new_expire_time_ms >= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+
+
+  // Set expiration
+
+  g_hash_field_expires[key][field] = new_expire_time_ms;
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+
+}
+
+
+
+// HEXPIRETIME key field
+
+CommandResult HandleHExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() != 2) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIRETIME' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Get expire time
+
+  auto key_it = g_hash_field_expires.find(key);
+
+  if (key_it == g_hash_field_expires.end()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  auto field_it = key_it->second.find(field);
+
+  if (field_it == key_it->second.end()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  // Check if expired
+
+  if (field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(field_it->second / 1000)));
+
+}
+
+
+
+// HPERSIST key field
+
+CommandResult HandleHPersist(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() != 2) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HPERSIST' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Remove expiration
+
+  auto key_it = g_hash_field_expires.find(key);
+
+  if (key_it != g_hash_field_expires.end()) {
+
+    key_it->second.erase(field);
+
+    if (key_it->second.empty()) {
+
+      g_hash_field_expires.erase(key_it);
+
+    }
+
+    return CommandResult(RespValue(static_cast<int64_t>(1)));
+
+  }
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+}
+
+
+
+// HPEXPIRE key field milliseconds [NX|XX|GT|LT]
+
+CommandResult HandleHPExpire(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() < 3) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIRE' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+  const auto& ms_arg = command[2];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !ms_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+  std::string ms_str = ms_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Parse milliseconds
+
+  int64_t milliseconds;
+
+  if (!absl::SimpleAtoi(ms_str, &milliseconds) || milliseconds <= 0) {
+
+    return CommandResult(false, "ERR value is not an integer or out of range");
+
+  }
+
+
+
+  // Parse options
+
+  bool nx = false;
+
+  bool xx = false;
+
+  bool gt = false;
+
+  bool lt = false;
+
+
+
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "NX") nx = true;
+
+    else if (option == "XX") xx = true;
+
+    else if (option == "GT") gt = true;
+
+    else if (option == "LT") lt = true;
+
+    else return CommandResult(false, "ERR syntax error");
+
+  }
+
+
+
+  // Check current TTL
+
+  int64_t current_ttl = GetHashFieldTtlMs(key, field);
+
+
+
+  // Apply conditions
+
+  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (gt && (current_ttl == -1 || current_ttl >= milliseconds)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (lt && (current_ttl == -1 || current_ttl <= milliseconds)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+
+
+  // Set expiration
+
+  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds;
+
+  g_hash_field_expires[key][field] = expire_time_ms;
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+
+}
+
+
+
+// HPEXPIREAT key field unix-time-milliseconds [NX|XX|GT|LT]
+
+CommandResult HandleHPExpireAt(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() < 3) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIREAT' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+  const auto& timestamp_arg = command[2];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !timestamp_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+  std::string timestamp_str = timestamp_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  }
+
+
+
+  // Parse timestamp
+
+  int64_t timestamp;
+
+  if (!absl::SimpleAtoi(timestamp_str, &timestamp) || timestamp <= 0) {
+
+    return CommandResult(false, "ERR value is not an integer or out of range");
+
+  }
+
+
+
+  // Parse options
+
+  bool nx = false;
+
+  bool xx = false;
+
+  bool gt = false;
+
+  bool lt = false;
+
+
+
+  for (size_t i = 3; i < command.ArgCount(); ++i) {
+
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "NX") nx = true;
+
+    else if (option == "XX") xx = true;
+
+    else if (option == "GT") gt = true;
+
+    else if (option == "LT") lt = true;
+
+    else return CommandResult(false, "ERR syntax error");
+
+  }
+
+
+
+  // Check current TTL
+
+  int64_t current_ttl = GetHashFieldTtlMs(key, field);
+
+
+
+  // Apply conditions
+
+  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (gt && (current_ttl == -1 || timestamp <= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+  if (lt && (current_ttl == -1 || timestamp >= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+
+
+
+  // Set expiration
+
+  g_hash_field_expires[key][field] = timestamp;
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+
+}
+
+
+
+// HPEXPIRETIME key field
+
+CommandResult HandleHPExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() != 2) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIRETIME' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Get expire time
+
+  auto key_it = g_hash_field_expires.find(key);
+
+  if (key_it == g_hash_field_expires.end()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  auto field_it = key_it->second.find(field);
+
+  if (field_it == key_it->second.end()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  // Check if expired
+
+  if (field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs()) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-1)));
+
+  }
+
+
+
+  return CommandResult(RespValue(static_cast<int64_t>(field_it->second)));
+
+}
+
+
+
+// HPTTL key field
+
+CommandResult HandleHPTTL(const astra::protocol::Command& command, CommandContext* context) {
+
+  if (command.ArgCount() != 2) {
+
+    return CommandResult(false, "ERR wrong number of arguments for 'HPTTL' command");
+
+  }
+
+
+
+  Database* db = context->GetDatabase();
+
+  if (!db) {
+
+    return CommandResult(false, "ERR database not initialized");
+
+  }
+
+
+
+  const auto& key_arg = command[0];
+
+  const auto& field_arg = command[1];
+
+
+
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
+
+    return CommandResult(false, "ERR wrong type of argument");
+
+  }
+
+
+
+  std::string key = key_arg.AsString();
+
+  std::string field = field_arg.AsString();
+
+
+
+  // Check if hash exists
+
+  auto key_type = db->GetType(key);
+
+  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Check if field exists
+
+  if (!db->HExists(key, field)) {
+
+    return CommandResult(RespValue(static_cast<int64_t>(-2)));
+
+  }
+
+
+
+  // Get TTL
+
+  int64_t ttl_ms = GetHashFieldTtlMs(key, field);
+
+  return CommandResult(RespValue(static_cast<int64_t>(ttl_ms)));
+
+}
+
+
+
+// Register Hash Field TTL commands
+
+ASTRADB_REGISTER_COMMAND(HEXPIRE, -3, "write", RoutingStrategy::kByFirstKey, HandleHExpire);
+
+ASTRADB_REGISTER_COMMAND(HEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey, HandleHExpireAt);
+
+ASTRADB_REGISTER_COMMAND(HEXPIRETIME, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExpireTime);
+
+ASTRADB_REGISTER_COMMAND(HPERSIST, 3, "write", RoutingStrategy::kByFirstKey, HandleHPersist);
+
+ASTRADB_REGISTER_COMMAND(HPEXPIRE, -3, "write", RoutingStrategy::kByFirstKey, HandleHPExpire);
+
+ASTRADB_REGISTER_COMMAND(HPEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey, HandleHPExpireAt);
+
+ASTRADB_REGISTER_COMMAND(HPEXPIRETIME, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHPExpireTime);
+
+ASTRADB_REGISTER_COMMAND(HPTTL, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHPTTL);
+
+
 
 }  // namespace astra::commands

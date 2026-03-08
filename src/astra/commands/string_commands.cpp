@@ -7,6 +7,7 @@
 #include "string_commands.hpp"
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include <absl/strings/ascii.h>
 
 namespace astra::commands {
 
@@ -1064,6 +1065,123 @@ CommandResult HandleUnlink(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(static_cast<int64_t>(deleted)));
 }
 
+// GETDEL key - Get the value and delete the key
+CommandResult HandleGetDel(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETDEL' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Delete the key
+  db->Del(key);
+
+  // Return the value
+  RespValue result;
+  result.SetString(value->value, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// GETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST]
+CommandResult HandleGetEx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'GETEX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+
+  if (!key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+
+  // Get value
+  auto value = db->Get(key);
+  if (!value.has_value()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Parse options
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    std::string option = absl::AsciiStrToUpper(command[i].AsString());
+
+    if (option == "EX") {
+      // EX seconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t seconds;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &seconds) || seconds <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireSeconds(key, seconds);
+    } else if (option == "PX") {
+      // PX milliseconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t milliseconds;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &milliseconds) || milliseconds <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds);
+    } else if (option == "EXAT") {
+      // EXAT unix-time-seconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t timestamp;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &timestamp) || timestamp <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, timestamp * 1000);
+    } else if (option == "PXAT") {
+      // PXAT unix-time-milliseconds
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      int64_t timestamp;
+      if (!absl::SimpleAtoi(command[++i].AsString(), &timestamp) || timestamp <= 0) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+      db->SetExpireMs(key, timestamp);
+    } else if (option == "PERSIST") {
+      // Remove expiration
+      db->Persist(key);
+    } else {
+      return CommandResult(false, "ERR syntax error");
+    }
+  }
+
+  // Return the value
+  RespValue result;
+  result.SetString(value->value, RespType::kBulkString);
+  return CommandResult(result);
+}
+
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
@@ -1094,5 +1212,7 @@ ASTRADB_REGISTER_COMMAND(COPY, -3, "write", RoutingStrategy::kByFirstKey, Handle
 ASTRADB_REGISTER_COMMAND(DUMP, 2, "readonly", RoutingStrategy::kByFirstKey, HandleDump);
 ASTRADB_REGISTER_COMMAND(RESTORE, -3, "write", RoutingStrategy::kByFirstKey, HandleRestore);
 ASTRADB_REGISTER_COMMAND(UNLINK, -2, "write", RoutingStrategy::kByFirstKey, HandleUnlink);
+ASTRADB_REGISTER_COMMAND(GETDEL, 2, "write", RoutingStrategy::kByFirstKey, HandleGetDel);
+ASTRADB_REGISTER_COMMAND(GETEX, -2, "write", RoutingStrategy::kByFirstKey, HandleGetEx);
 
 }  // namespace astra::commands
