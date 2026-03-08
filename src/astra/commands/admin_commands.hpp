@@ -25,6 +25,15 @@ CommandResult HandleCluster(const astra::protocol::Command& command, CommandCont
 // MIGRATE - Migrate key to another node
 CommandResult HandleMigrate(const astra::protocol::Command& command, CommandContext* context);
 
+// MODULE - Module management commands
+CommandResult HandleModule(const astra::protocol::Command& command, CommandContext* context);
+
+// CONFIG - Configuration management commands
+CommandResult HandleConfig(const astra::protocol::Command& command, CommandContext* context);
+
+// SCAN - Incrementally iterate the keyspace
+CommandResult HandleScan(const astra::protocol::Command& command, CommandContext* context);
+
 // ASKING - Indicate client is asking for a key during migration
 CommandResult HandleAsking(const astra::protocol::Command& command, CommandContext* context);
 

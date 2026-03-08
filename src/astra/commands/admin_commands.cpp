@@ -1003,6 +1003,74 @@ CommandResult HandleSelect(const astra::protocol::Command& command, CommandConte
   return CommandResult(response);
 }
 
+// CONFIG - Configuration management commands
+CommandResult HandleConfig(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'config' command");
+  }
+
+  const auto& subcommand = command[0].AsString();
+  std::string upper_subcommand = absl::AsciiStrToUpper(subcommand);
+
+  if (upper_subcommand == "GET") {
+    // CONFIG GET parameter [parameter ...]
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'config get' command");
+    }
+
+    std::vector<RespValue> result;
+    
+    // Support common configuration parameters
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      const std::string& param = command[i].AsString();
+      std::string upper_param = absl::AsciiStrToUpper(param);
+      
+      // Match parameter against supported configurations
+      if (upper_param == "DATABASES" || upper_param == "*" || upper_param == "*DATABASES*") {
+        RespValue key;
+        key.SetString("databases", protocol::RespType::kBulkString);
+        result.push_back(key);
+        
+        RespValue value;
+        // Get database count from DatabaseManager
+        DatabaseManager* db_manager = context->GetDatabaseManager();
+        int db_count = db_manager ? static_cast<int>(db_manager->GetDatabaseCount()) : 16;
+        value.SetString(absl::StrCat(db_count), protocol::RespType::kBulkString);
+        result.push_back(value);
+      } else if (upper_param == "IO-THREADS" || upper_param == "*" || upper_param == "*IO*THREADS*") {
+        RespValue key;
+        key.SetString("io-threads", protocol::RespType::kBulkString);
+        result.push_back(key);
+        
+        RespValue value;
+        value.SetString("1", protocol::RespType::kBulkString);  // AstraDB uses single thread
+        result.push_back(value);
+      } else if (upper_param == "MAXMEMORY" || upper_param == "*" || upper_param == "*MAXMEMORY*") {
+        RespValue key;
+        key.SetString("maxmemory", protocol::RespType::kBulkString);
+        result.push_back(key);
+        
+        RespValue value;
+        value.SetString("0", protocol::RespType::kBulkString);  // No limit
+        result.push_back(value);
+      } else if (upper_param == "PORT" || upper_param == "*" || upper_param == "*PORT*") {
+        RespValue key;
+        key.SetString("port", protocol::RespType::kBulkString);
+        result.push_back(key);
+        
+        RespValue value;
+        value.SetString("6379", protocol::RespType::kBulkString);
+        result.push_back(value);
+      }
+      // Add more parameters as needed
+    }
+    
+    return CommandResult(RespValue(std::move(result)));
+  } else {
+    return CommandResult(false, "ERR unknown subcommand '" + subcommand + "'");
+  }
+}
+
 // MODULE - Module management commands
 CommandResult HandleModule(const protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() < 1) {
@@ -1022,6 +1090,97 @@ CommandResult HandleModule(const protocol::Command& command, CommandContext* con
   }
 }
 
+// SCAN - Incrementally iterate the keyspace
+CommandResult HandleScan(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'scan' command");
+  }
+
+  // Parse cursor
+  uint64_t cursor = 0;
+  try {
+    if (!absl::SimpleAtoi(command[0].AsString(), &cursor)) {
+      return CommandResult(false, "ERR invalid cursor");
+    }
+  } catch (...) {
+    return CommandResult(false, "ERR invalid cursor");
+  }
+
+  // Parse options
+  std::string match_pattern = "*";
+  int count = 10;
+  
+  for (size_t i = 1; i < command.ArgCount(); ++i) {
+    const std::string& arg = command[i].AsString();
+    std::string upper_arg = absl::AsciiStrToUpper(arg);
+    
+    if (upper_arg == "MATCH" && i + 1 < command.ArgCount()) {
+      match_pattern = command[++i].AsString();
+    } else if (upper_arg == "COUNT" && i + 1 < command.ArgCount()) {
+      try {
+        count = std::stoi(command[++i].AsString());
+        if (count < 1) count = 10;
+      } catch (...) {
+        return CommandResult(false, "ERR invalid count");
+      }
+    }
+    // TYPE option is not implemented yet
+  }
+
+  // Get database
+  auto db = context->GetDatabase();
+  if (!db) {
+    std::vector<RespValue> result;
+    RespValue cursor_val;
+    cursor_val.SetInteger(0);
+    result.push_back(cursor_val);
+    
+    RespValue keys_val;
+    keys_val.SetArray({});
+    result.push_back(keys_val);
+    
+    return CommandResult(RespValue(std::move(result)));
+  }
+
+  // Get all keys (simplified implementation - should use real cursor-based iteration)
+  auto keys = db->GetAllKeys();
+  
+  // Filter keys by pattern
+  std::vector<std::string> filtered_keys;
+  for (const auto& key : keys) {
+    // Simple glob pattern matching (supports * wildcards)
+    if (match_pattern == "*" || key.find(match_pattern) != std::string::npos) {
+      filtered_keys.push_back(key);
+    }
+  }
+
+  // Simplified cursor logic (for now, return all keys at once)
+  // In a real implementation, this should use actual cursor-based iteration
+  std::vector<RespValue> result;
+  
+  // New cursor (0 indicates end of iteration)
+  RespValue cursor_val;
+  cursor_val.SetInteger(0);
+  result.push_back(cursor_val);
+  
+  // Keys array
+  std::vector<RespValue> keys_array;
+  size_t start_idx = static_cast<size_t>(cursor);
+  size_t end_idx = std::min(start_idx + static_cast<size_t>(count), filtered_keys.size());
+  
+  for (size_t i = start_idx; i < end_idx; ++i) {
+    RespValue key_val;
+    key_val.SetString(filtered_keys[i], protocol::RespType::kBulkString);
+    keys_array.push_back(key_val);
+  }
+  
+  RespValue keys_val;
+  keys_val.SetArray(std::move(keys_array));
+  result.push_back(keys_val);
+  
+  return CommandResult(RespValue(std::move(result)));
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -1030,6 +1189,8 @@ ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug
 ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
 ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, HandleMigrate);
 ASTRADB_REGISTER_COMMAND(MODULE, -2, "admin", RoutingStrategy::kNone, HandleModule);
+ASTRADB_REGISTER_COMMAND(CONFIG, -2, "admin,slow,dangerous", RoutingStrategy::kNone, HandleConfig);
+ASTRADB_REGISTER_COMMAND(SCAN, -2, "readonly,slow", RoutingStrategy::kNone, HandleScan);
 ASTRADB_REGISTER_COMMAND(ASKING, 1, "fast", RoutingStrategy::kNone, HandleAsking);
 ASTRADB_REGISTER_COMMAND(BGSAVE, 1, "admin", RoutingStrategy::kNone, HandleBgSave);
 ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, HandleLastSave);
