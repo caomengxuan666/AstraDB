@@ -26,24 +26,24 @@ CommandResult HandlePing(const astra::protocol::Command& command, CommandContext
 // INFO
 CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext* context) {
   std::ostringstream oss;
-  
+
   // Server section
   oss << "# Server\r\n";
-  oss << "version=1.0.0\r\n";
-  oss << "os=Linux\r\n";
-  oss << "arch=x86_64\r\n";
+  oss << "redis_version:1.0.0\r\n";
+  oss << "os:Linux\r\n";
+  oss << "arch_bits:64\r\n";
   oss << "\r\n";
-  
+
   // Clients section
   oss << "# Clients\r\n";
-  oss << "connected_clients=1\r\n";
+  oss << "connected_clients:1\r\n";
   oss << "\r\n";
-  
+
   // Memory section
   oss << "# Memory\r\n";
-  oss << "used_memory_human=unknown\r\n";
+  oss << "used_memory_human:unknown\r\n";
   oss << "\r\n";
-  
+
   // Persistence section
   oss << "# Persistence\r\n";
   if (context && context->IsPersistenceEnabled()) {
@@ -54,7 +54,7 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
     oss << "last_save:0\r\n";
   }
   oss << "\r\n";
-  
+
   // Cluster section
   oss << "# Cluster\r\n";
   if (context && context->IsClusterEnabled()) {
@@ -1181,6 +1181,172 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
   return CommandResult(RespValue(std::move(result)));
 }
 
+// MEMORY - Memory introspection commands
+CommandResult HandleMemory(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'memory' command");
+  }
+
+  const auto& subcommand = command[0].AsString();
+  std::string upper_subcommand = absl::AsciiStrToUpper(subcommand);
+
+  if (upper_subcommand == "USAGE") {
+    // MEMORY USAGE key [SAMPLES count]
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'memory|usage' command");
+    }
+
+    const std::string& key = command[1].AsString();
+    auto db = context->GetDatabase();
+    if (!db) {
+      return CommandResult(protocol::RespValue(protocol::RespType::kNullBulkString));
+    }
+
+    auto key_type = db->GetType(key);
+    if (!key_type.has_value()) {
+      return CommandResult(protocol::RespValue(protocol::RespType::kNullBulkString));
+    }
+
+    // Estimate memory usage (simplified implementation)
+    // This is a rough estimate - actual Redis does more sophisticated calculations
+    size_t key_size = key.size();
+    size_t value_size = 0;
+    size_t overhead = 56;  // Base Redis object overhead
+
+    // Get approximate size based on type
+    switch (key_type.value()) {
+      case storage::KeyType::kString: {
+        auto value = db->Get(key);
+        if (value.has_value()) {
+          value_size = value.value().value.size();
+        }
+        break;
+      }
+      case storage::KeyType::kHash: {
+        // Get hash size
+        auto hash_size = db->HLen(key);
+        // Estimate: each field/value pair ~50 bytes on average
+        value_size = hash_size * 50;
+        break;
+      }
+      case storage::KeyType::kList: {
+        // Get list size
+        auto list_size = db->LLen(key);
+        // Estimate: each element ~30 bytes on average
+        value_size = list_size * 30;
+        break;
+      }
+      case storage::KeyType::kSet: {
+        // Get set size
+        auto set_size = db->SCard(key);
+        // Estimate: each element ~30 bytes on average
+        value_size = set_size * 30;
+        break;
+      }
+      case storage::KeyType::kZSet: {
+        // Get zset size
+        auto zset_size = db->ZCard(key);
+        // Estimate: each member+score pair ~50 bytes on average
+        value_size = zset_size * 50;
+        break;
+      }
+      case storage::KeyType::kStream:
+        // Stream - rough estimate
+        value_size = 1024;  // 1KB overhead
+        break;
+      default:
+        break;
+    }
+
+    // Add Redis internal overhead
+    size_t total_size = key_size + value_size + overhead;
+
+    // Return as integer
+    protocol::RespValue resp;
+    resp.SetInteger(static_cast<int64_t>(total_size));
+    return CommandResult(resp);
+
+  } else if (upper_subcommand == "STATS") {
+    // MEMORY STATS - Return memory usage statistics
+    std::vector<RespValue> result;
+
+    // Basic memory statistics (simplified implementation)
+    // peak.allocated
+    RespValue peak_allocated_key;
+    peak_allocated_key.SetString("peak.allocated", protocol::RespType::kBulkString);
+    result.push_back(peak_allocated_key);
+    RespValue peak_allocated_val;
+    peak_allocated_val.SetInteger(0);  // TODO: Implement peak memory tracking
+    result.push_back(peak_allocated_val);
+
+    // total.allocated
+    RespValue total_allocated_key;
+    total_allocated_key.SetString("total.allocated", protocol::RespType::kBulkString);
+    result.push_back(total_allocated_key);
+    RespValue total_allocated_val;
+    total_allocated_val.SetInteger(0);  // TODO: Implement actual memory tracking
+    result.push_back(total_allocated_val);
+
+    // startup.allocated
+    RespValue startup_allocated_key;
+    startup_allocated_key.SetString("startup.allocated", protocol::RespType::kBulkString);
+    result.push_back(startup_allocated_key);
+    RespValue startup_allocated_val;
+    startup_allocated_val.SetInteger(1024 * 1024);  // Approximate 1MB
+    result.push_back(startup_allocated_val);
+
+    // replication.backlog
+    RespValue replication_backlog_key;
+    replication_backlog_key.SetString("replication.backlog", protocol::RespType::kBulkString);
+    result.push_back(replication_backlog_key);
+    RespValue replication_backlog_val;
+    replication_backlog_val.SetInteger(0);  // No replication backlog
+    result.push_back(replication_backlog_val);
+
+    // keys.count
+    RespValue keys_count_key;
+    keys_count_key.SetString("keys.count", protocol::RespType::kBulkString);
+    result.push_back(keys_count_key);
+    RespValue keys_count_val;
+    auto db = context->GetDatabase();
+    size_t key_count = db ? db->Size() : 0;
+    keys_count_val.SetInteger(static_cast<int64_t>(key_count));
+    result.push_back(keys_count_val);
+
+    // dataset.bytes
+    RespValue dataset_bytes_key;
+    dataset_bytes_key.SetString("dataset.bytes", protocol::RespType::kBulkString);
+    result.push_back(dataset_bytes_key);
+    RespValue dataset_bytes_val;
+    dataset_bytes_val.SetInteger(0);  // TODO: Implement actual dataset tracking
+    result.push_back(dataset_bytes_val);
+
+    // overhead.total
+    RespValue overhead_total_key;
+    overhead_total_key.SetString("overhead.total", protocol::RespType::kBulkString);
+    result.push_back(overhead_total_key);
+    RespValue overhead_total_val;
+    overhead_total_val.SetInteger(1024 * 1024);  // Approximate overhead
+    result.push_back(overhead_total_val);
+
+    return CommandResult(RespValue(std::move(result)));
+
+  } else if (upper_subcommand == "HELP") {
+    // MEMORY HELP - Show help text
+    std::string help_text =
+      "MEMORY <subcommand> [<arg> [value] ...]. Subcommands are:\n"
+      "USAGE     <key> [SAMPLES <count>] - Estimate memory usage of a key\n"
+      "STATS                             - Show memory usage statistics\n"
+      "HELP                              - Show this help text";
+    protocol::RespValue resp;
+    resp.SetString(help_text, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+
+  } else {
+    return CommandResult(false, "ERR unknown subcommand '" + subcommand + "'");
+  }
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -1191,6 +1357,7 @@ ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, Han
 ASTRADB_REGISTER_COMMAND(MODULE, -2, "admin", RoutingStrategy::kNone, HandleModule);
 ASTRADB_REGISTER_COMMAND(CONFIG, -2, "admin,slow,dangerous", RoutingStrategy::kNone, HandleConfig);
 ASTRADB_REGISTER_COMMAND(SCAN, -2, "readonly,slow", RoutingStrategy::kNone, HandleScan);
+ASTRADB_REGISTER_COMMAND(MEMORY, -2, "readonly,slow", RoutingStrategy::kNone, HandleMemory);
 ASTRADB_REGISTER_COMMAND(ASKING, 1, "fast", RoutingStrategy::kNone, HandleAsking);
 ASTRADB_REGISTER_COMMAND(BGSAVE, 1, "admin", RoutingStrategy::kNone, HandleBgSave);
 ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, HandleLastSave);

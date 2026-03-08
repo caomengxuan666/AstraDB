@@ -34,6 +34,9 @@ CommandResult HandleConfig(const astra::protocol::Command& command, CommandConte
 // SCAN - Incrementally iterate the keyspace
 CommandResult HandleScan(const astra::protocol::Command& command, CommandContext* context);
 
+// MEMORY - Memory introspection commands
+CommandResult HandleMemory(const astra::protocol::Command& command, CommandContext* context);
+
 // ASKING - Indicate client is asking for a key during migration
 CommandResult HandleAsking(const astra::protocol::Command& command, CommandContext* context);
 
