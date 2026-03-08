@@ -265,6 +265,53 @@ CommandResult HandleMSet(const astra::protocol::Command& command, CommandContext
   return CommandResult(response);
 }
 
+// MSETNX key value [key value ...]
+CommandResult HandleMSetNx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() == 0 || command.ArgCount() % 2 != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'MSETNX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  // Check if all keys don't exist
+  for (size_t i = 0; i < command.ArgCount(); i += 2) {
+    const auto& key_arg = command[i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+
+    auto existing = db->Get(key_arg.AsString());
+    if (existing.has_value()) {
+      return CommandResult(RespValue(static_cast<int64_t>(0)));
+    }
+  }
+
+  // All keys don't exist, set them all
+  for (size_t i = 0; i < command.ArgCount(); i += 2) {
+    const auto& key_arg = command[i];
+    const auto& value_arg = command[i + 1];
+
+    if (!value_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of value argument");
+    }
+
+    db->Set(key_arg.AsString(), StringValue(value_arg.AsString()));
+  }
+
+  // Log to AOF
+  std::vector<absl::string_view> aof_args;
+  aof_args.reserve(command.ArgCount());
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    aof_args.emplace_back(command[i].AsString());
+  }
+  context->LogToAof("MSETNX", absl::MakeSpan(aof_args));
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+}
+
 // INCR key
 CommandResult HandleIncr(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() != 1) {
@@ -714,6 +761,105 @@ CommandResult HandleSetRange(const astra::protocol::Command& command, CommandCon
   return CommandResult(RespValue(static_cast<int64_t>(new_len)));
 }
 
+// STRALGO ALGORITHM ... - String algorithm command (Redis 6.0+)
+// Simplified implementation for LCS algorithm
+CommandResult HandleStrAlgo(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'STRALGO' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& algo_arg = command[0];
+  if (!algo_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of algorithm argument");
+  }
+
+  std::string algo = algo_arg.AsString();
+  
+  if (algo == "LCS") {
+    // LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN len]
+    // Simplified: just return LCS string between two keys
+    if (command.ArgCount() < 3) {
+      return CommandResult(false, "ERR wrong number of arguments for 'STRALGO LCS'");
+    }
+
+    const auto& key1_arg = command[1];
+    const auto& key2_arg = command[2];
+    
+    if (!key1_arg.IsBulkString() || !key2_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+
+    auto str1_opt = db->Get(key1_arg.AsString());
+    auto str2_opt = db->Get(key2_arg.AsString());
+
+    if (!str1_opt || !str2_opt) {
+      return CommandResult(RespValue(""));  // Return empty string if either key doesn't exist
+    }
+
+    // Simple LCS implementation (can be optimized)
+    const std::string& str1 = str1_opt->value;
+    const std::string& str2 = str2_opt->value;
+    
+    // Parse options
+    bool return_len = false;
+    bool return_idx = false;
+    for (size_t i = 3; i < command.ArgCount(); ++i) {
+      if (command[i].IsBulkString()) {
+        std::string opt = command[i].AsString();
+        if (opt == "LEN") {
+          return_len = true;
+        } else if (opt == "IDX") {
+          return_idx = true;
+        }
+      }
+    }
+
+    if (return_len || return_idx) {
+      // For now, only support simple LCS string return
+      return CommandResult(false, "ERR STRALGO LCS IDX/LEN not implemented yet");
+    }
+
+    // Compute LCS using dynamic programming
+    size_t m = str1.length();
+    size_t n = str2.length();
+    std::vector<std::vector<size_t>> dp(m + 1, std::vector<size_t>(n + 1, 0));
+
+    for (size_t i = 1; i <= m; ++i) {
+      for (size_t j = 1; j <= n; ++j) {
+        if (str1[i - 1] == str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    // Backtrack to find LCS string
+    std::string lcs;
+    size_t i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (str1[i - 1] == str2[j - 1]) {
+        lcs = str1[i - 1] + lcs;
+        --i;
+        --j;
+      } else if (dp[i - 1][j] > dp[i][j - 1]) {
+        --i;
+      } else {
+        --j;
+      }
+    }
+
+    return CommandResult(RespValue(lcs));
+  } else {
+    return CommandResult(false, "ERR unknown algorithm for STRALGO");
+  }
+}
+
 // EXISTS key [key ...]
 CommandResult HandleExists(const astra::protocol::Command& command, CommandContext* context) {
   if (command.ArgCount() == 0) {
@@ -747,6 +893,7 @@ ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleS
 ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kByFirstKey, HandleDel);
 ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);
 ASTRADB_REGISTER_COMMAND(MSET, -3, "write", RoutingStrategy::kNone, HandleMSet);
+ASTRADB_REGISTER_COMMAND(MSETNX, -3, "write", RoutingStrategy::kNone, HandleMSetNx);
 ASTRADB_REGISTER_COMMAND(EXISTS, -2, "readonly", RoutingStrategy::kByFirstKey, HandleExists);
 
 // Increment/Decrement commands
@@ -763,5 +910,6 @@ ASTRADB_REGISTER_COMMAND(SETEX, 4, "write", RoutingStrategy::kByFirstKey, Handle
 ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
 ASTRADB_REGISTER_COMMAND(GETRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleGetRange);
 ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, HandleSetRange);
+ASTRADB_REGISTER_COMMAND(STRALGO, -2, "readonly", RoutingStrategy::kNone, HandleStrAlgo);
 
 }  // namespace astra::commands

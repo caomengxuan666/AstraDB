@@ -1141,6 +1141,279 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
   return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
 }
 
+// ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
+CommandResult HandleZUnionStore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& dest_arg = command[0];
+  if (!dest_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of destination argument");
+  }
+
+  const auto& numkeys_arg = command[1];
+  if (!numkeys_arg.IsInteger()) {
+    return CommandResult(false, "ERR numkeys must be an integer");
+  }
+
+  size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
+  if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
+  }
+
+  std::string destination = dest_arg.AsString();
+  std::vector<std::string> keys;
+
+  for (size_t i = 0; i < numkeys; ++i) {
+    const auto& key_arg = command[2 + i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  // Parse optional WEIGHTS and AGGREGATE
+  std::vector<double> weights;
+  std::string aggregate = "SUM";
+
+  size_t pos = 2 + numkeys;
+  while (pos < command.ArgCount()) {
+    const auto& arg = command[pos];
+    if (!arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of argument");
+    }
+
+    std::string arg_str = arg.AsString();
+    if (arg_str == "WEIGHTS") {
+      ++pos;
+      for (size_t i = 0; i < numkeys && pos < command.ArgCount(); ++i) {
+        const auto& weight_arg = command[pos];
+        if (!weight_arg.IsBulkString()) {
+          return CommandResult(false, "ERR wrong type of weight argument");
+        }
+        try {
+          weights.push_back(std::stod(weight_arg.AsString()));
+        } catch (...) {
+          return CommandResult(false, "ERR invalid weight value");
+        }
+        ++pos;
+      }
+    } else if (arg_str == "AGGREGATE") {
+      ++pos;
+      if (pos >= command.ArgCount()) {
+        return CommandResult(false, "ERR wrong number of arguments for 'AGGREGATE'");
+      }
+      const auto& agg_arg = command[pos];
+      if (!agg_arg.IsBulkString()) {
+        return CommandResult(false, "ERR wrong type of aggregate argument");
+      }
+      aggregate = agg_arg.AsString();
+      if (aggregate != "SUM" && aggregate != "MIN" && aggregate != "MAX") {
+        return CommandResult(false, "ERR invalid aggregate function");
+      }
+      ++pos;
+    } else {
+      return CommandResult(false, "ERR unknown argument");
+    }
+  }
+
+  size_t count = db->ZUnionStore(destination, numkeys, keys, weights, aggregate);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(count)));
+}
+
+// ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
+CommandResult HandleZInterStore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& dest_arg = command[0];
+  if (!dest_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of destination argument");
+  }
+
+  const auto& numkeys_arg = command[1];
+  if (!numkeys_arg.IsInteger()) {
+    return CommandResult(false, "ERR numkeys must be an integer");
+  }
+
+  size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
+  if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
+  }
+
+  std::string destination = dest_arg.AsString();
+  std::vector<std::string> keys;
+
+  for (size_t i = 0; i < numkeys; ++i) {
+    const auto& key_arg = command[2 + i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  // Parse optional WEIGHTS and AGGREGATE
+  std::vector<double> weights;
+  std::string aggregate = "SUM";
+
+  size_t pos = 2 + numkeys;
+  while (pos < command.ArgCount()) {
+    const auto& arg = command[pos];
+    if (!arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of argument");
+    }
+
+    std::string arg_str = arg.AsString();
+    if (arg_str == "WEIGHTS") {
+      ++pos;
+      for (size_t i = 0; i < numkeys && pos < command.ArgCount(); ++i) {
+        const auto& weight_arg = command[pos];
+        if (!weight_arg.IsBulkString()) {
+          return CommandResult(false, "ERR wrong type of weight argument");
+        }
+        try {
+          weights.push_back(std::stod(weight_arg.AsString()));
+        } catch (...) {
+          return CommandResult(false, "ERR invalid weight value");
+        }
+        ++pos;
+      }
+    } else if (arg_str == "AGGREGATE") {
+      ++pos;
+      if (pos >= command.ArgCount()) {
+        return CommandResult(false, "ERR wrong number of arguments for 'AGGREGATE'");
+      }
+      const auto& agg_arg = command[pos];
+      if (!agg_arg.IsBulkString()) {
+        return CommandResult(false, "ERR wrong type of aggregate argument");
+      }
+      aggregate = agg_arg.AsString();
+      if (aggregate != "SUM" && aggregate != "MIN" && aggregate != "MAX") {
+        return CommandResult(false, "ERR invalid aggregate function");
+      }
+      ++pos;
+    } else {
+      return CommandResult(false, "ERR unknown argument");
+    }
+  }
+
+  size_t count = db->ZInterStore(destination, numkeys, keys, weights, aggregate);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(count)));
+}
+
+// ZDIFF numkeys key [key ...] [WITHSCORES]
+CommandResult HandleZDiff(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFF' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& numkeys_arg = command[0];
+  if (!numkeys_arg.IsInteger()) {
+    return CommandResult(false, "ERR numkeys must be an integer");
+  }
+
+  size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
+  if (numkeys == 0 || command.ArgCount() < 1 + numkeys) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFF' command");
+  }
+
+  std::vector<std::string> keys;
+  for (size_t i = 0; i < numkeys; ++i) {
+    const auto& key_arg = command[1 + i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  // Check for WITHSCORES option
+  bool with_scores = false;
+  if (command.ArgCount() > 1 + numkeys) {
+    const auto& last_arg = command[command.ArgCount() - 1];
+    if (last_arg.IsBulkString() && last_arg.AsString() == "WITHSCORES") {
+      with_scores = true;
+    }
+  }
+
+  auto members = db->ZDiff(numkeys, keys);
+  
+  if (with_scores) {
+    std::vector<RespValue> resp;
+    for (const auto& [member, score] : members) {
+      resp.push_back(RespValue(member));
+      resp.push_back(RespValue(score));
+    }
+    return CommandResult(RespValue(std::move(resp)));
+  } else {
+    std::vector<RespValue> resp;
+    for (const auto& [member, _] : members) {
+      resp.push_back(RespValue(member));
+    }
+    return CommandResult(RespValue(std::move(resp)));
+  }
+}
+
+// ZDIFFSTORE destination numkeys key [key ...]
+CommandResult HandleZDiffStore(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& dest_arg = command[0];
+  if (!dest_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of destination argument");
+  }
+
+  const auto& numkeys_arg = command[1];
+  if (!numkeys_arg.IsInteger()) {
+    return CommandResult(false, "ERR numkeys must be an integer");
+  }
+
+  size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
+  if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
+  }
+
+  std::string destination = dest_arg.AsString();
+  std::vector<std::string> keys;
+
+  for (size_t i = 0; i < numkeys; ++i) {
+    const auto& key_arg = command[2 + i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+    keys.push_back(key_arg.AsString());
+  }
+
+  size_t count = db->ZDiffStore(destination, numkeys, keys);
+  
+  return CommandResult(RespValue(static_cast<int64_t>(count)));
+}
+
 // Auto-register all zset commands
 ASTRADB_REGISTER_COMMAND(ZADD, -4, "write", RoutingStrategy::kByFirstKey, HandleZAdd);
 ASTRADB_REGISTER_COMMAND(ZRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRange);
@@ -1156,6 +1429,10 @@ ASTRADB_REGISTER_COMMAND(ZRANGEBYSCORE, -4, "readonly", RoutingStrategy::kByFirs
 ASTRADB_REGISTER_COMMAND(ZREVRANGEBYSCORE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRangeByScore);
 ASTRADB_REGISTER_COMMAND(ZPOPMIN, -1, "write", RoutingStrategy::kByFirstKey, HandleZPopMin);
 ASTRADB_REGISTER_COMMAND(ZPOPMAX, -1, "write", RoutingStrategy::kByFirstKey, HandleZPopMax);
+ASTRADB_REGISTER_COMMAND(ZUNIONSTORE, -4, "write", RoutingStrategy::kByFirstKey, HandleZUnionStore);
+ASTRADB_REGISTER_COMMAND(ZINTERSTORE, -4, "write", RoutingStrategy::kByFirstKey, HandleZInterStore);
+ASTRADB_REGISTER_COMMAND(ZDIFF, -2, "readonly", RoutingStrategy::kNone, HandleZDiff);
+ASTRADB_REGISTER_COMMAND(ZDIFFSTORE, -3, "write", RoutingStrategy::kByFirstKey, HandleZDiffStore);
 ASTRADB_REGISTER_COMMAND(BZPOPMIN, -2, "write", RoutingStrategy::kByFirstKey, HandleBZPopMin);
 ASTRADB_REGISTER_COMMAND(BZPOPMAX, -2, "write", RoutingStrategy::kByFirstKey, HandleBZPopMax);
 ASTRADB_REGISTER_COMMAND(BZMPOP, -4, "write", RoutingStrategy::kByFirstKey, HandleBZMPop);

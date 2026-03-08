@@ -1303,6 +1303,234 @@ CommandResult HandleKeys(const astra::protocol::Command& command, CommandContext
   return CommandResult(RespValue(std::move(result)));
 }
 
+// RANDOMKEY - Return a random key from the database
+CommandResult HandleRandomKey(const astra::protocol::Command& command, CommandContext* context) {
+  ASTRADB_LOG_TRACE("HandleRandomKey: arg_count={}", command.ArgCount());
+  
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RANDOMKEY' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  auto all_keys = db->GetAllKeys();
+  if (all_keys.empty()) {
+    return CommandResult(RespValue(RespType::kNullBulkString));
+  }
+
+  // Use absl::BitGen for random selection
+  static absl::BitGen bitgen;
+  size_t idx = absl::Uniform<size_t>(bitgen, 0, all_keys.size());
+  
+  RespValue result;
+  result.SetString(all_keys[idx], protocol::RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// RENAME key newkey - Rename a key
+CommandResult HandleRename(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RENAME' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& newkey_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !newkey_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string newkey = newkey_arg.AsString();
+
+  // Check if source key exists
+  auto existing = db->Get(key);
+  if (!existing.has_value()) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  // Get the type of the source key
+  auto type_opt = db->GetType(key);
+  if (!type_opt) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  // Copy the value to the new key (simplified - in reality, we'd need to handle different types)
+  db->Set(newkey, *existing);
+  
+  // Delete the old key
+  db->Del({key});
+
+  RespValue response;
+  response.SetString("OK", RespType::kSimpleString);
+  return CommandResult(response);
+}
+
+// RENAMENX key newkey - Rename a key, only if newkey doesn't exist
+CommandResult HandleRenameNx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RENAMENX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& newkey_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !newkey_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of key argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string newkey = newkey_arg.AsString();
+
+  // Check if source key exists
+  auto existing = db->Get(key);
+  if (!existing.has_value()) {
+    return CommandResult(false, "ERR no such key");
+  }
+
+  // Check if destination key already exists
+  auto dest_existing = db->Get(newkey);
+  if (dest_existing.has_value()) {
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  }
+
+  // Copy the value to the new key
+  db->Set(newkey, *existing);
+  
+  // Delete the old key
+  db->Del({key});
+
+  return CommandResult(RespValue(static_cast<int64_t>(1)));
+}
+
+// MOVE key db - Move a key to another database
+CommandResult HandleMove(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'MOVE' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& db_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !db_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string db_str = db_arg.AsString();
+
+  // Parse database index
+  int db_index;
+  if (!absl::SimpleAtoi(db_str, &db_index)) {
+    return CommandResult(false, "ERR invalid database index");
+  }
+
+  // For now, we don't support multiple databases in AstraDB
+  return CommandResult(RespValue(static_cast<int64_t>(0)));
+}
+
+// OBJECT subcommand [arguments ...] - Inspect the internals of Redis objects
+CommandResult HandleObject(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'OBJECT' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& subcommand_arg = command[0];
+  const auto& key_arg = command[1];
+
+  if (!subcommand_arg.IsBulkString() || !key_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string subcommand = subcommand_arg.AsString();
+  std::string key = key_arg.AsString();
+
+  if (subcommand == "ENCODING") {
+    // Return encoding of key
+    auto existing = db->Get(key);
+    if (!existing.has_value()) {
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    return CommandResult(RespValue("raw"));
+  } else if (subcommand == "IDLETIME") {
+    // Return idle time in seconds
+    auto existing = db->Get(key);
+    if (!existing.has_value()) {
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    // For simplicity, return 0
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  } else if (subcommand == "REFCOUNT") {
+    // Return reference count
+    auto existing = db->Get(key);
+    if (!existing.has_value()) {
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    // For simplicity, return 1
+    return CommandResult(RespValue(static_cast<int64_t>(1)));
+  } else if (subcommand == "FREQ") {
+    // Return access frequency
+    auto existing = db->Get(key);
+    if (!existing.has_value()) {
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+    // For simplicity, return 0
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+  } else {
+    return CommandResult(false, "ERR unknown OBJECT subcommand");
+  }
+}
+
+// TOUCH key [key ...] - Alters the last access time of a key
+CommandResult HandleTouch(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'TOUCH' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  size_t touched = 0;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    const auto& key_arg = command[i];
+    if (!key_arg.IsBulkString()) {
+      return CommandResult(false, "ERR wrong type of key argument");
+    }
+
+    auto existing = db->Get(key_arg.AsString());
+    if (existing.has_value()) {
+      touched++;
+    }
+  }
+
+  return CommandResult(RespValue(static_cast<int64_t>(touched)));
+}
+
 // DBSIZE - Return number of keys
 CommandResult HandleDbSize(const astra::protocol::Command& command, CommandContext* context) {
   Database* db = context->GetDatabase();
@@ -1786,6 +2014,12 @@ ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, Handle
 ASTRADB_REGISTER_COMMAND(SAVE, 1, "admin", RoutingStrategy::kNone, HandleSave);
 ASTRADB_REGISTER_COMMAND(TYPE, 2, "readonly", RoutingStrategy::kByFirstKey, HandleType);
 ASTRADB_REGISTER_COMMAND(KEYS, 2, "readonly", RoutingStrategy::kNone, HandleKeys);
+ASTRADB_REGISTER_COMMAND(RANDOMKEY, 1, "readonly,fast", RoutingStrategy::kNone, HandleRandomKey);
+ASTRADB_REGISTER_COMMAND(RENAME, 3, "write", RoutingStrategy::kByFirstKey, HandleRename);
+ASTRADB_REGISTER_COMMAND(RENAMENX, 3, "write", RoutingStrategy::kByFirstKey, HandleRenameNx);
+ASTRADB_REGISTER_COMMAND(MOVE, 3, "write", RoutingStrategy::kByFirstKey, HandleMove);
+ASTRADB_REGISTER_COMMAND(OBJECT, -2, "readonly", RoutingStrategy::kByFirstKey, HandleObject);
+ASTRADB_REGISTER_COMMAND(TOUCH, -2, "readonly", RoutingStrategy::kByFirstKey, HandleTouch);
 ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly,fast", RoutingStrategy::kNone, HandleDbSize);
 ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
 ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
