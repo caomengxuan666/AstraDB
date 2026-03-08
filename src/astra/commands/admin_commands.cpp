@@ -29,7 +29,7 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
 
   // Server section
   oss << "# Server\r\n";
-  oss << "redis_version:1.0.0\r\n";
+  oss << "redis_version:7.0.0\r\n";
   oss << "os:Linux\r\n";
   oss << "arch_bits:64\r\n";
   oss << "\r\n";
@@ -66,6 +66,24 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
   } else {
     oss << "cluster_enabled:0\r\n";
   }
+  oss << "\r\n";
+
+  // Keyspace section - Redis Insight Browser depends on this
+  oss << "# Keyspace\r\n";
+  if (context && context->GetDatabaseManager()) {
+    auto* db_manager = context->GetDatabaseManager();
+    int db_count = static_cast<int>(db_manager->GetDatabaseCount());
+    for (int i = 0; i < db_count; ++i) {
+      auto* db = db_manager->GetDatabase(i);
+      if (db) {
+        size_t key_count = db->Size();
+        if (key_count > 0) {
+          oss << "db" << i << ":keys=" << key_count << ",expires=0,avg_ttl=0,subexpiry=0\r\n";
+        }
+      }
+    }
+  }
+  oss << "\r\n";
   
   RespValue response;
   response.SetString(oss.str(), protocol::RespType::kBulkString);
