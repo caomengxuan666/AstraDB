@@ -90,58 +90,431 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
   return CommandResult(response);
 }
 
-// Helper function to build command info array
+// Helper function to build key specifications for a command
+// This implements Redis 7.0+ key specifications format
+void BuildKeySpecsHelper(std::vector<RespValue>& key_specs, 
+                         int first_key, int last_key, int step,
+                         const std::string& name_lower) {
+  // Build a single key spec based on routing strategy
+  // Format: [[flags, begin_search, find_keys], ...]
+  
+  std::vector<RespValue> spec;
+  
+  // 1. Flags (array of strings)
+  std::vector<RespValue> flags;
+  
+  // Determine flags based on operation type
+  bool is_readonly = false;
+  bool is_write = false;
+  
+  if (name_lower == "get" || name_lower == "mget" || 
+      name_lower == "hget" || name_lower == "hgetall" ||
+      name_lower == "sismember" || name_lower == "smembers" ||
+      name_lower == "zscore" || name_lower == "zrange" ||
+      name_lower == "zcard" || name_lower == "scard" ||
+      name_lower == "hlen" || name_lower == "strlen" ||
+      name_lower == "exists" || name_lower == "type" ||
+      name_lower == "keys" || name_lower == "scan" ||
+      name_lower == "sscan" || name_lower == "hscan" || name_lower == "zscan") {
+    is_readonly = true;
+  } else {
+    is_write = true;
+  }
+  
+  if (is_write) {
+    RespValue flag1;
+    flag1.SetString("RW", protocol::RespType::kSimpleString);
+    flags.push_back(flag1);
+    RespValue flag2;
+    flag2.SetString("access", protocol::RespType::kSimpleString);
+    flags.push_back(flag2);
+  } else {
+    RespValue flag1;
+    flag1.SetString("RO", protocol::RespType::kSimpleString);
+    flags.push_back(flag1);
+    RespValue flag2;
+    flag2.SetString("access", protocol::RespType::kSimpleString);
+    flags.push_back(flag2);
+  }
+  
+  spec.push_back(RespValue(std::move(flags)));
+  
+  // 2. begin_search (map with type and spec)
+  // In RESP, maps are represented as alternating key-value pairs
+  std::vector<RespValue> begin_search;
+  
+  // "begin_search" key
+  RespValue bs_key;
+  bs_key.SetString("begin_search", protocol::RespType::kBulkString);
+  begin_search.push_back(bs_key);
+  
+  // begin_search value (map with type and spec)
+  std::vector<RespValue> bs_value;
+  
+  // "type" key
+  RespValue bs_type_key;
+  bs_type_key.SetString("type", protocol::RespType::kBulkString);
+  bs_value.push_back(bs_type_key);
+  
+  // "type" value
+  RespValue bs_type_value;
+  bs_type_value.SetString("index", protocol::RespType::kBulkString);
+  bs_value.push_back(bs_type_value);
+  
+  // "spec" key
+  RespValue bs_spec_key;
+  bs_spec_key.SetString("spec", protocol::RespType::kBulkString);
+  bs_value.push_back(bs_spec_key);
+  
+  // "spec" value (map with index)
+  std::vector<RespValue> bs_spec_value;
+  
+  // "index" key
+  RespValue bs_spec_index_key;
+  bs_spec_index_key.SetString("index", protocol::RespType::kBulkString);
+  bs_spec_value.push_back(bs_spec_index_key);
+  
+  // "index" value
+  RespValue bs_spec_index_value;
+  bs_spec_index_value.SetInteger(first_key);
+  bs_spec_value.push_back(bs_spec_index_value);
+  
+  bs_value.push_back(RespValue(std::move(bs_spec_value)));
+  
+  begin_search.push_back(RespValue(std::move(bs_value)));
+  
+  spec.push_back(RespValue(std::move(begin_search)));
+  
+  // 3. find_keys (map with type and spec)
+  std::vector<RespValue> find_keys;
+  
+  // "find_keys" key
+  RespValue fk_key;
+  fk_key.SetString("find_keys", protocol::RespType::kBulkString);
+  find_keys.push_back(fk_key);
+  
+  // find_keys value (map with type and spec)
+  std::vector<RespValue> fk_value;
+  
+  // "type" key
+  RespValue fk_type_key;
+  fk_type_key.SetString("type", protocol::RespType::kBulkString);
+  fk_value.push_back(fk_type_key);
+  
+  // "type" value
+  RespValue fk_type_value;
+  
+  // Determine find_keys type based on command
+  if (name_lower == "mget" || name_lower == "mset" || 
+      name_lower == "del" || name_lower == "sadd" ||
+      name_lower == "srem" || name_lower == "zadd" ||
+      name_lower == "zrem" || name_lower == "sinter" ||
+      name_lower == "sunion" || name_lower == "sdiff") {
+    // Multiple keys (keynum or range)
+    fk_type_value.SetString("keynum", protocol::RespType::kBulkString);
+  } else {
+    fk_type_value.SetString("range", protocol::RespType::kBulkString);
+  }
+  
+  fk_value.push_back(fk_type_value);
+  
+  // "spec" key
+  RespValue fk_spec_key;
+  fk_spec_key.SetString("spec", protocol::RespType::kBulkString);
+  fk_value.push_back(fk_spec_key);
+  
+  // "spec" value (map with range or keynum)
+  std::vector<RespValue> fk_spec_value;
+  
+  if (fk_type_value.AsString() == "range") {
+    // Range spec: lastkey, keystep, limit
+    // "lastkey" key
+    RespValue fk_spec_lastkey_key;
+    fk_spec_lastkey_key.SetString("lastkey", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_lastkey_key);
+    
+    // "lastkey" value
+    RespValue fk_spec_lastkey_value;
+    fk_spec_lastkey_value.SetInteger(last_key);
+    fk_spec_value.push_back(fk_spec_lastkey_value);
+    
+    // "keystep" key
+    RespValue fk_spec_keystep_key;
+    fk_spec_keystep_key.SetString("keystep", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_keystep_key);
+    
+    // "keystep" value
+    RespValue fk_spec_keystep_value;
+    fk_spec_keystep_value.SetInteger(step);
+    fk_spec_value.push_back(fk_spec_keystep_value);
+    
+    // "limit" key
+    RespValue fk_spec_limit_key;
+    fk_spec_limit_key.SetString("limit", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_limit_key);
+    
+    // "limit" value
+    RespValue fk_spec_limit_value;
+    fk_spec_limit_value.SetInteger(0);
+    fk_spec_value.push_back(fk_spec_limit_value);
+  } else {
+    // keynum spec: keynumidx, firstkey, keystep
+    // "keynumidx" key
+    RespValue fk_spec_keynumidx_key;
+    fk_spec_keynumidx_key.SetString("keynumidx", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_keynumidx_key);
+    
+    // "keynumidx" value
+    RespValue fk_spec_keynumidx_value;
+    fk_spec_keynumidx_value.SetInteger(0);  // First argument contains key count
+    fk_spec_value.push_back(fk_spec_keynumidx_value);
+    
+    // "firstkey" key
+    RespValue fk_spec_firstkey_key;
+    fk_spec_firstkey_key.SetString("firstkey", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_firstkey_key);
+    
+    // "firstkey" value
+    RespValue fk_spec_firstkey_value;
+    fk_spec_firstkey_value.SetInteger(1);
+    fk_spec_value.push_back(fk_spec_firstkey_value);
+    
+    // "keystep" key
+    RespValue fk_spec_keystep_key;
+    fk_spec_keystep_key.SetString("keystep", protocol::RespType::kBulkString);
+    fk_spec_value.push_back(fk_spec_keystep_key);
+    
+    // "keystep" value
+    RespValue fk_spec_keystep_value;
+    fk_spec_keystep_value.SetInteger(1);
+    fk_spec_value.push_back(fk_spec_keystep_value);
+  }
+  
+  fk_value.push_back(RespValue(std::move(fk_spec_value)));
+  
+  find_keys.push_back(RespValue(std::move(fk_value)));
+  
+  spec.push_back(RespValue(std::move(find_keys)));
+  
+  // Add the spec to key_specs if we have at least one key
+  if (first_key > 0 || last_key != 0) {
+    key_specs.push_back(RespValue(std::move(spec)));
+  }
+}
+
+// Helper function to build command info array (Redis 6.x/7.x format)
 void BuildCommandInfoArrayHelper(std::vector<RespValue>& cmd_array, auto info) {
-  // Command name
+  // 1. Command name (lowercase)
   RespValue name_val;
-  name_val.SetString(info->name, protocol::RespType::kBulkString);
+  std::string name_lower = info->name;
+  std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+  name_val.SetString(name_lower, protocol::RespType::kBulkString);
   cmd_array.push_back(name_val);
   
-  // Arity
+  // 2. Arity
   RespValue arity_val;
   arity_val.SetInteger(info->arity);
   cmd_array.push_back(arity_val);
   
-  // Flags (array of strings) - flags is now std::vector<std::string>
+  // 3. Flags (array of strings - Redis format, using Simple Strings)
   std::vector<RespValue> flags_array;
   for (const auto& flag : info->flags) {
     RespValue flag_val;
-    flag_val.SetString(flag, protocol::RespType::kBulkString);
+    flag_val.SetString(flag, protocol::RespType::kSimpleString);  // Use Simple String
     flags_array.push_back(flag_val);
   }
   cmd_array.push_back(RespValue(std::move(flags_array)));
   
-  // First key
+  // 4. First key, Last key, Step based on routing strategy
+  int first_key = 0;
+  int last_key = 0;
+  int step = 0;
+  
+  switch (info->routing) {
+    case RoutingStrategy::kByFirstKey:
+      first_key = 1;
+      last_key = 1;
+      step = 1;
+      break;
+    case RoutingStrategy::kByArgument:
+      first_key = 1;
+      last_key = 1;
+      step = 1;
+      break;
+    case RoutingStrategy::kAllShards:
+      first_key = 0;
+      last_key = 0;
+      step = 0;
+      break;
+    case RoutingStrategy::kNone:
+    default:
+      first_key = 0;
+      last_key = 0;
+      step = 0;
+      break;
+  }
+  
+  // 5. First key
   RespValue first_key_val;
-  first_key_val.SetInteger(0);
+  first_key_val.SetInteger(first_key);
   cmd_array.push_back(first_key_val);
   
-  // Last key
+  // 6. Last key
   RespValue last_key_val;
-  last_key_val.SetInteger(0);
+  last_key_val.SetInteger(last_key);
   cmd_array.push_back(last_key_val);
   
-  // Key step
+  // 7. Key step
   RespValue step_val;
-  step_val.SetInteger(0);
+  step_val.SetInteger(step);
   cmd_array.push_back(step_val);
   
-  // Tips (empty string)
-  RespValue tips_val;
-  tips_val.SetString("", protocol::RespType::kBulkString);
-  cmd_array.push_back(tips_val);
+  // 8. Categories (array with @ prefix - Redis 6.x/7.x format, using Simple Strings)
+  std::vector<RespValue> categories;
   
-  // Microseconds (0)
-  RespValue microseconds_val;
-  microseconds_val.SetInteger(0);
-  cmd_array.push_back(microseconds_val);
+  // Add category based on flags
+  bool is_write = false;
+  bool is_readonly = false;
+  bool is_fast = false;
+  bool is_slow = false;
+  bool is_admin = false;
   
-  // Category (array with one element - use "server" as default)
-  std::vector<RespValue> category_array;
-  RespValue category_val;
-  category_val.SetString("server", protocol::RespType::kBulkString);
-  category_array.push_back(category_val);
-  cmd_array.push_back(RespValue(std::move(category_array)));
+  for (const auto& flag : info->flags) {
+    if (flag == "write") is_write = true;
+    if (flag == "readonly") is_readonly = true;
+    if (flag == "fast") is_fast = true;
+    if (flag == "slow") is_slow = true;
+    if (flag == "admin") is_admin = true;
+  }
+  
+  // Add ACL categories (with @ prefix)
+  if (is_write) {
+    RespValue cat;
+    cat.SetString("@write", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  if (is_readonly) {
+    RespValue cat;
+    cat.SetString("@read", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  if (is_fast) {
+    RespValue cat;
+    cat.SetString("@fast", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  if (is_slow) {
+    RespValue cat;
+    cat.SetString("@slow", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  if (is_admin) {
+    RespValue cat;
+    cat.SetString("@admin", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add specific categories based on command name patterns
+  if (name_lower == "scan" || name_lower == "sscan" || 
+      name_lower == "hscan" || name_lower == "zscan") {
+    RespValue cat;
+    cat.SetString("@keyspace", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add string category for string commands
+  if (name_lower == "get" || name_lower == "set" || name_lower == "append" || 
+      name_lower == "incr" || name_lower == "decr" || name_lower == "mget" || name_lower == "mset") {
+    RespValue cat;
+    cat.SetString("@string", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add list category for list commands
+  if (name_lower == "lpush" || name_lower == "rpush" || name_lower == "lpop" || 
+      name_lower == "rpop" || name_lower == "lrange") {
+    RespValue cat;
+    cat.SetString("@list", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add hash category for hash commands
+  if (name_lower == "hget" || name_lower == "hset" || name_lower == "hgetall") {
+    RespValue cat;
+    cat.SetString("@hash", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add set category for set commands
+  if (name_lower == "sadd" || name_lower == "srem" || name_lower == "smembers") {
+    RespValue cat;
+    cat.SetString("@set", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add sorted set category for zset commands
+  if (name_lower == "zadd" || name_lower == "zrange" || name_lower == "zrem") {
+    RespValue cat;
+    cat.SetString("@sortedset", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add stream category for stream commands
+  if (name_lower == "xadd" || name_lower == "xread" || name_lower == "xrange") {
+    RespValue cat;
+    cat.SetString("@stream", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add documentation category for help commands
+  if (name_lower == "help") {
+    RespValue cat;
+    cat.SetString("@documentation", protocol::RespType::kSimpleString);
+    categories.push_back(cat);
+  }
+  
+  // Add at least one category
+  if (categories.empty()) {
+    RespValue cat;
+    if (is_write) {
+      cat.SetString("@write", protocol::RespType::kSimpleString);
+    } else {
+      cat.SetString("@read", protocol::RespType::kSimpleString);
+    }
+    categories.push_back(cat);
+  }
+  
+  cmd_array.push_back(RespValue(std::move(categories)));
+  
+  // 9. Tips (array of strings - optional, often empty for basic commands)
+  std::vector<RespValue> tips_array;
+  
+  // Add tips for SCAN command
+  if (name_lower == "scan" || name_lower == "sscan" || 
+      name_lower == "hscan" || name_lower == "zscan") {
+    RespValue tip1;
+    tip1.SetString("nondeterministic_output", protocol::RespType::kBulkString);
+    tips_array.push_back(tip1);
+    RespValue tip2;
+    tip2.SetString("request_policy:special", protocol::RespType::kBulkString);
+    tips_array.push_back(tip2);
+    RespValue tip3;
+    tip3.SetString("response_policy:special", protocol::RespType::kBulkString);
+    tips_array.push_back(tip3);
+  }
+  
+  cmd_array.push_back(RespValue(std::move(tips_array)));
+  
+  // 10. Key specifications (array - for advanced key position info)
+  // Build key specifications based on command's routing strategy
+  std::vector<RespValue> key_specs_array;
+  BuildKeySpecsHelper(key_specs_array, first_key, last_key, step, name_lower);
+  cmd_array.push_back(RespValue(std::move(key_specs_array)));
+  
+  // 11. Subcommands (array - for commands with subcommands, often empty)
+  // For now, return empty array
+  std::vector<RespValue> subcommands_array;
+  cmd_array.push_back(RespValue(std::move(subcommands_array)));
 }
 
 // COMMAND - Redis command introspection
@@ -1180,16 +1553,16 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
       std::string target = key;
 
       // Handle pattern like "prefix*" or "*suffix" or "*middle*" or "pre*fix"
-      if (pattern[0] == '*' && pattern.back() == '*') {
-        // *middle* - contains
+      if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
+        // *middle* - contains (avoid size == 1 case which is already handled above)
         std::string middle = pattern.substr(1, pattern.size() - 2);
         matches = (target.find(middle) != std::string::npos);
-      } else if (pattern[0] == '*') {
-        // *suffix - ends with
+      } else if (pattern[0] == '*' && pattern.size() > 1) {
+        // *suffix - ends with (avoid size == 1 case)
         std::string suffix = pattern.substr(1);
         matches = (target.size() >= suffix.size() && target.substr(target.size() - suffix.size()) == suffix);
-      } else if (pattern.back() == '*') {
-        // prefix* - starts with
+      } else if (pattern.back() == '*' && pattern.size() > 1) {
+        // prefix* - starts with (avoid size == 1 case)
         std::string prefix = pattern.substr(0, pattern.size() - 1);
         matches = (target.size() >= prefix.size() && target.substr(0, prefix.size()) == prefix);
       } else {

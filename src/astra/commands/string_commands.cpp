@@ -742,7 +742,7 @@ CommandResult HandleExists(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all string commands
-ASTRADB_REGISTER_COMMAND(GET, 2, "readonly", RoutingStrategy::kByFirstKey, HandleGet);
+ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
 ASTRADB_REGISTER_COMMAND(DEL, -2, "write", RoutingStrategy::kByFirstKey, HandleDel);
 ASTRADB_REGISTER_COMMAND(MGET, -2, "readonly", RoutingStrategy::kNone, HandleMGet);

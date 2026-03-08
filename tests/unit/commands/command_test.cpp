@@ -682,4 +682,230 @@ TEST_F(CommandHandlerTest, ZRangeWithScores) {
   EXPECT_DOUBLE_EQ(array[3].AsDouble(), 20.0);
 }
 
+// COMMAND command tests
+TEST_F(CommandHandlerTest, CommandInfoGet) {
+  // COMMAND INFO GET
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("INFO"));
+  cmd.args.emplace_back(std::string("GET"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& cmd_info = result.response.AsArray();
+  ASSERT_FALSE(cmd_info.empty());
+  
+  // Verify COMMAND INFO GET returns 10 elements
+  const auto& get_info = cmd_info[0].AsArray();
+  ASSERT_EQ(get_info.size(), 10);
+  
+  // 1. name
+  EXPECT_EQ(get_info[0].AsString(), "get");
+  
+  // 2. arity
+  EXPECT_EQ(get_info[1].AsInteger(), 2);
+  
+  // 3. flags (array)
+  ASSERT_TRUE(get_info[2].IsArray());
+  const auto& flags = get_info[2].AsArray();
+  ASSERT_GE(flags.size(), 1);
+  EXPECT_EQ(flags[0].AsString(), "readonly");
+  
+  // 4-6. first_key, last_key, step
+  EXPECT_EQ(get_info[3].AsInteger(), 1);
+  EXPECT_EQ(get_info[4].AsInteger(), 1);
+  EXPECT_EQ(get_info[5].AsInteger(), 1);
+  
+  // 7. categories (array)
+  ASSERT_TRUE(get_info[6].IsArray());
+  const auto& categories = get_info[6].AsArray();
+  ASSERT_GE(categories.size(), 1);
+  EXPECT_TRUE(categories[0].AsString() == "@read" || categories[0].AsString() == "@string");
+  
+  // 8. tips (array)
+  ASSERT_TRUE(get_info[7].IsArray());
+  
+  // 9. key specs (array)
+  ASSERT_TRUE(get_info[8].IsArray());
+  
+  // 10. subcommands (array)
+  ASSERT_TRUE(get_info[9].IsArray());
+}
+
+TEST_F(CommandHandlerTest, CommandInfoSet) {
+  // COMMAND INFO SET
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("INFO"));
+  cmd.args.emplace_back(std::string("SET"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& cmd_info = result.response.AsArray();
+  ASSERT_FALSE(cmd_info.empty());
+  
+  const auto& set_info = cmd_info[0].AsArray();
+  ASSERT_EQ(set_info.size(), 10);
+  
+  // Verify SET command info
+  EXPECT_EQ(set_info[0].AsString(), "set");
+  EXPECT_EQ(set_info[1].AsInteger(), -3);  // SET key value [options]
+  
+  // flags should include "write"
+  const auto& flags = set_info[2].AsArray();
+  bool has_write = false;
+  for (const auto& flag : flags) {
+    if (flag.AsString() == "write") {
+      has_write = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(has_write);
+  
+  // categories should include @write
+  const auto& categories = set_info[6].AsArray();
+  bool has_write_cat = false;
+  for (const auto& cat : categories) {
+    if (cat.AsString() == "@write") {
+      has_write_cat = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(has_write_cat);
+}
+
+TEST_F(CommandHandlerTest, CommandInfoScan) {
+  // COMMAND INFO SCAN
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("INFO"));
+  cmd.args.emplace_back(std::string("SCAN"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& cmd_info = result.response.AsArray();
+  ASSERT_FALSE(cmd_info.empty());
+  
+  const auto& scan_info = cmd_info[0].AsArray();
+  ASSERT_EQ(scan_info.size(), 10);
+  
+  // Verify SCAN command info
+  EXPECT_EQ(scan_info[0].AsString(), "scan");
+  EXPECT_EQ(scan_info[1].AsInteger(), -2);  // SCAN cursor [MATCH pattern] [COUNT count]
+  
+  // tips should include nondeterministic_output
+  const auto& tips = scan_info[7].AsArray();
+  bool has_nondet = false;
+  for (const auto& tip : tips) {
+    if (tip.AsString() == "nondeterministic_output") {
+      has_nondet = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(has_nondet);
+}
+
+TEST_F(CommandHandlerTest, CommandList) {
+  // COMMAND LIST
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("LIST"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& cmd_list = result.response.AsArray();
+  ASSERT_GT(cmd_list.size(), 0);  // Should have at least some commands
+  
+  // Verify all elements are strings
+  for (const auto& cmd_name : cmd_list) {
+    EXPECT_TRUE(cmd_name.IsBulkString() || cmd_name.IsSimpleString());
+  }
+}
+
+TEST_F(CommandHandlerTest, CommandCount) {
+  // COMMAND COUNT
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("COUNT"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  EXPECT_TRUE(result.response.IsInteger());
+  EXPECT_GT(result.response.AsInteger(), 0);  // Should have at least some commands
+}
+
+TEST_F(CommandHandlerTest, CommandNoArgs) {
+  // COMMAND (no arguments - return all commands)
+  Command cmd;
+  cmd.name = "COMMAND";
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& all_commands = result.response.AsArray();
+  ASSERT_GT(all_commands.size(), 0);
+  
+  // Each command should be an array with 10 elements
+  for (const auto& cmd_info : all_commands) {
+    ASSERT_TRUE(cmd_info.IsArray());
+    const auto& info = cmd_info.AsArray();
+    ASSERT_EQ(info.size(), 10);
+    
+    // Verify structure
+    EXPECT_TRUE(info[0].IsBulkString());  // name
+    EXPECT_TRUE(info[1].IsInteger());     // arity
+    EXPECT_TRUE(info[2].IsArray());       // flags
+    EXPECT_TRUE(info[3].IsInteger());     // first_key
+    EXPECT_TRUE(info[4].IsInteger());     // last_key
+    EXPECT_TRUE(info[5].IsInteger());     // step
+    EXPECT_TRUE(info[6].IsArray());       // categories
+    EXPECT_TRUE(info[7].IsArray());       // tips
+    EXPECT_TRUE(info[8].IsArray());       // key specs
+    EXPECT_TRUE(info[9].IsArray());       // subcommands
+  }
+}
+
+TEST_F(CommandHandlerTest, CommandKeySpecs) {
+  // COMMAND INFO GET - verify key specifications
+  Command cmd;
+  cmd.name = "COMMAND";
+  cmd.args.emplace_back(std::string("INFO"));
+  cmd.args.emplace_back(std::string("GET"));
+
+  auto result = registry_->Execute(cmd, context_.get());
+  ASSERT_TRUE(result.success);
+  ASSERT_TRUE(result.response.IsArray());
+  
+  const auto& cmd_info = result.response.AsArray()[0].AsArray();
+  const auto& key_specs = cmd_info[8].AsArray();
+  
+  // GET should have at least one key spec
+  ASSERT_GT(key_specs.size(), 0);
+  
+  // Verify key spec structure
+  const auto& spec = key_specs[0].AsArray();
+  ASSERT_EQ(spec.size(), 3);  // flags, begin_search, find_keys
+  
+  // flags should be an array
+  ASSERT_TRUE(spec[0].IsArray());
+  const auto& spec_flags = spec[0].AsArray();
+  ASSERT_GT(spec_flags.size(), 0);
+  EXPECT_TRUE(spec_flags[0].AsString() == "RO" || spec_flags[0].AsString() == "RW");
+  
+  // begin_search should be an array with type and spec
+  ASSERT_TRUE(spec[1].IsArray());
+  
+  // find_keys should be an array with type and spec
+  ASSERT_TRUE(spec[2].IsArray());
+}
+
 }  // namespace astra::commands
