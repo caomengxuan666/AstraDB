@@ -63,6 +63,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
     return buffer_pool_;
   }
 
+  // Set client name
+  void SetClientName(const std::string& name) { client_name_ = name; }
+
+  // Get client name
+  const std::string& GetClientName() const { return client_name_; }
+
   // Reset connection state (for object pool reuse)
   void Reset(asio::ip::tcp::socket socket);
 
@@ -129,6 +135,9 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
   // Buffer pool reference (not owned)
   astra::core::memory::BufferPool* buffer_pool_;
+
+  // Client name
+  std::string client_name_;
 
   // ============== Transaction State ==============
   bool in_transaction_ = false;

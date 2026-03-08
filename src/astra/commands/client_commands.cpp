@@ -49,7 +49,7 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
       // Build client info string (simplified format)
       result += absl::StrCat("id=", id, " ");
       result += "addr=" + absl::StrCat(ip, ":", port) + " ";
-      result += "name= ";  // Empty name for now
+      result += "name=" + conn->GetClientName() + " ";
       result += "age=0 ";  // Age not tracked for now
       result += "idle=0 ";  // Idle time not tracked for now
       result += "\n";
@@ -58,6 +58,55 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
   
   protocol::RespValue resp;
   resp.SetString(result, protocol::RespType::kBulkString);
+  return CommandResult(resp);
+}
+
+// CLIENT SETNAME - Set a name for the current connection
+CommandResult HandleClientSetName(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'client setname' command");
+  }
+
+  const std::string& name = command[0].AsString();
+  
+  // Get connection from context
+  auto conn_ptr = context->GetConnection();
+  if (!conn_ptr) {
+    return CommandResult(false, "ERR connection not available");
+  }
+
+  auto* conn = static_cast<network::Connection*>(conn_ptr);
+
+  // Set client name
+  conn->SetClientName(name);
+
+  protocol::RespValue resp;
+  resp.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(resp);
+}
+
+// CLIENT GETNAME - Get the name of the current connection
+CommandResult HandleClientGetName(const protocol::Command& command, CommandContext* context) {
+  // CLIENT GETNAME takes no arguments beyond the subcommand
+  // The subcommand is already handled by the router, so we accept 0 additional args
+
+  // Get connection from context
+  auto conn_ptr = context->GetConnection();
+  if (!conn_ptr) {
+    return CommandResult(false, "ERR connection not available");
+  }
+
+  auto* conn = static_cast<network::Connection*>(conn_ptr);
+
+  // Get client name
+  const std::string& name = conn->GetClientName();
+
+  protocol::RespValue resp;
+  if (name.empty()) {
+    resp = protocol::RespValue(protocol::RespType::kNullBulkString);
+  } else {
+    resp.SetString(name, protocol::RespType::kBulkString);
+  }
   return CommandResult(resp);
 }
 
@@ -83,6 +132,19 @@ CommandResult HandleClient(const protocol::Command& command, CommandContext* con
     return HandleClientInfo(command, context);
   } else if (sub == "KILL") {
     return HandleClientKill(command, context);
+  } else if (sub == "SETNAME") {
+    // Handle SETNAME directly with the remaining arguments
+    // Create a new command with only the arguments (skip the subcommand)
+    std::vector<RespValue> new_args;
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      new_args.push_back(command[i]);
+    }
+    protocol::Command new_command;
+    new_command.name = "SETNAME";
+    new_command.args = absl::InlinedVector<RespValue, 4>(new_args.begin(), new_args.end());
+    return HandleClientSetName(new_command, context);
+  } else if (sub == "GETNAME") {
+    return HandleClientGetName(command, context);
   } else {
     return CommandResult(false, "ERR unknown subcommand '" + sub + "'");
   }
@@ -122,7 +184,7 @@ CommandResult HandleClientInfo(const protocol::Command& command, CommandContext*
   std::ostringstream info;
   info << "# Client\n";
   info << "id=" << id << "\n";
-  info << "name=\n";
+  info << "name=" << conn->GetClientName() << "\n";
   info << "addr=" << ip << ":" << port << "\n";
   info << "laddr=127.0.0.1:6379\n";  // Local address
   info << "sock=-1\n";  // Socket fd

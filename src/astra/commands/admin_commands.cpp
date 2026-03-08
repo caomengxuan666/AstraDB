@@ -72,6 +72,60 @@ CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext
   return CommandResult(response);
 }
 
+// Helper function to build command info array
+void BuildCommandInfoArrayHelper(std::vector<RespValue>& cmd_array, auto info) {
+  // Command name
+  RespValue name_val;
+  name_val.SetString(info->name, protocol::RespType::kBulkString);
+  cmd_array.push_back(name_val);
+  
+  // Arity
+  RespValue arity_val;
+  arity_val.SetInteger(info->arity);
+  cmd_array.push_back(arity_val);
+  
+  // Flags (array of strings) - flags is now std::vector<std::string>
+  std::vector<RespValue> flags_array;
+  for (const auto& flag : info->flags) {
+    RespValue flag_val;
+    flag_val.SetString(flag, protocol::RespType::kBulkString);
+    flags_array.push_back(flag_val);
+  }
+  cmd_array.push_back(RespValue(std::move(flags_array)));
+  
+  // First key
+  RespValue first_key_val;
+  first_key_val.SetInteger(0);
+  cmd_array.push_back(first_key_val);
+  
+  // Last key
+  RespValue last_key_val;
+  last_key_val.SetInteger(0);
+  cmd_array.push_back(last_key_val);
+  
+  // Key step
+  RespValue step_val;
+  step_val.SetInteger(0);
+  cmd_array.push_back(step_val);
+  
+  // Tips (empty string)
+  RespValue tips_val;
+  tips_val.SetString("", protocol::RespType::kBulkString);
+  cmd_array.push_back(tips_val);
+  
+  // Microseconds (0)
+  RespValue microseconds_val;
+  microseconds_val.SetInteger(0);
+  cmd_array.push_back(microseconds_val);
+  
+  // Category (array with one element - use "server" as default)
+  std::vector<RespValue> category_array;
+  RespValue category_val;
+  category_val.SetString("server", protocol::RespType::kBulkString);
+  category_array.push_back(category_val);
+  cmd_array.push_back(RespValue(std::move(category_array)));
+}
+
 // COMMAND - Redis command introspection
 CommandResult HandleCommand(const astra::protocol::Command& command, CommandContext* context) {
   ASTRADB_LOG_TRACE("HandleCommand: arg_count={}", command.ArgCount());
@@ -90,58 +144,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
       const auto* info = registry.GetInfo(name);
       if (info) {
         std::vector<RespValue> cmd_array;
-        
-        // Command name
-        RespValue name_val;
-        name_val.SetString(info->name, protocol::RespType::kBulkString);
-        cmd_array.push_back(name_val);
-        
-        // Arity
-        RespValue arity_val;
-        arity_val.SetInteger(info->arity);
-        cmd_array.push_back(arity_val);
-        
-        // Flags (array of strings) - flags is now std::vector<std::string>
-        std::vector<RespValue> flags_array;
-        for (const auto& flag : info->flags) {
-          RespValue flag_val;
-          flag_val.SetString(flag, protocol::RespType::kBulkString);
-          flags_array.push_back(flag_val);
-        }
-        cmd_array.push_back(RespValue(std::move(flags_array)));
-        
-        // First key
-        RespValue first_key_val;
-        first_key_val.SetInteger(0);
-        cmd_array.push_back(first_key_val);
-        
-        // Last key
-        RespValue last_key_val;
-        last_key_val.SetInteger(0);
-        cmd_array.push_back(last_key_val);
-        
-        // Key step
-        RespValue step_val;
-        step_val.SetInteger(0);
-        cmd_array.push_back(step_val);
-        
-        // Tips (empty string)
-        RespValue tips_val;
-        tips_val.SetString("", protocol::RespType::kBulkString);
-        cmd_array.push_back(tips_val);
-        
-        // Microseconds (0)
-        RespValue microseconds_val;
-        microseconds_val.SetInteger(0);
-        cmd_array.push_back(microseconds_val);
-        
-        // Category (array with one element - use "server" as default)
-        std::vector<RespValue> category_array;
-        RespValue category_val;
-        category_val.SetString("server", protocol::RespType::kBulkString);
-        category_array.push_back(category_val);
-        cmd_array.push_back(RespValue(std::move(category_array)));
-        
+        BuildCommandInfoArrayHelper(cmd_array, info);
         result.push_back(RespValue(std::move(cmd_array)));
       }
     }
@@ -304,6 +307,41 @@ CommandResult HandleCommand(const astra::protocol::Command& command, CommandCont
     }
     
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch, returning array with {} elements", result.size());
+    return CommandResult(RespValue(std::move(result)));
+  } else if (upper_subcommand == "INFO") {
+    ASTRADB_LOG_TRACE("HandleCommand: INFO branch");
+    // COMMAND INFO - return information about specific commands or all commands
+    auto& registry = GetGlobalCommandRegistry();
+    
+    std::vector<RespValue> result;
+    
+    if (command.ArgCount() == 1) {
+      // No command names specified, return info for all commands
+      auto command_names = registry.GetCommandNames();
+      for (const auto& name : command_names) {
+        const auto* info = registry.GetInfo(name);
+        if (info) {
+          std::vector<RespValue> cmd_array;
+          BuildCommandInfoArrayHelper(cmd_array, info);
+          result.push_back(RespValue(std::move(cmd_array)));
+        }
+      }
+    } else {
+      // Get info for specified commands
+      for (size_t i = 1; i < command.ArgCount(); ++i) {
+        const std::string& cmd_name = command[i].AsString();
+        const auto* info = registry.GetInfo(cmd_name);
+        if (info) {
+          std::vector<RespValue> cmd_array;
+          BuildCommandInfoArrayHelper(cmd_array, info);
+          result.push_back(RespValue(std::move(cmd_array)));
+        } else {
+          // Command not found, return null
+          result.push_back(RespValue(RespType::kNullBulkString));
+        }
+      }
+    }
+    
     return CommandResult(RespValue(std::move(result)));
   }
   
@@ -965,6 +1003,25 @@ CommandResult HandleSelect(const astra::protocol::Command& command, CommandConte
   return CommandResult(response);
 }
 
+// MODULE - Module management commands
+CommandResult HandleModule(const protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() < 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'module' command");
+  }
+
+  const auto& subcommand = command[0].AsString();
+  std::string upper_subcommand = absl::AsciiStrToUpper(subcommand);
+
+  if (upper_subcommand == "LIST") {
+    // MODULE LIST - return list of loaded modules
+    // AstraDB doesn't support modules yet, return empty array
+    std::vector<RespValue> result;
+    return CommandResult(RespValue(std::move(result)));
+  } else {
+    return CommandResult(false, "ERR unknown subcommand '" + subcommand + "'");
+  }
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -972,6 +1029,7 @@ ASTRADB_REGISTER_COMMAND(COMMAND, -1, "readonly,admin", RoutingStrategy::kNone, 
 ASTRADB_REGISTER_COMMAND(DEBUG, -2, "admin", RoutingStrategy::kNone, HandleDebug);
 ASTRADB_REGISTER_COMMAND(CLUSTER, -2, "readonly", RoutingStrategy::kNone, HandleCluster);
 ASTRADB_REGISTER_COMMAND(MIGRATE, -6, "write", RoutingStrategy::kByFirstKey, HandleMigrate);
+ASTRADB_REGISTER_COMMAND(MODULE, -2, "admin", RoutingStrategy::kNone, HandleModule);
 ASTRADB_REGISTER_COMMAND(ASKING, 1, "fast", RoutingStrategy::kNone, HandleAsking);
 ASTRADB_REGISTER_COMMAND(BGSAVE, 1, "admin", RoutingStrategy::kNone, HandleBgSave);
 ASTRADB_REGISTER_COMMAND(LASTSAVE, 1, "readonly", RoutingStrategy::kNone, HandleLastSave);
