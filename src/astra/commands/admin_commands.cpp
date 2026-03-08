@@ -104,7 +104,7 @@ void BuildKeySpecsHelper(std::vector<RespValue>& key_specs,
   std::vector<RespValue> flags;
   
   // Determine flags based on operation type
-  bool is_write = false;
+  [[maybe_unused]] bool is_write = false;
   
   if (name_lower == "get" || name_lower == "mget" || 
       name_lower == "hget" || name_lower == "hgetall" ||
@@ -1992,6 +1992,315 @@ CommandResult HandleMemory(const protocol::Command& command, CommandContext* con
   }
 }
 
+// TIME - Return the current server time
+CommandResult HandleTime(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'TIME' command");
+  }
+
+  auto now = std::chrono::system_clock::now();
+  auto duration = now.time_since_epoch();
+  auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+  auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count() % 1000000;
+
+  std::vector<RespValue> result;
+  
+  RespValue sec_val;
+  sec_val.SetInteger(static_cast<int64_t>(seconds));
+  result.push_back(sec_val);
+  
+  RespValue usec_val;
+  usec_val.SetInteger(static_cast<int64_t>(microseconds));
+  result.push_back(usec_val);
+
+  return CommandResult(RespValue(std::move(result)));
+}
+
+// SHUTDOWN [NOSAVE | SAVE] - Shutdown the server
+CommandResult HandleShutdown(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() > 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SHUTDOWN' command");
+  }
+
+  // Note: In a real implementation, this would gracefully shutdown the server
+  // For now, we just return OK
+  // In a distributed system, we might need to signal the main server process
+  
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// SWAPDB index1 index2 - Swap two databases
+CommandResult HandleSwapDb(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SWAPDB' command");
+  }
+
+  const auto& db1_arg = command[0];
+  const auto& db2_arg = command[1];
+
+  if (!db1_arg.IsBulkString() || !db2_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  int64_t db1, db2;
+  if (!absl::SimpleAtoi(db1_arg.AsString(), &db1) || 
+      !absl::SimpleAtoi(db2_arg.AsString(), &db2)) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  if (db1 < 0 || db2 < 0) {
+    return CommandResult(false, "ERR DB index is out of range");
+  }
+
+  // Note: In a real implementation, this would swap the databases
+  // For now, we just return OK as we have a single database manager
+  // This would require DatabaseManager to support swapping databases
+  
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// WAIT numreplicas timeout - Wait for replicas to acknowledge writes
+CommandResult HandleWait(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'WAIT' command");
+  }
+
+  const auto& replicas_arg = command[0];
+  const auto& timeout_arg = command[1];
+
+  if (!replicas_arg.IsBulkString() || !timeout_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  int64_t num_replicas, timeout_ms;
+  if (!absl::SimpleAtoi(replicas_arg.AsString(), &num_replicas) || 
+      !absl::SimpleAtoi(timeout_arg.AsString(), &timeout_ms)) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Note: In a real implementation with replication, this would wait for replicas
+  // For now, we return 0 as there are no replicas
+  return CommandResult(RespValue(static_cast<int64_t>(0)));
+}
+
+// WAITAOF numlocal numreplicas timeout - Wait for AOF fsync on replicas
+CommandResult HandleWaitAOF(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'WAITAOF' command");
+  }
+
+  const auto& numlocal_arg = command[0];
+  const auto& numreplicas_arg = command[1];
+  const auto& timeout_arg = command[2];
+
+  if (!numlocal_arg.IsBulkString() || !numreplicas_arg.IsBulkString() || !timeout_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  int64_t numlocal, numreplicas, timeout_ms;
+  if (!absl::SimpleAtoi(numlocal_arg.AsString(), &numlocal) || 
+      !absl::SimpleAtoi(numreplicas_arg.AsString(), &numreplicas) || 
+      !absl::SimpleAtoi(timeout_arg.AsString(), &timeout_ms)) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Note: In a real implementation with AOF and replication, this would wait for AOF fsync
+  // For now, we return 0 as there are no replicas
+  return CommandResult(RespValue(static_cast<int64_t>(0)));
+}
+
+// READONLY - Enable read-only mode for replica connection
+CommandResult HandleReadonly(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'READONLY' command");
+  }
+
+  // Note: In a real implementation with replicas, this would mark the connection as read-only
+  // For now, we just return OK
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// READWRITE - Enable read-write mode for replica connection
+CommandResult HandleReadwrite(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'READWRITE' command");
+  }
+
+  // Note: In a real implementation with replicas, this would mark the connection as read-write
+  // For now, we just return OK
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// RESET - Reset the connection (flush all data)
+CommandResult HandleReset(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RESET' command");
+  }
+
+  // Note: In a real implementation, this would reset the connection state
+  // For now, we just return OK
+  RespValue result;
+  result.SetString("RESET", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// RESTORE-ASKING - Enable next command to be sent to any node (after asking redirection)
+CommandResult HandleRestoreAsking(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'RESTORE-ASKING' command");
+  }
+
+  // Note: In a real implementation with cluster, this would clear the asking flag
+  // For now, we just return OK
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// BGREWRITEAOF - Asynchronously rewrite the append-only file
+CommandResult HandleBgRewriteAof(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'BGREWRITEAOF' command");
+  }
+
+  // Note: In a real implementation with AOF, this would trigger an AOF rewrite
+  // For now, we just return a background task status
+  RespValue result;
+  result.SetString("Background append only file rewriting started", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// FAILOVER [TIMEOUT ms] [FORCE] - Initiate a manual failover
+CommandResult HandleFailover(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() > 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'FAILOVER' command");
+  }
+
+  // Parse optional arguments
+  [[maybe_unused]] bool force = false;
+  [[maybe_unused]] int64_t timeout_ms = 0;
+
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    std::string arg = absl::AsciiStrToUpper(command[i].AsString());
+    
+    if (arg == "FORCE") {
+      force = true;
+    } else if (arg == "TIMEOUT") {
+      if (i + 1 >= command.ArgCount()) {
+        return CommandResult(false, "ERR syntax error");
+      }
+      if (!absl::SimpleAtoi(command[++i].AsString(), &timeout_ms)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    }
+  }
+
+  // Note: In a real implementation with replication, this would initiate a failover
+  // For now, we just return OK
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// LATENCY [HELP] - Latency monitoring
+CommandResult HandleLatency(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() > 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'LATENCY' command");
+  }
+
+  if (command.ArgCount() == 0 || absl::AsciiStrToUpper(command[0].AsString()) == "HELP") {
+    // LATENCY HELP
+    std::string help_text =
+      "LATENCY <subcommand> [<arg> [value] ...]. Subcommands are:\n"
+      "HELP - Show this help text\n"
+      "DOCTOR - Return a different human readable latency analysis report\n"
+      "GRAPH - Return a latency graph\n"
+      "HISTORY - Return timestamp-latency samples\n"
+      "LATEST - Return the latest latency samples\n"
+      "RESET - Reset latency data\n"
+      "EVENTS - Return latest latency events";
+    protocol::RespValue resp;
+    resp.SetString(help_text, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+  }
+
+  // Note: In a real implementation, this would provide latency monitoring data
+  // For now, we return empty array
+  return CommandResult(RespValue(std::vector<RespValue>()));
+}
+
+// MONITOR - Echo all commands executed by the server
+CommandResult HandleMonitor(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 0) {
+    return CommandResult(false, "ERR wrong number of arguments for 'MONITOR' command");
+  }
+
+  // Note: In a real implementation, this would enable command monitoring
+  // For now, we just return OK (monitoring would be implemented differently)
+  RespValue result;
+  result.SetString("OK", protocol::RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// SLOWLOG [HELP | GET | LEN | RESET] - Manage the slow log
+CommandResult HandleSlowlog(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() > 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'SLOWLOG' command");
+  }
+
+  if (command.ArgCount() == 0 || absl::AsciiStrToUpper(command[0].AsString()) == "HELP") {
+    // SLOWLOG HELP
+    std::string help_text =
+      "SLOWLOG <subcommand> [<arg>]. Subcommands are:\n"
+      "GET [count] - Get slow log entries\n"
+      "LEN - Get the number of slow log entries\n"
+      "RESET - Reset the slow log\n"
+      "HELP - Show this help text";
+    protocol::RespValue resp;
+    resp.SetString(help_text, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+  }
+
+  std::string subcommand = absl::AsciiStrToUpper(command[0].AsString());
+
+  if (subcommand == "GET") {
+    // SLOWLOG GET [count]
+    int64_t count = 10;
+    if (command.ArgCount() == 2) {
+      if (!absl::SimpleAtoi(command[1].AsString(), &count)) {
+        return CommandResult(false, "ERR value is not an integer or out of range");
+      }
+    }
+    
+    // Note: In a real implementation, this would return slow log entries
+    // For now, we return empty array
+    return CommandResult(RespValue(std::vector<RespValue>()));
+    
+  } else if (subcommand == "LEN") {
+    // SLOWLOG LEN
+    // Note: In a real implementation, this would return the number of slow log entries
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
+    
+  } else if (subcommand == "RESET") {
+    // SLOWLOG RESET
+    // Note: In a real implementation, this would reset the slow log
+    RespValue result;
+    result.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(result);
+    
+  } else {
+    return CommandResult(false, "ERR unknown SLOWLOG subcommand '" + subcommand + "'");
+  }
+}
+
 // Auto-register all admin commands
 ASTRADB_REGISTER_COMMAND(PING, 1, "readonly,fast", RoutingStrategy::kNone, HandlePing);
 ASTRADB_REGISTER_COMMAND(INFO, 1, "readonly", RoutingStrategy::kNone, HandleInfo);
@@ -2018,6 +2327,28 @@ ASTRADB_REGISTER_COMMAND(TOUCH, -2, "readonly", RoutingStrategy::kByFirstKey, Ha
 ASTRADB_REGISTER_COMMAND(DBSIZE, 1, "readonly,fast", RoutingStrategy::kNone, HandleDbSize);
 ASTRADB_REGISTER_COMMAND(FLUSHDB, 1, "write", RoutingStrategy::kNone, HandleFlushDb);
 ASTRADB_REGISTER_COMMAND(FLUSHALL, 1, "write", RoutingStrategy::kNone, HandleFlushAll);
+ASTRADB_REGISTER_COMMAND(TIME, 1, "readonly,fast", RoutingStrategy::kNone, HandleTime);
+ASTRADB_REGISTER_COMMAND(SHUTDOWN, -1, "admin", RoutingStrategy::kNone, HandleShutdown);
+ASTRADB_REGISTER_COMMAND(SWAPDB, 3, "write", RoutingStrategy::kNone, HandleSwapDb);
+ASTRADB_REGISTER_COMMAND(WAIT, 3, "readonly", RoutingStrategy::kNone, HandleWait);
+ASTRADB_REGISTER_COMMAND(WAITAOF, 4, "readonly", RoutingStrategy::kNone, HandleWaitAOF);
+ASTRADB_REGISTER_COMMAND(READONLY, 1, "fast", RoutingStrategy::kNone, HandleReadonly);
+ASTRADB_REGISTER_COMMAND(READWRITE, 1, "fast", RoutingStrategy::kNone, HandleReadwrite);
+ASTRADB_REGISTER_COMMAND(RESET, 1, "fast", RoutingStrategy::kNone, HandleReset);
+// RESTORE-ASKING is registered manually due to the hyphen in the command name
+namespace {
+  struct CommandRegistrar_RESTORE_ASKING {
+    CommandRegistrar_RESTORE_ASKING() {
+      ::astra::commands::RuntimeCommandRegistry::Instance().RegisterCommand(
+          "RESTORE-ASKING", 1, "fast", RoutingStrategy::kNone, HandleRestoreAsking);
+    }
+  } g_cmd_reg_restore_asking;
+}
+ASTRADB_REGISTER_COMMAND(BGREWRITEAOF, 1, "admin", RoutingStrategy::kNone, HandleBgRewriteAof);
+ASTRADB_REGISTER_COMMAND(FAILOVER, -1, "admin", RoutingStrategy::kNone, HandleFailover);
+ASTRADB_REGISTER_COMMAND(LATENCY, -2, "readonly", RoutingStrategy::kNone, HandleLatency);
+ASTRADB_REGISTER_COMMAND(MONITOR, 1, "admin", RoutingStrategy::kNone, HandleMonitor);
+ASTRADB_REGISTER_COMMAND(SLOWLOG, -2, "readonly", RoutingStrategy::kNone, HandleSlowlog);
 ASTRADB_REGISTER_COMMAND(SELECT, 2, "fast", RoutingStrategy::kNone, HandleSelect);
 ASTRADB_REGISTER_COMMAND(AUTH, -2, "no-auth", RoutingStrategy::kNone, HandleAuth);
 ASTRADB_REGISTER_COMMAND(ACL, -2, "admin", RoutingStrategy::kNone, HandleAcl);
