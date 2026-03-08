@@ -104,7 +104,6 @@ void BuildKeySpecsHelper(std::vector<RespValue>& key_specs,
   std::vector<RespValue> flags;
   
   // Determine flags based on operation type
-  bool is_readonly = false;
   bool is_write = false;
   
   if (name_lower == "get" || name_lower == "mget" || 
@@ -116,21 +115,17 @@ void BuildKeySpecsHelper(std::vector<RespValue>& key_specs,
       name_lower == "exists" || name_lower == "type" ||
       name_lower == "keys" || name_lower == "scan" ||
       name_lower == "sscan" || name_lower == "hscan" || name_lower == "zscan") {
-    is_readonly = true;
-  } else {
-    is_write = true;
-  }
-  
-  if (is_write) {
+    // Readonly command
     RespValue flag1;
-    flag1.SetString("RW", protocol::RespType::kSimpleString);
+    flag1.SetString("RO", protocol::RespType::kSimpleString);
     flags.push_back(flag1);
     RespValue flag2;
     flag2.SetString("access", protocol::RespType::kSimpleString);
     flags.push_back(flag2);
   } else {
+    is_write = true;
     RespValue flag1;
-    flag1.SetString("RO", protocol::RespType::kSimpleString);
+    flag1.SetString("RW", protocol::RespType::kSimpleString);
     flags.push_back(flag1);
     RespValue flag2;
     flag2.SetString("access", protocol::RespType::kSimpleString);

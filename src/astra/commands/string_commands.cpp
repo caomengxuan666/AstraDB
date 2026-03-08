@@ -8,6 +8,9 @@
 #include "command_auto_register.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include <absl/strings/ascii.h>
+#include <absl/strings/numbers.h>
+#include <sstream>
+#include <iomanip>
 
 namespace astra::commands {
 
@@ -1182,6 +1185,134 @@ CommandResult HandleGetEx(const astra::protocol::Command& command, CommandContex
   return CommandResult(result);
 }
 
+// ECHO message
+CommandResult HandleEcho(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 1) {
+    return CommandResult(false, "ERR wrong number of arguments for 'ECHO' command");
+  }
+
+  const auto& message_arg = command[0];
+
+  if (!message_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of message argument");
+  }
+
+  std::string message = message_arg.AsString();
+
+  RespValue result;
+  result.SetString(message, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// INCRBYFLOAT key increment
+CommandResult HandleIncrByFloat(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 2) {
+    return CommandResult(false, "ERR wrong number of arguments for 'INCRBYFLOAT' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& increment_arg = command[1];
+
+  if (!key_arg.IsBulkString() || !increment_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string increment_str = increment_arg.AsString();
+
+  // Parse increment as double
+  double increment;
+  if (!absl::SimpleAtod(increment_str, &increment)) {
+    return CommandResult(false, "ERR value is not a valid float");
+  }
+
+  // Check if key exists and has valid value
+  auto value = db->Get(key);
+  double current_value = 0.0;
+  
+  if (value.has_value()) {
+    if (!absl::SimpleAtod(value->value, &current_value)) {
+      return CommandResult(false, "ERR value is not a valid float");
+    }
+  }
+
+  // Perform increment
+  double new_value = current_value + increment;
+
+  // Format result without trailing zeros
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(17) << new_value;
+  std::string result_str = oss.str();
+
+  // Remove trailing zeros
+  size_t dot_pos = result_str.find('.');
+  if (dot_pos != std::string::npos) {
+    size_t last_non_zero = result_str.find_last_not_of('0');
+    if (last_non_zero != std::string::npos && last_non_zero > dot_pos) {
+      result_str = result_str.substr(0, last_non_zero + 1);
+    }
+    // Remove trailing dot
+    if (result_str.back() == '.') {
+      result_str.pop_back();
+    }
+  }
+
+  db->Set(key, result_str);
+
+  RespValue result;
+  result.SetString(result_str, RespType::kBulkString);
+  return CommandResult(result);
+}
+
+// PSETEX key milliseconds value
+CommandResult HandlePSetEx(const astra::protocol::Command& command, CommandContext* context) {
+  if (command.ArgCount() != 3) {
+    return CommandResult(false, "ERR wrong number of arguments for 'PSETEX' command");
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
+  const auto& key_arg = command[0];
+  const auto& ms_arg = command[1];
+  const auto& value_arg = command[2];
+
+  if (!key_arg.IsBulkString() || !ms_arg.IsBulkString() || !value_arg.IsBulkString()) {
+    return CommandResult(false, "ERR wrong type of argument");
+  }
+
+  std::string key = key_arg.AsString();
+  std::string ms_str = ms_arg.AsString();
+  std::string value = value_arg.AsString();
+
+  // Parse milliseconds
+  int64_t milliseconds;
+  if (!absl::SimpleAtoi(ms_str, &milliseconds) || milliseconds <= 0) {
+    return CommandResult(false, "ERR value is not an integer or out of range");
+  }
+
+  // Set value and expiration
+  db->Set(key, value);
+  db->SetExpireMs(key, astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds);
+
+  RespValue result;
+  result.SetString("OK", RespType::kSimpleString);
+  return CommandResult(result);
+}
+
+// SUBSTR key start end (deprecated, same as GETRANGE)
+CommandResult HandleSubstr(const astra::protocol::Command& command, CommandContext* context) {
+  // SUBSTR is just an alias for GETRANGE
+  return HandleGetRange(command, context);
+}
+
 // Auto-register all string commands
 ASTRADB_REGISTER_COMMAND(GET, 2, "readonly,fast", RoutingStrategy::kByFirstKey, HandleGet);
 ASTRADB_REGISTER_COMMAND(SET, -3, "write", RoutingStrategy::kByFirstKey, HandleSet);
@@ -1196,6 +1327,7 @@ ASTRADB_REGISTER_COMMAND(INCR, 2, "write", RoutingStrategy::kByFirstKey, HandleI
 ASTRADB_REGISTER_COMMAND(DECR, 2, "write", RoutingStrategy::kByFirstKey, HandleDecr);
 ASTRADB_REGISTER_COMMAND(INCRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleIncrBy);
 ASTRADB_REGISTER_COMMAND(DECRBY, 3, "write", RoutingStrategy::kByFirstKey, HandleDecrBy);
+ASTRADB_REGISTER_COMMAND(INCRBYFLOAT, 3, "write", RoutingStrategy::kByFirstKey, HandleIncrByFloat);
 
 // String manipulation commands
 ASTRADB_REGISTER_COMMAND(APPEND, 3, "write", RoutingStrategy::kByFirstKey, HandleAppend);
@@ -1203,9 +1335,12 @@ ASTRADB_REGISTER_COMMAND(STRLEN, 2, "readonly", RoutingStrategy::kByFirstKey, Ha
 ASTRADB_REGISTER_COMMAND(GETSET, 3, "write", RoutingStrategy::kByFirstKey, HandleGetSet);
 ASTRADB_REGISTER_COMMAND(SETEX, 4, "write", RoutingStrategy::kByFirstKey, HandleSetEx);
 ASTRADB_REGISTER_COMMAND(SETNX, 3, "write", RoutingStrategy::kByFirstKey, HandleSetNx);
+ASTRADB_REGISTER_COMMAND(PSETEX, 4, "write", RoutingStrategy::kByFirstKey, HandlePSetEx);
 ASTRADB_REGISTER_COMMAND(GETRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleGetRange);
 ASTRADB_REGISTER_COMMAND(SETRANGE, 4, "write", RoutingStrategy::kByFirstKey, HandleSetRange);
 ASTRADB_REGISTER_COMMAND(STRALGO, -2, "readonly", RoutingStrategy::kNone, HandleStrAlgo);
+ASTRADB_REGISTER_COMMAND(SUBSTR, 4, "readonly", RoutingStrategy::kByFirstKey, HandleSubstr);
+ASTRADB_REGISTER_COMMAND(ECHO, 2, "readonly", RoutingStrategy::kNone, HandleEcho);
 
 // Advanced string commands (Redis 6.0+)
 ASTRADB_REGISTER_COMMAND(COPY, -3, "write", RoutingStrategy::kByFirstKey, HandleCopy);
