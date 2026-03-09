@@ -30,6 +30,40 @@ Connection::~Connection() {
   ASTRADB_LOG_INFO("Connection destroyed: id={}", id_);
 }
 
+void Connection::Reset(asio::ip::tcp::socket socket) {
+  // Close old socket if still open
+  if (socket_.is_open()) {
+    asio::error_code ec;
+    socket_.close(ec);
+    if (ec) {
+      ASTRADB_LOG_WARN("Failed to close old socket: id={}, error={}", id_, ec.message());
+    }
+  }
+
+  // Replace with new socket
+  socket_ = std::move(socket);
+
+  // Reset strand with new socket's executor
+  strand_ = asio::make_strand(io_context_);
+
+  // Reset state
+  read_buffer_.Reset();
+  write_buffer_.Reset();
+  writing_ = false;
+  closing_ = false;
+  in_transaction_ = false;
+  protocol_version_ = 2;
+  client_name_.clear();
+  watched_keys_.clear();
+  watched_key_versions_.clear();
+  queued_commands_.clear();
+
+  // Clear temp buffer
+  read_temp_buffer_.fill(0);
+
+  ASTRADB_LOG_INFO("Connection reset: id={}, new_addr={}", id_, GetRemoteAddress());
+}
+
 void Connection::Start() { DoRead(); }
 
 std::string Connection::GetRemoteAddress() const {
@@ -58,34 +92,14 @@ void Connection::Close() {
   }
 }
 
-void Connection::Reset(asio::ip::tcp::socket socket) {
-  // Close old socket
+void Connection::CloseSocketForReuse() {
+  // Close socket without setting closing_ flag (for pool reuse)
   asio::error_code ec;
   socket_.close(ec);
 
-  // Move new socket
-  socket_ = std::move(socket);
-
-  // Reset state
-  id_ = next_id_++;
-  writing_ = false;
-  closing_ = false;
-
-  // Reset buffers
-  read_buffer_.Reset();
-  write_buffer_.Reset();
-
-  // Reset transaction state
-  in_transaction_ = false;
-  queued_commands_.clear();
-  watched_keys_.clear();
-  watched_key_versions_.clear();
-
-  // Reset RESP protocol version to default
-  protocol_version_ = 2;
-
-  ASTRADB_LOG_DEBUG("Connection reset: id={}, addr={}", id_,
-                    GetRemoteAddress());
+  if (ec) {
+    ASTRADB_LOG_WARN("Failed to close socket for reuse: id={}, error={}", id_, ec.message());
+  }
 }
 
 void Connection::Send(const std::string& data) {
@@ -115,15 +129,12 @@ void Connection::Send(const std::string& data) {
 void Connection::DoRead() {
   auto self = shared_from_this();
 
-  // Read some data into a temporary buffer
-  constexpr size_t kBufferSize = 8192;
-  auto temp_buffer = std::make_shared<std::array<char, kBufferSize>>();
-
+  // Reuse the member temp buffer instead of allocating a new one
   socket_.async_read_some(
-      asio::buffer(*temp_buffer),
+      asio::buffer(read_temp_buffer_),
       asio::bind_executor(
-          strand_, [this, self, temp_buffer](const asio::error_code& ec,
-                                             size_t bytes_transferred) {
+          strand_, [this, self](const asio::error_code& ec,
+                               size_t bytes_transferred) {
             if (!ec && bytes_transferred > 0) {
               // Initialize or append to read buffer
               if (!read_buffer_) {
@@ -141,7 +152,7 @@ void Connection::DoRead() {
                 read_buffer_->Reserve(read_buffer_->size() + bytes_transferred);
               }
 
-              read_buffer_->Append(temp_buffer->data(), bytes_transferred);
+              read_buffer_->Append(read_temp_buffer_.data(), bytes_transferred);
             }
             HandleRead(ec, bytes_transferred);
           }));
@@ -193,12 +204,26 @@ void Connection::DoWrite() {
                             id_, write_buffer_->size());
           DoWrite();
         } else {
-          // All data written, clear buffer
-          write_buffer_->Clear();
-
-          // Check if there's more data to write (added while we were writing)
-          if (write_buffer_ && !write_buffer_->empty()) {
-            DoWrite();
+          // All data written, remove written bytes from buffer
+          // Note: Don't clear the entire buffer, as new data may have been added while we were writing
+          size_t buffer_size_before = write_buffer_->size();
+          if (buffer_size_before > write_size) {
+            // Remove only the bytes that were written, keep any new data that was added
+            size_t remaining = buffer_size_before - write_size;
+            std::memmove(write_buffer_->data(),
+                         write_buffer_->data() + write_size, remaining);
+            write_buffer_->Resize(remaining);
+            ASTRADB_LOG_DEBUG("Write complete: id={}, removed {} bytes, {} bytes remaining",
+                              id_, write_size, remaining);
+            
+            // Continue writing if there's more data
+            if (!write_buffer_->empty()) {
+              DoWrite();
+            }
+          } else {
+            // Buffer size equals write size, clear the buffer
+            write_buffer_->Clear();
+            ASTRADB_LOG_DEBUG("Write complete: id={}, buffer cleared", id_);
           }
         }
       }));
@@ -421,8 +446,6 @@ ConnectionPool::ConnectionPool(asio::io_context& io_context,
                                astra::core::memory::BufferPool* buffer_pool)
     : io_context_(io_context),
       max_connections_(max_connections),
-      active_connections_(0),
-      total_connections_(0),
       buffer_pool_(buffer_pool) {
   ASTRADB_LOG_INFO("ConnectionPool initialized: max_connections={}",
                    max_connections);
@@ -430,24 +453,67 @@ ConnectionPool::ConnectionPool(asio::io_context& io_context,
 
 ConnectionPool::~ConnectionPool() = default;
 
-std::shared_ptr<Connection> ConnectionPool::Create(
+std::shared_ptr<Connection> ConnectionPool::Acquire(
     asio::ip::tcp::socket socket) {
-  if (active_connections_ >= max_connections_) {
-    ASTRADB_LOG_WARN("Connection limit reached: active={}, max={}",
-                     active_connections_.load(), max_connections_);
+  std::lock_guard<std::mutex> lock(pool_mutex_);
+  
+  Connection* conn_ptr = nullptr;
+
+  // 1. Try to reuse from free connections
+  if (!free_connections_.empty()) {
+    conn_ptr = free_connections_.front();
+    free_connections_.pop();
+    counters_.idle_connections_.fetch_sub(1, std::memory_order_relaxed);
+
+    // Reinitialize connection with new socket
+    conn_ptr->Reset(std::move(socket));
+
+    ASTRADB_LOG_DEBUG("Connection reused: id={}, active={}, idle={}",
+                      conn_ptr->GetId(), counters_.active_connections_.load(std::memory_order_relaxed),
+                      counters_.idle_connections_.load(std::memory_order_relaxed));
+  }
+  // 2. Create new connection if under limit
+  else if (all_connections_.size() < max_connections_) {
+    auto new_conn = std::make_unique<Connection>(std::move(socket),
+                                                  io_context_,
+                                                  buffer_pool_);
+    conn_ptr = new_conn.get();
+    all_connections_.push_back(std::move(new_conn));
+
+    ASTRADB_LOG_DEBUG("New connection created: id={}, total={}",
+                      conn_ptr->GetId(), all_connections_.size());
+  }
+  // 3. Pool is full
+  else {
+    ASTRADB_LOG_WARN("Connection pool full: active={}, max={}",
+                     counters_.active_connections_.load(std::memory_order_relaxed), max_connections_);
     return nullptr;
   }
 
-  auto conn = std::make_shared<Connection>(std::move(socket), io_context_,
-                                           buffer_pool_);
-  active_connections_++;
-  total_connections_++;
+  counters_.active_connections_.fetch_add(1, std::memory_order_relaxed);
 
-  ASTRADB_LOG_DEBUG("Connection created: id={}, active={}, total={}",
-                    conn->GetId(), active_connections_.load(),
-                    total_connections_.load());
+  // Return shared_ptr with custom deleter that releases back to pool
+  return std::shared_ptr<Connection>(conn_ptr, [this](Connection* conn) {
+    Release(conn);
+  });
+}
 
-  return conn;
+void ConnectionPool::Release(Connection* conn) {
+  if (!conn) return;
+
+  std::lock_guard<std::mutex> lock(pool_mutex_);
+
+  // Prepare connection for reuse
+  conn->CloseSocketForReuse();
+
+  // Add back to free queue
+  free_connections_.push(conn);
+  counters_.idle_connections_.fetch_add(1, std::memory_order_relaxed);
+  counters_.active_connections_.fetch_sub(1, std::memory_order_relaxed);
+
+  ASTRADB_LOG_DEBUG("Connection released: id={}, active={}, idle={}",
+                    conn->GetId(), counters_.active_connections_.load(std::memory_order_relaxed),
+                    counters_.idle_connections_.load(std::memory_order_relaxed));
 }
 
 }  // namespace astra::network
