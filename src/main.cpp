@@ -165,6 +165,9 @@ int main(int argc, char** argv) {
 #if defined(ASTRADB_ENABLE_SIMD)
   ASTRADB_LOG_INFO("  [+] SIMD Optimizations");
 #endif
+#if defined(ASIO_HAS_IO_URING)
+  ASTRADB_LOG_INFO("  [+] io_uring Support (Linux 5.1+)");
+#endif
   
   ASTRADB_LOG_INFO("\n========================================");
   
