@@ -29,7 +29,7 @@ elseif(UNIX)
   # Linux requires pthread for threading support
   set(PLATFORM_LIBRARIES pthread rt)
   
-  # Enable io_uring support for Asio (Linux 5.1+)
+# Enable io_uring support for Asio (Linux 5.1+)
   # Check if io_uring is available
   set(IO_URING_TEST_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/io_uring_test.c")
   if(EXISTS "${IO_URING_TEST_SOURCE}")
@@ -37,17 +37,20 @@ elseif(UNIX)
       "${CMAKE_CURRENT_BINARY_DIR}/io_uring_test"
       "${IO_URING_TEST_SOURCE}"
       COMPILE_DEFINITIONS "-DASIO_HAS_IO_URING=1"
-      LINK_LIBRARIES "pthread;rt"
+      LINK_LIBRARIES "pthread;rt;uring"
     )
     
     if(HAVE_IO_URING)
-      message(STATUS "  io_uring support: Enabled")
+      message(STATUS "  io_uring support: Enabled (using liburing)")
       add_compile_definitions(ASIO_HAS_IO_URING=1)
+      set(ASTRADB_IO_URING_ENABLED "ON")
     else()
-      message(STATUS "  io_uring support: Not available (requires Linux 5.1+)")
+      message(STATUS "  io_uring support: Not available (requires liburing-dev)")
+      set(ASTRADB_IO_URING_ENABLED "OFF")
     endif()
   else()
     message(STATUS "  io_uring test file not found, skipping io_uring check")
+    set(ASTRADB_IO_URING_ENABLED "OFF")
   endif()
   
   # Handle static linking on Linux to avoid glibc NSS warnings

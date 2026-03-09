@@ -27,6 +27,7 @@ message(STATUS "Build Docs:          ${ASTRADB_BUILD_DOCS}")
 message(STATUS "Enable Coverage:     ${ASTRADB_ENABLE_COVERAGE}")
 message(STATUS "Enable Sanitizers:   ${ASTRADB_ENABLE_SANITIZERS}")
 message(STATUS "Enable LTO:          ${ASTRADB_ENABLE_LTO}")
+message(STATUS "io_uring Support:    ${ASTRADB_IO_URING_ENABLED}")
 message(
   STATUS
     "==============================================================================="

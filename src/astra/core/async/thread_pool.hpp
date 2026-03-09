@@ -4,7 +4,7 @@
 #pragma once
 
 #include <asio.hpp>
-#include <blockingconcurrentqueue.h>
+#include "astra/base/concurrentqueue_wrapper.hpp"
 #include <memory>
 #include <vector>
 #include <thread>
