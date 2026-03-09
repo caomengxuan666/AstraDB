@@ -10,6 +10,7 @@ target_sources(astradb_tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stream_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transaction_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/multi_database_test.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/hello_test.cpp
 )
 
 # Link additional libraries needed for command tests
