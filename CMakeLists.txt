@@ -20,6 +20,7 @@ project(
 option(ASTRADB_ENABLE_TLS "Enable TLS encryption support" OFF)
 option(ASTRADB_ENABLE_ACL "Enable ACL (Access Control List)" ON)
 option(ASTRADB_ENABLE_SIMD "Enable SIMD optimizations" ON)
+option(ASTRADB_STRIP_SYMBOLS "Strip debug symbols from release builds" ON)
 
 # ==============================================================================
 # Load Configuration Modules
@@ -359,7 +360,7 @@ endif()
 # Strip Debug Symbols for Release Builds
 # ==============================================================================
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release" AND TARGET astradb)
+if(ASTRADB_STRIP_SYMBOLS AND CMAKE_BUILD_TYPE STREQUAL "Release" AND TARGET astradb)
     if(CMAKE_STRIP)
         add_custom_command(TARGET astradb POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E echo "Stripping debug symbols from astradb..."
