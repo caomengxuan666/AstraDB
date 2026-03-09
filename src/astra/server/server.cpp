@@ -279,17 +279,17 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
     }
     return;
   }
-  
-  // Create new connection
-  auto conn = connection_pool_->Create(std::move(socket));
+
+  // Acquire connection from pool (reuse if available)
+  auto conn = connection_pool_->Acquire(std::move(socket));
   if (!conn) {
     ASTRADB_LOG_WARN("Connection rejected: max connections reached");
     socket.close();
     DoAccept();
     return;
   }
-  
-  ASTRADB_LOG_INFO("New client connected: id={}, addr={}", 
+
+  ASTRADB_LOG_INFO("New client connected: id={}, addr={}",
                    conn->GetId(), conn->GetRemoteAddress());
   
   // Update metrics
