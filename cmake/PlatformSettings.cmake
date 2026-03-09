@@ -29,7 +29,7 @@ elseif(UNIX)
   # Linux requires pthread for threading support
   set(PLATFORM_LIBRARIES pthread rt)
   
-  # Enable io_uring support for Asio (Linux 5.1+)
+# Enable io_uring support for Asio (Linux 5.1+)
   # Check if io_uring is available
   set(IO_URING_TEST_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/io_uring_test.c")
   if(EXISTS "${IO_URING_TEST_SOURCE}")
@@ -41,12 +41,9 @@ elseif(UNIX)
     )
     
     if(HAVE_IO_URING)
-      message(STATUS "  io_uring support: Available (using liburing)")
-      # Temporarily disable due to BLOCK_SIZE conflict with concurrentqueue
-      message(STATUS "  io_uring support: DISABLED (BLOCK_SIZE conflict with concurrentqueue)")
-      # add_compile_definitions(ASIO_HAS_IO_URING=1)
-      # add_compile_definitions(BLOCK_SIZE=IOURING_BLOCK_SIZE)
-      set(ASTRADB_IO_URING_ENABLED "OFF")
+      message(STATUS "  io_uring support: Enabled (using liburing)")
+      add_compile_definitions(ASIO_HAS_IO_URING=1)
+      set(ASTRADB_IO_URING_ENABLED "ON")
     else()
       message(STATUS "  io_uring support: Not available (requires liburing-dev)")
       set(ASTRADB_IO_URING_ENABLED "OFF")
