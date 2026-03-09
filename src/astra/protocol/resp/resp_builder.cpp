@@ -56,7 +56,11 @@ std::string RespBuilder::Build(const RespValue& value) {
     case RespType::kNull:
       out += BuildNull();
       break;
-      
+
+    case RespType::kMap:
+      out += BuildMap(value.AsMap());
+      break;
+
     default:
       out += BuildNil();
       break;
@@ -182,6 +186,20 @@ std::string RespBuilder::BuildDouble(double num) {
 
 std::string RespBuilder::BuildNull() {
   return "_\r\n";
+}
+
+std::string RespBuilder::BuildMap(const absl::flat_hash_map<std::string, RespValue>& map) {
+  std::string out;
+  out += '%';
+  AppendInteger(out, static_cast<int64_t>(map.size()));
+  AppendCRLF(out);
+
+  for (const auto& [key, value] : map) {
+    out += BuildBulkString(key);
+    out += Build(value);
+  }
+
+  return out;
 }
 
 void RespBuilder::AppendCRLF(std::string& out) {

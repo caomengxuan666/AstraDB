@@ -2435,7 +2435,10 @@ CommandResult HandleHello(const protocol::Command& command, CommandContext* cont
     result["role"] = protocol::RespValue(std::string("master"));
     result["modules"] = protocol::RespValue(std::vector<protocol::RespValue>());
 
-    return CommandResult(protocol::RespValue(std::move(result)));
+    auto resp_value = protocol::RespValue(std::move(result));
+    ASTRADB_LOG_DEBUG("HELLO: Returning map with size={}, type={}",
+                      result.size(), static_cast<int>(resp_value.GetType()));
+    return CommandResult(resp_value);
   }
 }
 

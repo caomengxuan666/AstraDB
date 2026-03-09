@@ -5,6 +5,7 @@
 
 #include "resp_types.hpp"
 #include <string>
+#include <absl/container/flat_hash_map.h>
 
 namespace astra::protocol {
 
@@ -67,7 +68,10 @@ class RespBuilder {
   
   // RESP3: Build null
   static std::string BuildNull();
-  
+
+  // RESP3: Build map
+  static std::string BuildMap(const absl::flat_hash_map<std::string, RespValue>& map);
+
  private:
   // Helper: Append CRLF
   static void AppendCRLF(std::string& out);

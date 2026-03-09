@@ -1052,8 +1052,17 @@ void Server::SendResponse(std::shared_ptr<network::Connection> conn,
     } else if (result.response.IsNull()) {
       response = "$-1\r\n";
       ASTRADB_LOG_DEBUG("SendResponse: id={}, type=null, response='{}'", conn->GetId(), response);
+    } else if (result.response.GetType() == protocol::RespType::kMap) {
+      // Use RespBuilder for map serialization
+      response = protocol::RespBuilder::Build(result.response);
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type=map, map_size={}, response_len={}, response='{}'",
+                        conn->GetId(), result.response.AsMap().size(), response.length(),
+                        response.length() > 100 ? response.substr(0, 100) + "..." : response);
     } else {
       // For other types, just return OK
+      auto type = result.response.GetType();
+      ASTRADB_LOG_DEBUG("SendResponse: id={}, type={}, raw_type_int={}, response='{}'",
+                        conn->GetId(), "unknown", static_cast<int>(type), response);
       response = "+OK\r\n";
       ASTRADB_LOG_DEBUG("SendResponse: id={}, type=unknown, response='{}'", conn->GetId(), response);
     }
