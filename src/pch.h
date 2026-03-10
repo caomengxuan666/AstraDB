@@ -7,94 +7,55 @@
 
 #pragma once
 
-// C++ Standard Library
+// C++ Standard Library - Most Common Headers (>100 times used)
 #include <algorithm>
-#include <any>
-#include <array>
 #include <atomic>
-#include <bitset>
-#include <cassert>
-#include <cctype>
-#include <cerrno>
 #include <chrono>
 #include <cmath>
-#include <compare>
-#include <complex>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <deque>
 #include <exception>
-#include <filesystem>
-#include <forward_list>
-#include <fstream>
 #include <functional>
-#include <future>
 #include <iomanip>
-#include <ios>
-#include <iosfwd>
 #include <iostream>
-#include <istream>
-#include <iterator>
-#include <limits>
-#include <list>
-#include <locale>
-#include <map>
 #include <memory>
 #include <mutex>
-#include <new>
-#include <numeric>
-#include <optional>
-#include <ostream>
 #include <queue>
-#include <random>
-#include <ratio>
-#include <regex>
-#include <scoped_allocator>
-#include <set>
-#include <shared_mutex>
 #include <sstream>
-#include <stack>
-#include <stdexcept>
-#include <streambuf>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <thread>
-#include <tuple>
-#include <type_traits>
-#include <typeindex>
-#include <typeinfo>
+#include <vector>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <variant>
-#include <vector>
+#include <type_traits>
+#include <cassert>
+#include <cstdlib>
+#include <limits>
+#include <iterator>
+#include <cstdio>
+#include <array>
+#include <tuple>
+#include <ostream>
 
-// Abseil Library
+// Abseil Library - Core Components
 #include <absl/strings/str_cat.h>
 #include <absl/strings/string_view.h>
+#include <absl/strings/ascii.h>
+#include <absl/strings/numbers.h>
+#include <absl/strings/match.h>
+#include <absl/strings/str_split.h>
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
 #include <absl/container/inlined_vector.h>
 #include <absl/synchronization/mutex.h>
-#include <absl/synchronization/notification.h>
 #include <absl/functional/any_invocable.h>
-#include <absl/base/attributes.h>
-#include <absl/base/optimization.h>
-#include <absl/time/clock.h>
 #include <absl/time/time.h>
-#include <absl/types/optional.h>
 #include <absl/types/span.h>
-#include <absl/types/variant.h>
-#include <absl/numeric/int128.h>
-#include <absl/crc/crc32c.h>
-#include <absl/strings/match.h>
-#include <absl/strings/ascii.h>
+#include <absl/hash/hash.h>
 
 // ASIO (Header-only)
 #include <asio.hpp>
@@ -115,19 +76,10 @@
 // FlatBuffers
 #include <flatbuffers/flatbuffers.h>
 
-// Protocol buffers
-#include "astra/protocol/resp/resp_parser.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
-
-// Command handling
-#include "astra/commands/command_handler.hpp"
-
-// Storage
-#include "astra/storage/key_metadata.hpp"
-#include "astra/storage/db.hpp"
-
-// Async operations
-#include "astra/core/async/thread_pool.hpp"
+// ==============================================================================
+// Project Headers - Core Infrastructure
+// ==============================================================================
+#include "astra/base/logging.hpp"
 
 // ==============================================================================
 // Platform-specific includes
