@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-分析AstraDB项目中所有源文件的头文件使用情况
-用于优化预编译头文件(pch.h)
+Analyze header file usage in AstraDB project
+Used for optimizing precompiled header files (pch.h)
 """
 import os
 import re
@@ -9,12 +9,12 @@ from collections import Counter
 from pathlib import Path
 
 def extract_includes(file_path):
-    """从源文件中提取所有#include语句"""
+    """Extract all #include statements from source files"""
     includes = []
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            # 匹配 #include "..." 和 #include <...>
+            # Match #include "..." and #include <...>
             matches = re.findall(r'^\s*#include\s+[<"]([^>"]+)[>"]', content, re.MULTILINE)
             includes.extend(matches)
     except Exception as e:
@@ -22,15 +22,15 @@ def extract_includes(file_path):
     return includes
 
 def analyze_project(root_dir):
-    """分析整个项目的头文件使用情况"""
-    # 收集所有源文件
+    """Analyze header file usage across the entire project"""
+    # Collect all source files
     source_files = []
     for pattern in ['**/*.cpp', '**/*.hpp', '**/*.h']:
         source_files.extend(Path(root_dir).rglob(pattern))
     
-    print(f"找到 {len(source_files)} 个源文件")
+    print(f"Found {len(source_files)} source files")
     
-    # 统计头文件使用情况
+    # Count header file usage
     header_counter = Counter()
     file_headers = {}
     
@@ -42,21 +42,21 @@ def analyze_project(root_dir):
     return header_counter, file_headers
 
 def check_header_exists(header_path, include_dirs, project_root):
-    """检查头文件是否存在"""
-    # 系统头文件（<...>）
+    """Check if a header file exists"""
+    # System headers (<...>)
     if header_path.startswith('<'):
-        return True  # 系统头文件假设存在
+        return True  # Assume system headers exist
     
-    # 项目头文件（"..."）
+    # Project headers ("...")
     header_path = header_path.strip('"')
     
-    # 检查相对于项目根目录的路径
+    # Check paths relative to include directories
     for inc_dir in include_dirs:
         full_path = Path(inc_dir) / header_path
         if full_path.exists():
             return True
     
-    # 检查绝对路径
+    # Check absolute path
     full_path = Path(project_root) / header_path
     if full_path.exists():
         return True
@@ -64,39 +64,39 @@ def check_header_exists(header_path, include_dirs, project_root):
     return False
 
 def main():
-    root_dir = Path(__file__).parent
-    print(f"分析项目: {root_dir}")
+    root_dir = Path(__file__).parent.parent
+    print(f"Analyzing project: {root_dir}")
     print("=" * 60)
     
-    # 分析头文件使用
+    # Analyze header usage
     header_counter, file_headers = analyze_project(root_dir)
     
-    print(f"\n总共使用了 {len(header_counter)} 个不同的头文件")
+    print(f"\nTotal {len(header_counter)} unique header files used")
     print("=" * 60)
     
-    # 按使用频率排序
-    print("\n最常用的20个头文件:")
+    # Sort by frequency
+    print("\nTop 20 most used header files:")
     print("-" * 60)
     for header, count in header_counter.most_common(20):
         print(f"{count:4d}  {header}")
     
-    # 项目头文件统计
+    # Project header statistics
     print("\n" + "=" * 60)
-    print("项目头文件使用频率:")
+    print("Project header file usage frequency:")
     print("-" * 60)
     project_headers = [h for h in header_counter if h.startswith('"')]
     for header, count in sorted(project_headers, key=lambda x: -header_counter[x]):
         print(f"{count:4d}  {header}")
     
-    # 检查pch.h中的头文件
+    # Check headers in pch.h
     print("\n" + "=" * 60)
-    print("检查当前pch.h中的头文件:")
+    print("Checking headers in current pch.h:")
     print("-" * 60)
     
     pch_path = root_dir / "src" / "pch.h"
     if pch_path.exists():
         pch_includes = extract_includes(pch_path)
-        print(f"\npch.h包含 {len(pch_includes)} 个头文件:")
+        print(f"\npch.h includes {len(pch_includes)} header files:")
         
         include_dirs = [
             str(root_dir / "src"),
@@ -113,22 +113,22 @@ def main():
                 missing_headers.append(header)
         
         if existing_headers:
-            print("\n✅ 存在的头文件:")
+            print("\n✅ Existing headers:")
             for h in existing_headers:
                 count = header_counter.get(h, 0)
-                print(f"   ✓ {h} (被使用{count}次)")
+                print(f"   ✓ {h} (used {count} times)")
         
         if missing_headers:
-            print("\n❌ 不存在的头文件:")
+            print("\n❌ Missing headers:")
             for h in missing_headers:
                 print(f"   ✗ {h}")
     
-    # 建议应该包含在pch.h中的高频头文件
+    # Suggest high-frequency headers for pch.h
     print("\n" + "=" * 60)
-    print("建议添加到pch.h的高频头文件 (>10次使用):")
+    print("Suggested high-frequency headers for pch.h (>10 uses):")
     print("-" * 60)
     
-    # 当前pch.h中已经包含的头文件
+    # Headers already in pch.h
     if pch_path.exists():
         pch_includes = extract_includes(pch_path)
         pch_includes_set = set(h.strip('"').strip('<').strip('>') for h in pch_includes)
@@ -138,7 +138,7 @@ def main():
     high_frequency_headers = []
     for header, count in header_counter.items():
         if count >= 10 and header not in pch_includes_set:
-            # 排除系统头文件（通常已经在标准库中）
+            # Exclude system headers (usually in standard library)
             if not header.startswith('<'):
                 high_frequency_headers.append((header, count))
     
@@ -146,9 +146,9 @@ def main():
     for header, count in high_frequency_headers[:30]:
         print(f"{count:4d}  {header}")
     
-    # 标准库头文件统计
+    # Standard library header statistics
     print("\n" + "=" * 60)
-    print("高频标准库头文件 (>5次使用):")
+    print("High-frequency standard library headers (>5 uses):")
     print("-" * 60)
     std_headers = {h: count for h, count in header_counter.items() if h.startswith('<')}
     std_headers = [(h.strip('<').strip('>'), count) for h, count in std_headers.items()]
