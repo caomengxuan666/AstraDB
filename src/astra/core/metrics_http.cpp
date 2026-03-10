@@ -5,102 +5,103 @@
 // ==============================================================================
 
 #include "metrics.hpp"
+#include "astra/core/async/thread_pool.hpp"
 #include <asio.hpp>
 #include <sstream>
-#include <thread>
 #include <memory>
 
 namespace astra::metrics {
 
-// ASIO-based HTTP server for Prometheus metrics
+// ASIO-based HTTP server for Prometheus metrics using server's io_context
 class MetricsHTTPServer : public std::enable_shared_from_this<MetricsHTTPServer> {
  public:
-  static std::shared_ptr<MetricsHTTPServer> Create(asio::io_context& io_context, 
-                                                     const std::string& bind_addr, 
-                                                     uint16_t port,
-                                                     std::shared_ptr<prometheus::Registry> registry) {
-    auto server = std::shared_ptr<MetricsHTTPServer>(
-      new MetricsHTTPServer(io_context, bind_addr, port, registry));
-    server->Start();
-    return server;
-  }
-
- private:
-  MetricsHTTPServer(asio::io_context& io_context, 
+  MetricsHTTPServer(asio::io_context& io_context,
                     const std::string& bind_addr, 
                     uint16_t port,
                     std::shared_ptr<prometheus::Registry> registry)
-      : acceptor_(io_context),
-        socket_(io_context),
-        registry_(registry) {
+      : io_context_(io_context),
+        acceptor_(io_context_),
+        registry_(registry),
+        bind_addr_(bind_addr),
+        port_(port),
+        running_(false) {
     asio::ip::tcp::endpoint endpoint(asio::ip::address::from_string(bind_addr), port);
     acceptor_.open(endpoint.protocol());
     acceptor_.set_option(asio::ip::tcp::acceptor::reuse_address(true));
     acceptor_.bind(endpoint);
     acceptor_.listen();
     
-    ASTRADB_LOG_INFO("Metrics HTTP server listening on {}:{}", bind_addr, port);
+    ASTRADB_LOG_INFO("Metrics HTTP server acceptor listening on {}:{}", bind_addr, port);
   }
 
   void Start() {
+    if (running_.exchange(true)) {
+      return;
+    }
+    
+    ASTRADB_LOG_INFO("Starting Metrics HTTP server on {}:{}", bind_addr_, port_);
     AcceptConnection();
   }
 
+  ~MetricsHTTPServer() {
+    ASTRADB_LOG_INFO("Shutting down Metrics HTTP server");
+    
+    if (running_.exchange(false)) {
+      std::error_code ec;
+      acceptor_.close(ec);
+    }
+  }
+
+ private:
   void AcceptConnection() {
-    acceptor_.async_accept(socket_, [self = shared_from_this()](std::error_code ec) {
-      if (!ec) {
-        self->HandleConnection();
+    ASTRADB_LOG_DEBUG("Metrics HTTP: AcceptConnection called");
+    
+    if (!acceptor_.is_open()) {
+      ASTRADB_LOG_ERROR("Metrics HTTP: Acceptor is not open");
+      return;
+    }
+    
+    auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
+    acceptor_.async_accept(*socket, [this, socket](std::error_code ec) {
+      ASTRADB_LOG_DEBUG("Metrics HTTP: async_accept callback, ec={}", ec.message());
+      
+      if (running_.load()) {
+        if (!ec) {
+          ASTRADB_LOG_DEBUG("Metrics HTTP: Calling HandleConnection");
+          HandleConnection(socket);
+        } else {
+          ASTRADB_LOG_ERROR("Metrics HTTP: async_accept error: {}", ec.message());
+        }
+        AcceptConnection();
       }
-      self->AcceptConnection();
     });
   }
 
-  void HandleConnection() {
-    std::shared_ptr<asio::ip::tcp::socket> socket = 
-      std::make_shared<asio::ip::tcp::socket>(std::move(socket_));
-    
-    // Read request
-    std::shared_ptr<std::array<char, 4096>> buffer = 
-      std::make_shared<std::array<char, 4096>>();
-    
+  void HandleConnection(std::shared_ptr<asio::ip::tcp::socket> socket) {
+    auto buffer = std::make_shared<std::array<char, 4096>>();
     socket->async_read_some(asio::buffer(*buffer),
       [this, socket, buffer](std::error_code ec, size_t bytes_read) {
         if (ec) {
           return;
         }
         
-        // Parse request
         std::string request(buffer->data(), bytes_read);
-        
-        // Check if it's a GET /metrics request
         std::string response;
+        
         if (request.find("GET /metrics") == 0) {
-          // Collect metrics
           std::vector<prometheus::MetricFamily> metrics = registry_->Collect();
-          
-          // Format as Prometheus text format
           std::string body = SerializeMetrics(metrics);
-          
-          // Send HTTP response
-          response = 
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-            "Content-Length: " + std::to_string(body.size()) + "\r\n"
-            "\r\n" + body;
+          response = "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
+                    "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                    "\r\n" + body;
         } else {
-          // Send 404
-          response = 
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Length: 0\r\n"
-            "\r\n";
+          response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
         }
         
-        // Send response
-        std::shared_ptr<std::string> response_ptr = 
-          std::make_shared<std::string>(response);
-        
+        auto response_ptr = std::make_shared<std::string>(response);
         asio::async_write(*socket, asio::buffer(*response_ptr),
-          [socket](std::error_code ec, size_t) {
+          [socket](std::error_code, size_t) {
             socket->close();
           });
       });
@@ -181,9 +182,12 @@ class MetricsHTTPServer : public std::enable_shared_from_this<MetricsHTTPServer>
     return oss.str();
   }
 
+  asio::io_context& io_context_;
   asio::ip::tcp::acceptor acceptor_;
-  asio::ip::tcp::socket socket_;
   std::shared_ptr<prometheus::Registry> registry_;
+  std::string bind_addr_;
+  uint16_t port_;
+  std::atomic<bool> running_;
 };
 
 // Global pointer to keep the HTTP server alive
@@ -195,7 +199,8 @@ void MetricsRegistry::StartHTTPServer(asio::io_context& io_context, const Metric
     return;
   }
   
-  g_http_server = MetricsHTTPServer::Create(io_context, config.bind_addr, config.port, registry_);
+  g_http_server = std::make_shared<MetricsHTTPServer>(io_context, config.bind_addr, config.port, registry_);
+  g_http_server->Start();
 }
 
 }  // namespace astra::metrics
