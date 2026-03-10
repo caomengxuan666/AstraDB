@@ -61,7 +61,15 @@ struct ServerConfig {
   
   // Cluster
   ClusterConfig cluster;
-  
+
+  // Metrics
+  struct MetricsConfig {
+    bool enabled = true;
+    std::string bind_addr = "0.0.0.0";
+    uint16_t port = 9100;
+  };
+  MetricsConfig metrics;
+
   // Load from TOML file
   static ServerConfig LoadFromFile(const std::string& config_file);
   static ServerConfig LoadFromString(const std::string& config_str);

@@ -12,8 +12,11 @@
 #include <prometheus/registry.h>
 #include <prometheus/exposer.h>
 
+#include "astra/base/logging.hpp"
+
 #include <absl/container/flat_hash_map.h>
 #include <absl/strings/string_view.h>
+#include <absl/strings/str_cat.h>
 #include <absl/time/time.h>
 
 #include <memory>
@@ -40,23 +43,27 @@ class MetricsRegistry {
     return instance;
   }
 
-  // Initialize metrics exposer
+// Initialize metrics exposer
   bool Init(const MetricsConfig& config) {
     if (initialized_.load(std::memory_order_acquire)) {
       return true;
     }
 
     if (!config.enabled) {
+      ASTRADB_LOG_INFO("Prometheus metrics disabled");
       initialized_.store(true, std::memory_order_release);
       return true;
     }
 
     try {
-      exposer_ = std::make_unique<prometheus::Exposer>(config.bind_addr, config.port);
+      std::string bind_address = config.bind_addr + ":" + std::to_string(config.port);
+      exposer_ = std::make_unique<prometheus::Exposer>(bind_address);
       exposer_->RegisterCollectable(registry_);
       initialized_.store(true, std::memory_order_release);
+      ASTRADB_LOG_INFO("Prometheus metrics exposer started on {}", bind_address);
       return true;
     } catch (const std::exception& e) {
+      ASTRADB_LOG_ERROR("Failed to start Prometheus metrics exposer on {}:{}: {}", config.bind_addr, config.port, e.what());
       return false;
     }
   }
@@ -242,6 +249,13 @@ class AstraMetrics {
     if (!initialized_ || !config_.enabled) return;
     persistence_info_->Add({{"type", "rdb_last_save"}}).Set(timestamp);
   }
+
+  // Metrics update methods
+  void UpdateMetrics();
+  void UpdateMemoryMetrics();
+  void UpdateKeysCount();
+  void UpdateClusterMetrics();
+  void UpdatePersistenceMetrics();
 
   // Export metrics to FlatBuffers format
   std::vector<uint8_t> ExportToFlatBuffers(const std::string& host = "localhost",
