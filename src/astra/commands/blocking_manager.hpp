@@ -4,14 +4,14 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
-#include <deque>
-#include <shared_mutex>
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <unordered_map>
 
 #include <asio/steady_timer.hpp>
+#include <chrono>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <shared_mutex>
+#include <unordered_map>
 
 #include "astra/protocol/resp/resp_types.hpp"
 
@@ -32,11 +32,14 @@ struct BlockedClient {
   astra::protocol::Command command;
   double timeout_seconds;
   std::chrono::steady_clock::time_point start_time;
-  std::function<astra::protocol::RespValue(const astra::protocol::RespValue&)> callback;  // Returns result to send
-  astra::network::Connection* connection = nullptr;  // Save connection pointer for async response
+  std::function<astra::protocol::RespValue(const astra::protocol::RespValue&)>
+      callback;  // Returns result to send
+  astra::network::Connection* connection =
+      nullptr;  // Save connection pointer for async response
 };
 
-// Blocking manager for Redis-style blocking commands (BLPOP, BRPOP, BZPOPMIN, etc.)
+// Blocking manager for Redis-style blocking commands (BLPOP, BRPOP, BZPOPMIN,
+// etc.)
 class BlockingManager {
  public:
   explicit BlockingManager(asio::io_context& io_context);
@@ -71,7 +74,8 @@ class BlockingManager {
   mutable std::shared_mutex wait_queues_mutex_;
 
   // Timeout timers
-  std::unordered_map<uint64_t, std::unique_ptr<asio::steady_timer>> timeout_timers_;
+  std::unordered_map<uint64_t, std::unique_ptr<asio::steady_timer>>
+      timeout_timers_;
   mutable std::shared_mutex timers_mutex_;
 };
 

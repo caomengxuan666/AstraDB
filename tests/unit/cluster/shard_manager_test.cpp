@@ -4,8 +4,10 @@
 // License: Apache 2.0
 // ==============================================================================
 
-#include <gtest/gtest.h>
 #include "astra/cluster/shard_manager.hpp"
+
+#include <gtest/gtest.h>
+
 #include <chrono>
 #include <thread>
 
@@ -19,7 +21,7 @@ class ShardManagerTest : public ::testing::Test {
     std::fill(self_id.begin(), self_id.end(), 0x00);
     ASSERT_TRUE(manager_.Init(4, self_id));
   }
-  
+
   ShardManager manager_;
 };
 
@@ -35,7 +37,7 @@ TEST_F(ShardManagerTest, SlotCalculation) {
   HashSlot slot1 = HashSlotCalculator::Calculate("mykey");
   HashSlot slot2 = HashSlotCalculator::Calculate("mykey");
   EXPECT_EQ(slot1, slot2);  // Same key = same slot
-  
+
   // Different keys should (usually) have different slots
   HashSlot slot3 = HashSlotCalculator::Calculate("otherkey");
   // Just verify they're valid slots
@@ -48,7 +50,7 @@ TEST_F(ShardManagerTest, HashTagExtraction) {
   HashSlot slot1 = HashSlotCalculator::CalculateWithTag("{user:1}:profile");
   HashSlot slot2 = HashSlotCalculator::CalculateWithTag("{user:1}:settings");
   HashSlot slot3 = HashSlotCalculator::CalculateWithTag("{user:2}:profile");
-  
+
   EXPECT_EQ(slot1, slot2);  // Same hash tag = same slot
   // Different hash tags might have different slots (probabilistic)
   EXPECT_LT(slot1, kHashSlotCount);
@@ -75,12 +77,12 @@ TEST_F(ShardManagerTest, GetShardForSlot) {
 TEST_F(ShardManagerTest, ShardSlotDistribution) {
   // Each shard should cover roughly 1/4 of slots
   absl::flat_hash_map<ShardId, uint64_t> slot_counts;
-  
+
   for (HashSlot slot = 0; slot < kHashSlotCount; ++slot) {
     ShardId shard = manager_.GetShardForSlot(slot);
     slot_counts[shard]++;
   }
-  
+
   // Each shard should have approximately kHashSlotCount / shard_count slots
   uint64_t expected = kHashSlotCount / manager_.GetShardCount();
   for (const auto& [shard, count] : slot_counts) {
@@ -140,7 +142,7 @@ TEST_F(ShardManagerTest, BinaryKey) {
 TEST_F(ShardManagerTest, MultipleInitCalls) {
   NodeId self_id{};
   std::fill(self_id.begin(), self_id.end(), 0x01);
-  
+
   // Second init should still work
   EXPECT_TRUE(manager_.Init(8, self_id));
   EXPECT_EQ(manager_.GetShardCount(), 8);
@@ -151,14 +153,14 @@ TEST_F(ShardManagerTest, MultipleInitCalls) {
 TEST_F(ShardManagerTest, StartMigration) {
   NodeId target_node;
   std::fill(target_node.begin(), target_node.end(), 0x02);
-  
+
   // Start migration of shard 0
   EXPECT_TRUE(manager_.StartMigration(0, target_node));
-  
+
   // Verify migration state
   EXPECT_TRUE(manager_.IsMigrating(0));
   EXPECT_FALSE(manager_.IsMigrating(1));
-  
+
   // Verify migration target
   EXPECT_EQ(manager_.GetMigrationTarget(0), target_node);
 }
@@ -166,16 +168,16 @@ TEST_F(ShardManagerTest, StartMigration) {
 TEST_F(ShardManagerTest, CompleteMigration) {
   NodeId target_node;
   std::fill(target_node.begin(), target_node.end(), 0x02);
-  
+
   manager_.StartMigration(0, target_node);
   EXPECT_TRUE(manager_.IsMigrating(0));
-  
+
   // Complete migration
   EXPECT_TRUE(manager_.CompleteMigration(0));
-  
+
   // Verify state changed to stable
   EXPECT_FALSE(manager_.IsMigrating(0));
-  
+
   // Verify ownership transferred
   EXPECT_EQ(manager_.GetPrimaryNode(0), target_node);
 }
@@ -183,18 +185,18 @@ TEST_F(ShardManagerTest, CompleteMigration) {
 TEST_F(ShardManagerTest, CancelMigration) {
   NodeId target_node;
   std::fill(target_node.begin(), target_node.end(), 0x02);
-  
+
   NodeId original_owner = manager_.GetPrimaryNode(0);
-  
+
   manager_.StartMigration(0, target_node);
   EXPECT_TRUE(manager_.IsMigrating(0));
-  
+
   // Cancel migration
   EXPECT_TRUE(manager_.CancelMigration(0));
-  
+
   // Verify state is stable
   EXPECT_FALSE(manager_.IsMigrating(0));
-  
+
   // Verify ownership unchanged
   EXPECT_EQ(manager_.GetPrimaryNode(0), original_owner);
 }
@@ -202,14 +204,14 @@ TEST_F(ShardManagerTest, CancelMigration) {
 TEST_F(ShardManagerTest, StartImport) {
   NodeId source_node;
   std::fill(source_node.begin(), source_node.end(), 0x03);
-  
+
   // Start importing shard 1
   EXPECT_TRUE(manager_.StartImport(1, source_node));
-  
+
   // Verify import state
   EXPECT_TRUE(manager_.IsImporting(1));
   EXPECT_FALSE(manager_.IsImporting(0));
-  
+
   // Verify import source
   EXPECT_EQ(manager_.GetImportSource(1), source_node);
 }
@@ -217,13 +219,13 @@ TEST_F(ShardManagerTest, StartImport) {
 TEST_F(ShardManagerTest, CompleteImport) {
   NodeId source_node;
   std::fill(source_node.begin(), source_node.end(), 0x03);
-  
+
   manager_.StartImport(1, source_node);
   EXPECT_TRUE(manager_.IsImporting(1));
-  
+
   // Complete import
   EXPECT_TRUE(manager_.CompleteImport(1));
-  
+
   // Verify state is stable
   EXPECT_FALSE(manager_.IsImporting(1));
 }
@@ -231,16 +233,16 @@ TEST_F(ShardManagerTest, CompleteImport) {
 TEST_F(ShardManagerTest, MigrationStateTransitions) {
   NodeId target_node;
   std::fill(target_node.begin(), target_node.end(), 0x02);
-  
+
   // Initial state: stable
   EXPECT_FALSE(manager_.IsMigrating(0));
   EXPECT_FALSE(manager_.IsImporting(0));
-  
+
   // Transition: stable -> migrating
   manager_.StartMigration(0, target_node);
   EXPECT_TRUE(manager_.IsMigrating(0));
   EXPECT_FALSE(manager_.IsImporting(0));
-  
+
   // Transition: migrating -> stable (complete)
   manager_.CompleteMigration(0);
   EXPECT_FALSE(manager_.IsMigrating(0));
@@ -250,16 +252,16 @@ TEST_F(ShardManagerTest, MigrationStateTransitions) {
 TEST_F(ShardManagerTest, ImportStateTransitions) {
   NodeId source_node;
   std::fill(source_node.begin(), source_node.end(), 0x03);
-  
+
   // Initial state: stable
   EXPECT_FALSE(manager_.IsMigrating(1));
   EXPECT_FALSE(manager_.IsImporting(1));
-  
+
   // Transition: stable -> importing
   manager_.StartImport(1, source_node);
   EXPECT_FALSE(manager_.IsMigrating(1));
   EXPECT_TRUE(manager_.IsImporting(1));
-  
+
   // Transition: importing -> stable
   manager_.CompleteImport(1);
   EXPECT_FALSE(manager_.IsMigrating(1));
@@ -270,7 +272,7 @@ TEST_F(ShardManagerTest, InvalidMigrationOperations) {
   // Try to migrate non-existent shard
   NodeId target_node;
   std::fill(target_node.begin(), target_node.end(), 0x02);
-  
+
   EXPECT_FALSE(manager_.StartMigration(100, target_node));
   EXPECT_FALSE(manager_.CompleteMigration(100));
   EXPECT_FALSE(manager_.CancelMigration(100));
@@ -281,7 +283,7 @@ TEST_F(ShardManagerTest, InvalidImportOperations) {
   // Try to import non-existent shard
   NodeId source_node;
   std::fill(source_node.begin(), source_node.end(), 0x03);
-  
+
   EXPECT_FALSE(manager_.StartImport(100, source_node));
   EXPECT_FALSE(manager_.CompleteImport(100));
   EXPECT_FALSE(manager_.IsImporting(100));

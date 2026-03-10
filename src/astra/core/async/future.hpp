@@ -6,15 +6,16 @@
 
 #pragma once
 
-#include <asio/awaitable.hpp>
-#include <asio/use_awaitable.hpp>
 #include <absl/status/status.h>
 #include <absl/status/statusor.h>
 #include <absl/strings/str_cat.h>
+
+#include <asio/awaitable.hpp>
+#include <asio/use_awaitable.hpp>
 #include <cassert>
 #include <optional>
-#include <variant>
 #include <system_error>
+#include <variant>
 
 #include "astra/base/macros.hpp"
 
@@ -35,18 +36,14 @@ class AsyncResult {
   // Constructors
   AsyncResult() = default;
 
-  explicit AsyncResult(T value) 
-      : state_(std::move(value)) {}
+  explicit AsyncResult(T value) : state_(std::move(value)) {}
 
-  explicit AsyncResult(absl::Status status)
-      : state_(std::move(status)) {
+  explicit AsyncResult(absl::Status status) : state_(std::move(status)) {
     assert(!status.ok());
   }
 
   // Status check
-  bool ok() const {
-    return std::holds_alternative<T>(state_);
-  }
+  bool ok() const { return std::holds_alternative<T>(state_); }
 
   // Get the status (error if not ok)
   absl::Status status() const {
@@ -90,8 +87,7 @@ class AsyncResult<void> {
  public:
   AsyncResult() : status_(absl::OkStatus()) {}
 
-  explicit AsyncResult(absl::Status status)
-      : status_(std::move(status)) {
+  explicit AsyncResult(absl::Status status) : status_(std::move(status)) {
     assert(!status.ok());
   }
 
@@ -109,8 +105,8 @@ class AsyncResult<void> {
 class AsyncError {
  public:
   static absl::Status FromSystemError(const std::system_error& e) {
-    return absl::InternalError(
-        absl::StrCat("System error: ", e.what(), " (", e.code().message(), ")"));
+    return absl::InternalError(absl::StrCat("System error: ", e.what(), " (",
+                                            e.code().message(), ")"));
   }
 
   static absl::Status Cancelled() {
@@ -156,12 +152,11 @@ inline asio::awaitable<void> AsyncYield() {
 
 // Run a function with timeout
 template <typename Func>
-inline asio::awaitable<AsyncResult<std::invoke_result_t<Func>>> AsyncWithTimeout(
-    Func&& func,
-    std::chrono::milliseconds timeout) {
+inline asio::awaitable<AsyncResult<std::invoke_result_t<Func>>>
+AsyncWithTimeout(Func&& func, std::chrono::milliseconds timeout) {
   asio::steady_timer timer(co_await asio::this_coro::executor);
   timer.expires_after(timeout);
-  
+
   try {
     using ResultType = std::invoke_result_t<Func>;
     auto result = co_await func();
@@ -173,4 +168,4 @@ inline asio::awaitable<AsyncResult<std::invoke_result_t<Func>>> AsyncWithTimeout
   }
 }
 
-} // namespace astra::core::async
+}  // namespace astra::core::async

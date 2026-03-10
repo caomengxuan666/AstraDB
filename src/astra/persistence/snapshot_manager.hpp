@@ -12,25 +12,22 @@
 
 #pragma once
 
-#include <absl/synchronization/mutex.h>
-#include "leveldb_adapter.hpp"
-
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
-#include <absl/strings/string_view.h>
 #include <absl/strings/str_cat.h>
+#include <absl/strings/string_view.h>
+#include <absl/synchronization/mutex.h>
 #include <absl/time/time.h>
 
+#include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
-#include <atomic>
-#include <fstream>
-#include <filesystem>
 
-#include <absl/synchronization/mutex.h>
-#include "astra/base/macros.hpp"
-#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
+#include "leveldb_adapter.hpp"
 
 namespace astra::persistence {
 
@@ -46,8 +43,8 @@ struct alignas(16) SnapshotHeader {
   uint32_t version;
   uint64_t create_time_ms;
   uint64_t key_count;
-  uint32_t checksum;      // CRC32 of data
-  uint32_t reserved;      // For future use
+  uint32_t checksum;  // CRC32 of data
+  uint32_t reserved;  // For future use
 };
 
 static_assert(sizeof(SnapshotHeader) == 32, "SnapshotHeader must be 32 bytes");
@@ -81,15 +78,16 @@ class SnapshotManager {
   // Initialize with options
   bool Init(const SnapshotOptions& options) noexcept {
     options_ = options;
-    
+
     // Create snapshot directory if not exists
     std::error_code ec;
     std::filesystem::create_directories(options.snapshot_dir, ec);
     if (ec) {
-      ASTRADB_LOG_ERROR("Failed to create snapshot directory: {}", ec.message());
+      ASTRADB_LOG_ERROR("Failed to create snapshot directory: {}",
+                        ec.message());
       return false;
     }
-    
+
     initialized_.store(true, std::memory_order_release);
     return true;
   }
@@ -108,7 +106,8 @@ class SnapshotManager {
 
     // Generate snapshot name if not provided
     std::string snapshot_name = name.empty() ? GenerateSnapshotName() : name;
-    std::string snapshot_path = absl::StrCat(options_.snapshot_dir, "/", snapshot_name, ".snap");
+    std::string snapshot_path =
+        absl::StrCat(options_.snapshot_dir, "/", snapshot_name, ".snap");
 
     ASTRADB_LOG_INFO("Creating snapshot: {}", snapshot_path);
 
@@ -136,11 +135,12 @@ class SnapshotManager {
     // Save all data types
     const auto write_entries = [&](KeyPrefix prefix, EntryType type) {
       std::string prefix_str = std::string(1, static_cast<char>(prefix)) + ":";
-      adapter.Scan(prefix_str, [&](absl::string_view key, absl::string_view value) {
-        WriteEntry(ofs, type, key, value);
-        ++key_count;
-        return true;
-      });
+      adapter.Scan(prefix_str,
+                   [&](absl::string_view key, absl::string_view value) {
+                     WriteEntry(ofs, type, key, value);
+                     ++key_count;
+                     return true;
+                   });
     };
 
     write_entries(KeyPrefix::kString, EntryType::kString);
@@ -164,7 +164,8 @@ class SnapshotManager {
     const auto duration = absl::Now() - start_time;
     const auto duration_ms = absl::ToInt64Milliseconds(duration);
 
-    ASTRADB_LOG_INFO("Snapshot created: {} keys in {}ms", key_count, duration_ms);
+    ASTRADB_LOG_INFO("Snapshot created: {} keys in {}ms", key_count,
+                     duration_ms);
 
     // Cleanup old snapshots
     CleanupOldSnapshots();
@@ -209,8 +210,8 @@ class SnapshotManager {
 
     // Validate header
     if (header.magic != SNAPSHOT_MAGIC) {
-      ASTRADB_LOG_ERROR("Invalid snapshot magic: expected {}, got {}", 
-                    SNAPSHOT_MAGIC, header.magic);
+      ASTRADB_LOG_ERROR("Invalid snapshot magic: expected {}, got {}",
+                        SNAPSHOT_MAGIC, header.magic);
       return false;
     }
 
@@ -220,7 +221,7 @@ class SnapshotManager {
     }
 
     ASTRADB_LOG_INFO("Snapshot info: version={}, keys={}, created={}",
-                 header.version, header.key_count, header.create_time_ms);
+                     header.version, header.key_count, header.create_time_ms);
 
     // Read and restore entries using batch writes
     uint64_t restored = 0;
@@ -245,7 +246,7 @@ class SnapshotManager {
         adapter.Write(batch);
         batch.Clear();
         batch_size = 0;
-        
+
         // Log progress every 100k keys
         if (restored % 100000 == 0) {
           ASTRADB_LOG_INFO("Restored {} keys...", restored);
@@ -273,7 +274,8 @@ class SnapshotManager {
     }
 
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(options_.snapshot_dir, ec)) {
+    for (const auto& entry :
+         std::filesystem::directory_iterator(options_.snapshot_dir, ec)) {
       if (entry.path().extension() == ".snap") {
         snapshots.push_back(entry.path().stem().string());
       }
@@ -288,15 +290,13 @@ class SnapshotManager {
   // Delete a snapshot
   bool DeleteSnapshot(const std::string& name) noexcept {
     std::string path = absl::StrCat(options_.snapshot_dir, "/", name, ".snap");
-    
+
     std::error_code ec;
     return std::filesystem::remove(path, ec);
   }
 
   // Get latest snapshot info
-  bool HasSnapshot() const noexcept {
-    return !FindLatestSnapshot().empty();
-  }
+  bool HasSnapshot() const noexcept { return !FindLatestSnapshot().empty(); }
 
  private:
   // Entry types in snapshot
@@ -312,8 +312,8 @@ class SnapshotManager {
   };
 
   // Write an entry to snapshot (binary format)
-  void WriteEntry(std::ofstream& ofs, EntryType type,
-                  absl::string_view key, absl::string_view value) noexcept {
+  void WriteEntry(std::ofstream& ofs, EntryType type, absl::string_view key,
+                  absl::string_view value) noexcept {
     // Write type (1 byte)
     uint8_t type_byte = static_cast<uint8_t>(type);
     ofs.write(reinterpret_cast<const char*>(&type_byte), 1);
@@ -336,23 +336,23 @@ class SnapshotManager {
   }
 
   // Read an entry from snapshot
-  bool ReadEntry(std::ifstream& ifs, EntryType& type,
-                 std::string& key, std::string& value) noexcept {
+  bool ReadEntry(std::ifstream& ifs, EntryType& type, std::string& key,
+                 std::string& value) noexcept {
     // Read type
     uint8_t type_byte;
     ifs.read(reinterpret_cast<char*>(&type_byte), 1);
-    
+
     if (ifs.eof() || type_byte == static_cast<uint8_t>(EntryType::kEnd)) {
       return false;
     }
-    
+
     type = static_cast<EntryType>(type_byte);
 
     // Read key
     uint32_t key_len;
     ifs.read(reinterpret_cast<char*>(&key_len), 4);
     if (ifs.eof()) return false;
-    
+
     key.resize(key_len);
     ifs.read(key.data(), key_len);
 
@@ -360,7 +360,7 @@ class SnapshotManager {
     uint32_t value_len;
     ifs.read(reinterpret_cast<char*>(&value_len), 4);
     if (ifs.eof()) return false;
-    
+
     value.resize(value_len);
     ifs.read(value.data(), value_len);
 

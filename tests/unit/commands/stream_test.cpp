@@ -5,11 +5,12 @@
 // ==============================================================================
 
 #include <gtest/gtest.h>
+
+#include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/command_auto_register.hpp"
-#include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/container/stream_data.hpp"
+#include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::commands {
 
@@ -47,9 +48,7 @@ class StreamCommandTest : public ::testing::Test {
     context_->SetDatabase(db_manager_->GetDatabase(0));
   }
 
-  void TearDown() override {
-    context_->GetDatabase()->Clear();
-  }
+  void TearDown() override { context_->GetDatabase()->Clear(); }
 
   std::unique_ptr<DatabaseManager> db_manager_;
   std::unique_ptr<CommandRegistry> registry_;
@@ -144,7 +143,7 @@ TEST_F(StreamCommandTest, XDEL) {
 
   // XDEL mystream <stream_id_from_xadd>
   std::string stream_id = result.response.AsString();
-  
+
   Command xdel_cmd;
   xdel_cmd.name = "XDEL";
   xdel_cmd.args.emplace_back(std::string("mystream"));
@@ -253,4 +252,4 @@ TEST_F(StreamCommandTest, XREADGROUP) {
   ASSERT_TRUE(result.success) << "XREADGROUP failed: " << result.error;
 }
 
-} // namespace astra::commands
+}  // namespace astra::commands

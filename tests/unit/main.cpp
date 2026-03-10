@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
+
 #include "astra/base/logging.hpp"
 
 int main(int argc, char** argv) {

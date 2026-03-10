@@ -5,13 +5,16 @@
 // ==============================================================================
 
 #include "script_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
-#include "astra/base/logging.hpp"
-#include <sha1.hpp>
+
 #include <absl/strings/ascii.h>
-#include <sstream>
+
 #include <mutex>
+#include <sha1.hpp>
+#include <sstream>
+
+#include "astra/base/logging.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
@@ -26,7 +29,7 @@ static std::string ComputeSHA1(const std::string& input) {
 LuaScriptContext::LuaScriptContext(Database* db) : db_(db) {
   lua_state_ = luaL_newstate();
   luaL_openlibs(lua_state_);
-  
+
   // Register Redis functions
   lua_register(lua_state_, "call", LuaCall);
   lua_register(lua_state_, "pcall", LuaPcall);
@@ -43,27 +46,27 @@ int LuaScriptContext::LuaCall(lua_State* L) {
   lua_getfield(L, LUA_REGISTRYINDEX, "astra_context");
   LuaScriptContext* ctx = static_cast<LuaScriptContext*>(lua_touserdata(L, -1));
   lua_pop(L, 1);
-  
+
   if (!ctx) {
     lua_pushnil(L);
     lua_pushstring(L, "ERR context not available");
     return 2;
   }
-  
+
   // Get command name
   if (lua_gettop(L) < 1) {
     lua_pushnil(L);
     lua_pushstring(L, "ERR wrong number of arguments");
     return 2;
   }
-  
+
   const char* cmd_name = lua_tostring(L, 1);
   if (!cmd_name) {
     lua_pushnil(L);
     lua_pushstring(L, "ERR command name must be a string");
     return 2;
   }
-  
+
   // Collect arguments
   std::vector<std::string> args;
   for (int i = 2; i <= lua_gettop(L); ++i) {
@@ -77,7 +80,7 @@ int LuaScriptContext::LuaCall(lua_State* L) {
       args.push_back("");  // nil -> empty string
     }
   }
-  
+
   // Execute command (simplified - for now just return OK)
   // In a full implementation, we would route through the command registry
   lua_pushstring(L, "OK");
@@ -90,13 +93,13 @@ int LuaScriptContext::LuaPcall(lua_State* L) {
   return 1;
 }
 
-CommandResult LuaScriptContext::Execute(const std::string& script, 
-                                       const std::vector<std::string>& keys,
-                                       const std::vector<std::string>& args) {
+CommandResult LuaScriptContext::Execute(const std::string& script,
+                                        const std::vector<std::string>& keys,
+                                        const std::vector<std::string>& args) {
   // Store context in registry
   lua_pushlightuserdata(lua_state_, this);
   lua_setfield(lua_state_, LUA_REGISTRYINDEX, "astra_context");
-  
+
   // Set up KEYS and ARGV tables
   lua_newtable(lua_state_);  // KEYS
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -104,14 +107,14 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
     lua_rawseti(lua_state_, -2, static_cast<int>(i + 1));
   }
   lua_setglobal(lua_state_, "KEYS");
-  
+
   lua_newtable(lua_state_);  // ARGV
   for (size_t i = 0; i < args.size(); ++i) {
     lua_pushstring(lua_state_, args[i].c_str());
     lua_rawseti(lua_state_, -2, static_cast<int>(i + 1));
   }
   lua_setglobal(lua_state_, "ARGV");
-  
+
   // Load and execute script
   int load_result = luaL_loadstring(lua_state_, script.c_str());
   if (load_result != LUA_OK) {
@@ -119,35 +122,36 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
     lua_pop(lua_state_, 1);
     return CommandResult(false, error);
   }
-  
+
   int call_result = lua_pcall(lua_state_, 0, LUA_MULTRET, 0);
   if (call_result != LUA_OK) {
     std::string error = "ERR " + std::string(lua_tostring(lua_state_, -1));
     lua_pop(lua_state_, 1);
     return CommandResult(false, error);
   }
-  
+
   // Get return values
   int num_returns = lua_gettop(lua_state_);
   if (num_returns == 0) {
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
-  
+
   // Check if Lua returned a table (array)
   if (num_returns == 1 && lua_istable(lua_state_, 1)) {
     // Handle table return - convert Lua array to RESP array
     absl::InlinedVector<RespValue, 16> results;
-    
+
     // Get the length of the Lua table
     int len = lua_objlen(lua_state_, 1);
-    
+
     // Iterate through the table using numeric indices
     for (int i = 1; i <= len; ++i) {
       lua_rawgeti(lua_state_, 1, i);  // Push table[i] onto stack
       if (lua_isnil(lua_state_, -1)) {
         results.push_back(RespValue(RespType::kNullBulkString));
       } else if (lua_isboolean(lua_state_, -1)) {
-        results.push_back(RespValue(static_cast<int64_t>(lua_toboolean(lua_state_, -1) ? 1 : 0)));
+        results.push_back(RespValue(
+            static_cast<int64_t>(lua_toboolean(lua_state_, -1) ? 1 : 0)));
       } else if (lua_isnumber(lua_state_, -1)) {
         double num = lua_tonumber(lua_state_, -1);
         if (num == static_cast<int64_t>(num)) {
@@ -164,25 +168,27 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
       }
       lua_pop(lua_state_, 1);  // Pop the value
     }
-    
+
     lua_pop(lua_state_, 1);  // Pop the table
-    
+
     if (results.empty()) {
       return CommandResult(RespValue(std::vector<RespValue>()));
     } else if (results.size() == 1) {
       return CommandResult(std::move(results[0]));
     } else {
-      return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
+      return CommandResult(
+          RespValue(std::vector<RespValue>(results.begin(), results.end())));
     }
   }
-  
+
   // Handle multiple return values
   absl::InlinedVector<RespValue, 16> results;
   for (int i = 1; i <= num_returns; ++i) {
     if (lua_isnil(lua_state_, i)) {
       results.push_back(RespValue(RespType::kNullBulkString));
     } else if (lua_isboolean(lua_state_, i)) {
-      results.push_back(RespValue(static_cast<int64_t>(lua_toboolean(lua_state_, i) ? 1 : 0)));
+      results.push_back(RespValue(
+          static_cast<int64_t>(lua_toboolean(lua_state_, i) ? 1 : 0)));
     } else if (lua_isnumber(lua_state_, i)) {
       double num = lua_tonumber(lua_state_, i);
       if (num == static_cast<int64_t>(num)) {
@@ -198,13 +204,14 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
       results.push_back(RespValue("(nil)"));
     }
   }
-  
+
   lua_pop(lua_state_, num_returns);
-  
+
   if (results.size() == 1) {
     return CommandResult(std::move(results[0]));
   } else {
-    return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(results.begin(), results.end())));
   }
 }
 
@@ -225,9 +232,7 @@ bool ScriptCache::Exists(const std::string& sha1) const {
   return cache_.find(sha1) != cache_.end();
 }
 
-void ScriptCache::Clear() {
-  cache_.clear();
-}
+void ScriptCache::Clear() { cache_.clear(); }
 
 std::vector<std::string> ScriptCache::GetAllHashes() const {
   std::vector<std::string> hashes;
@@ -245,9 +250,11 @@ ScriptCache& GetGlobalScriptCache() {
 }
 
 // EVAL script numkeys key [key ...] arg [arg ...]
-CommandResult HandleEval(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleEval(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'EVAL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'EVAL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -270,7 +277,8 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
   int numkeys = 0;
   try {
     if (!absl::SimpleAtoi(numkeys_str, &numkeys)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
@@ -281,13 +289,14 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
   }
 
   if (static_cast<size_t>(numkeys) + 2 > command.ArgCount()) {
-    return CommandResult(false, "ERR Number of keys can't be greater than number of args");
+    return CommandResult(
+        false, "ERR Number of keys can't be greater than number of args");
   }
 
   // Extract keys and args
   std::vector<std::string> keys;
   std::vector<std::string> args;
-  
+
   for (int i = 0; i < numkeys; ++i) {
     const auto& arg = command[2 + i];
     if (!arg.IsBulkString()) {
@@ -295,7 +304,7 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
     }
     keys.push_back(arg.AsString());
   }
-  
+
   for (size_t i = 2 + numkeys; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) {
@@ -303,20 +312,22 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
     }
     args.push_back(arg.AsString());
   }
-  
+
   // Cache script
   std::string sha1 = ComputeSHA1(script);
   GetGlobalScriptCache().Cache(sha1, script);
-  
+
   // Execute script
   LuaScriptContext script_ctx(db);
   return script_ctx.Execute(script, keys, args);
 }
 
 // EVALSHA sha1 numkeys key [key ...] arg [arg ...]
-CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleEvalSha(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'EVALSHA' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'EVALSHA' command");
   }
 
   Database* db = context->GetDatabase();
@@ -337,17 +348,19 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandCont
 
   std::string sha1 = sha1_arg.AsString();
   std::string numkeys_str = numkeys_arg.AsString();
-  
+
   // Check if script exists in cache
   auto script = GetGlobalScriptCache().Get(sha1);
   if (!script) {
-    return CommandResult(false, "NOSCRIPT No matching script. Please use EVAL.");
+    return CommandResult(false,
+                         "NOSCRIPT No matching script. Please use EVAL.");
   }
 
   int numkeys = 0;
   try {
     if (!absl::SimpleAtoi(numkeys_str, &numkeys)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
@@ -358,13 +371,14 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandCont
   }
 
   if (static_cast<size_t>(numkeys) + 2 > command.ArgCount()) {
-    return CommandResult(false, "ERR Number of keys can't be greater than number of args");
+    return CommandResult(
+        false, "ERR Number of keys can't be greater than number of args");
   }
 
   // Extract keys and args
   std::vector<std::string> keys;
   std::vector<std::string> args;
-  
+
   for (int i = 0; i < numkeys; ++i) {
     const auto& arg = command[2 + i];
     if (!arg.IsBulkString()) {
@@ -372,7 +386,7 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandCont
     }
     keys.push_back(arg.AsString());
   }
-  
+
   for (size_t i = 2 + numkeys; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) {
@@ -380,16 +394,18 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command, CommandCont
     }
     args.push_back(arg.AsString());
   }
-  
+
   // Execute script
   LuaScriptContext script_ctx(db);
   return script_ctx.Execute(*script, keys, args);
 }
 
 // SCRIPT subcommand [arg ...]
-CommandResult HandleScript(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleScript(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'SCRIPT' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'SCRIPT' command");
   }
 
   const auto& subcommand_arg = command[0];
@@ -406,7 +422,8 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
       if (mode_arg.IsBulkString()) {
         std::string mode = mode_arg.AsString();
         if (mode != "ASYNC" && mode != "SYNC") {
-          return CommandResult(false, "ERR SCRIPT FLUSH only supports SYNC|ASYNC");
+          return CommandResult(false,
+                               "ERR SCRIPT FLUSH only supports SYNC|ASYNC");
         }
       }
     }
@@ -426,43 +443,51 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
       bool exists = GetGlobalScriptCache().Exists(sha1);
       results.push_back(RespValue(static_cast<int64_t>(exists ? 1 : 0)));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(results.begin(), results.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(results.begin(), results.end())));
   } else if (subcommand == "LOAD") {
     // SCRIPT LOAD script
     if (command.ArgCount() != 2) {
-      return CommandResult(false, "ERR wrong number of arguments for 'SCRIPT LOAD'");
+      return CommandResult(false,
+                           "ERR wrong number of arguments for 'SCRIPT LOAD'");
     }
-    
+
     const auto& script_arg = command[1];
     if (!script_arg.IsBulkString()) {
       return CommandResult(false, "ERR script must be a string");
     }
-    
+
     std::string script = script_arg.AsString();
     std::string sha1 = ComputeSHA1(script);
     GetGlobalScriptCache().Cache(sha1, script);
     return CommandResult(RespValue(sha1));
   } else {
-    return CommandResult(false, "ERR unknown SCRIPT subcommand '" + subcommand + "'");
+    return CommandResult(false,
+                         "ERR unknown SCRIPT subcommand '" + subcommand + "'");
   }
 }
 
 // EVAL_RO - Execute read-only Lua script
-CommandResult HandleEvalRo(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleEvalRo(const astra::protocol::Command& command,
+                           CommandContext* context) {
   // EVAL_RO is essentially the same as EVAL but marks the script as read-only
-  // For now, we just call HandleEval but could add read-only validation in the future
+  // For now, we just call HandleEval but could add read-only validation in the
+  // future
   return HandleEval(command, context);
 }
 
 // EVALSHA_RO - Execute read-only Lua script by SHA1 digest
-CommandResult HandleEvalShaRo(const astra::protocol::Command& command, CommandContext* context) {
-  // EVALSHA_RO is essentially the same as EVALSHA but marks the script as read-only
-  // For now, we just call HandleEvalSha but could add read-only validation in the future
+CommandResult HandleEvalShaRo(const astra::protocol::Command& command,
+                              CommandContext* context) {
+  // EVALSHA_RO is essentially the same as EVALSHA but marks the script as
+  // read-only For now, we just call HandleEvalSha but could add read-only
+  // validation in the future
   return HandleEvalSha(command, context);
 }
 
 // FCALL - Call a function
-CommandResult HandleFcall(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleFcall(const astra::protocol::Command& command,
+                          CommandContext* context) {
   // FCALL funcname [numkeys key [key ...]] [arg [arg ...]]
   // Note: In Redis 7+, FCALL replaces EVAL for function calls
   // For now, we treat it similarly to EVAL but with function library support
@@ -470,16 +495,21 @@ CommandResult HandleFcall(const astra::protocol::Command& command, CommandContex
 }
 
 // FCALL_RO - Call a read-only function
-CommandResult HandleFcallRo(const astra::protocol::Command& command, CommandContext* context) {
-  // FCALL_RO is essentially the same as FCALL but marks the function as read-only
-  // For now, we just call HandleFcall but could add read-only validation in the future
+CommandResult HandleFcallRo(const astra::protocol::Command& command,
+                            CommandContext* context) {
+  // FCALL_RO is essentially the same as FCALL but marks the function as
+  // read-only For now, we just call HandleFcall but could add read-only
+  // validation in the future
   return HandleFcall(command, context);
 }
 
-// FUNCTION - Function management (LOAD, DUMP, EXISTS, FLUSH, KILL, RESTORE, STATS, HELP)
-CommandResult HandleFunction(const astra::protocol::Command& command, CommandContext* context) {
+// FUNCTION - Function management (LOAD, DUMP, EXISTS, FLUSH, KILL, RESTORE,
+// STATS, HELP)
+CommandResult HandleFunction(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'FUNCTION' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'FUNCTION' command");
   }
 
   const auto& subcommand_arg = command[0];
@@ -492,16 +522,16 @@ CommandResult HandleFunction(const astra::protocol::Command& command, CommandCon
   if (subcommand == "HELP") {
     // FUNCTION HELP
     std::string help_text =
-      "FUNCTION <subcommand> [<arg> [value] ...]. Subcommands are:\n"
-      "DELETE - Delete a function\n"
-      "DUMP - Return all loaded functions\n"
-      "FLUSH - Delete all functions\n"
-      "KILL - Kill a function that is currently executing\n"
-      "LIST - Return information about all functions\n"
-      "LOAD - Load a library\n"
-      "RESTORE - Restore a function\n"
-      "STATS - Return information about functions\n"
-      "HELP - Show this help text";
+        "FUNCTION <subcommand> [<arg> [value] ...]. Subcommands are:\n"
+        "DELETE - Delete a function\n"
+        "DUMP - Return all loaded functions\n"
+        "FLUSH - Delete all functions\n"
+        "KILL - Kill a function that is currently executing\n"
+        "LIST - Return information about all functions\n"
+        "LOAD - Load a library\n"
+        "RESTORE - Restore a function\n"
+        "STATS - Return information about functions\n"
+        "HELP - Show this help text";
     protocol::RespValue resp;
     resp.SetString(help_text, protocol::RespType::kBulkString);
     return CommandResult(resp);
@@ -513,7 +543,8 @@ CommandResult HandleFunction(const astra::protocol::Command& command, CommandCon
       if (mode_arg.IsBulkString()) {
         std::string mode = mode_arg.AsString();
         if (mode != "ASYNC" && mode != "SYNC") {
-          return CommandResult(false, "ERR FUNCTION FLUSH only supports SYNC|ASYNC");
+          return CommandResult(false,
+                               "ERR FUNCTION FLUSH only supports SYNC|ASYNC");
         }
       }
     }
@@ -540,32 +571,45 @@ CommandResult HandleFunction(const astra::protocol::Command& command, CommandCon
     // For now, we return an empty array
     return CommandResult(RespValue(std::vector<RespValue>()));
 
-  } else if (subcommand == "LOAD" || subcommand == "DELETE" || subcommand == "KILL" || subcommand == "RESTORE") {
-    // Note: These are more complex operations that would require full function library support
-    // For now, we return an error
-    return CommandResult(false, "ERR FUNCTION " + subcommand + " not yet implemented");
+  } else if (subcommand == "LOAD" || subcommand == "DELETE" ||
+             subcommand == "KILL" || subcommand == "RESTORE") {
+    // Note: These are more complex operations that would require full function
+    // library support For now, we return an error
+    return CommandResult(false,
+                         "ERR FUNCTION " + subcommand + " not yet implemented");
 
   } else {
-    return CommandResult(false, "ERR unknown FUNCTION subcommand '" + subcommand + "'");
+    return CommandResult(
+        false, "ERR unknown FUNCTION subcommand '" + subcommand + "'");
   }
 }
 
 // FLAGS - Show command flags (for debugging)
-CommandResult HandleFlags(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleFlags(const astra::protocol::Command& command,
+                          CommandContext* context) {
   // Note: This is an internal command for debugging
   // For now, we return an empty array
   return CommandResult(RespValue(std::vector<RespValue>()));
 }
 
 // Auto-register all script commands
-ASTRADB_REGISTER_COMMAND(EVAL, -3, "write", RoutingStrategy::kByFirstKey, HandleEval);
-ASTRADB_REGISTER_COMMAND(EVALSHA, -3, "write", RoutingStrategy::kByFirstKey, HandleEvalSha);
-ASTRADB_REGISTER_COMMAND(EVAL_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleEvalRo);
-ASTRADB_REGISTER_COMMAND(EVALSHA_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleEvalShaRo);
-ASTRADB_REGISTER_COMMAND(FCALL, -3, "write", RoutingStrategy::kByFirstKey, HandleFcall);
-ASTRADB_REGISTER_COMMAND(FCALL_RO, -3, "readonly", RoutingStrategy::kByFirstKey, HandleFcallRo);
-ASTRADB_REGISTER_COMMAND(SCRIPT, -2, "write", RoutingStrategy::kNone, HandleScript);
-ASTRADB_REGISTER_COMMAND(FUNCTION, -2, "write", RoutingStrategy::kNone, HandleFunction);
-ASTRADB_REGISTER_COMMAND(FLAGS, 1, "readonly", RoutingStrategy::kNone, HandleFlags);
+ASTRADB_REGISTER_COMMAND(EVAL, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleEval);
+ASTRADB_REGISTER_COMMAND(EVALSHA, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleEvalSha);
+ASTRADB_REGISTER_COMMAND(EVAL_RO, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleEvalRo);
+ASTRADB_REGISTER_COMMAND(EVALSHA_RO, -3, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleEvalShaRo);
+ASTRADB_REGISTER_COMMAND(FCALL, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleFcall);
+ASTRADB_REGISTER_COMMAND(FCALL_RO, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleFcallRo);
+ASTRADB_REGISTER_COMMAND(SCRIPT, -2, "write", RoutingStrategy::kNone,
+                         HandleScript);
+ASTRADB_REGISTER_COMMAND(FUNCTION, -2, "write", RoutingStrategy::kNone,
+                         HandleFunction);
+ASTRADB_REGISTER_COMMAND(FLAGS, 1, "readonly", RoutingStrategy::kNone,
+                         HandleFlags);
 
 }  // namespace astra::commands

@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include <cstdint>
-#include <optional>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <optional>
 
 namespace astra::storage {
 
@@ -31,7 +31,7 @@ struct KeyMetadata {
   uint64_t version = 0;  // Version for WATCH/optimistic locking
 
   KeyMetadata() : type(KeyType::kNone) {}
-  
+
   explicit KeyMetadata(KeyType t) : type(t) {}
 
   bool IsExpired() const {
@@ -49,9 +49,7 @@ struct KeyMetadata {
     }
   }
 
-  void SetExpireSeconds(int64_t seconds) {
-    SetExpireMs(seconds * 1000);
-  }
+  void SetExpireSeconds(int64_t seconds) { SetExpireMs(seconds * 1000); }
 
   std::optional<int64_t> GetTtlMs() const {
     if (!expire_time_ms.has_value()) {
@@ -74,8 +72,8 @@ struct KeyMetadata {
 
   static int64_t GetCurrentTimeMs() {
     using namespace std::chrono;
-    return duration_cast<milliseconds>(
-        system_clock::now().time_since_epoch()).count();
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+        .count();
   }
 };
 
@@ -90,21 +88,19 @@ class KeyMetadataManager {
   void RegisterKey(const std::string& key, KeyType type) {
     KeyMetadata existing;
     uint64_t new_version = 1;
-    
+
     // If key exists, increment version
     if (metadata_map_.Get(key, &existing)) {
       new_version = existing.version + 1;
     }
-    
+
     KeyMetadata metadata(type);
     metadata.version = new_version;
     metadata_map_.Insert(key, std::move(metadata));
   }
 
   // Unregister a key
-  void UnregisterKey(const std::string& key) {
-    metadata_map_.Remove(key);
-  }
+  void UnregisterKey(const std::string& key) { metadata_map_.Remove(key); }
 
   // Check if a key exists and is not expired
   bool IsValid(const std::string& key) {
@@ -147,21 +143,21 @@ class KeyMetadataManager {
     return SetExpireMs(key, KeyMetadata::GetCurrentTimeMs() + seconds * 1000);
   }
 
-// Get TTL
+  // Get TTL
   int64_t GetTtlMs(const std::string& key) {
     KeyMetadata metadata;
     if (!metadata_map_.Get(key, &metadata)) {
       return -2;  // Key does not exist
     }
-    
+
     if (metadata.IsExpired()) {
       return -2;  // Key is expired
     }
-    
+
     if (!metadata.expire_time_ms.has_value()) {
       return -1;  // Key exists but has no expiration
     }
-    
+
     auto ttl_ms = metadata.GetTtlMs();
     if (!ttl_ms.has_value()) {
       return -1;  // Key exists but has no expiration
@@ -183,11 +179,11 @@ class KeyMetadataManager {
     if (!metadata_map_.Get(key, &metadata)) {
       return std::nullopt;  // Key does not exist
     }
-    
+
     if (metadata.IsExpired()) {
       return std::nullopt;  // Key is expired
     }
-    
+
     return metadata.expire_time_ms;
   }
 
@@ -206,23 +202,19 @@ class KeyMetadataManager {
   std::vector<std::string> GetExpiredKeys() {
     std::vector<std::string> expired_keys;
     [[maybe_unused]] int64_t now = KeyMetadata::GetCurrentTimeMs();
-    
+
     // Note: This is a simplified implementation
     // In production, we'd need a more efficient way to iterate
     // For now, we'll rely on lazy deletion in Get/IsValid
-    
+
     return expired_keys;
   }
 
   // Get metadata map size
-  size_t Size() const {
-    return metadata_map_.Size();
-  }
+  size_t Size() const { return metadata_map_.Size(); }
 
   // Get all keys (for KEYS command)
-  std::vector<std::string> GetAllKeys() {
-    return metadata_map_.GetAllKeys();
-  }
+  std::vector<std::string> GetAllKeys() { return metadata_map_.GetAllKeys(); }
 
   // Get key version (for WATCH)
   uint64_t GetKeyVersion(const std::string& key) {
@@ -243,9 +235,7 @@ class KeyMetadataManager {
   }
 
   // Clear all metadata
-  void Clear() {
-    metadata_map_.Clear();
-  }
+  void Clear() { metadata_map_.Clear(); }
 
  private:
   astra::container::DashMap<std::string, KeyMetadata> metadata_map_;

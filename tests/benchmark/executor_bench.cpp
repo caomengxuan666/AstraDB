@@ -4,11 +4,12 @@
 // License: Apache 2.0
 // ==============================================================================
 
-#include <benchmark/benchmark.h>
-#include "astra/core/async/executor.hpp"
-#include "astra/core/async/awaitable_ops.hpp"
-#include "astra/base/logging.hpp"
 #include <absl/base/thread_annotations.h>
+#include <benchmark/benchmark.h>
+
+#include "astra/base/logging.hpp"
+#include "astra/core/async/awaitable_ops.hpp"
+#include "astra/core/async/executor.hpp"
 
 namespace astra::core::async {
 
@@ -19,9 +20,7 @@ static void BM_CoroutineCreation(benchmark::State& state) {
 
   for (auto _ : state) {
     // Measure coroutine creation overhead
-    auto task = []() -> asio::awaitable<void> {
-      co_return;
-    };
+    auto task = []() -> asio::awaitable<void> { co_return; };
     benchmark::DoNotOptimize(task);
   }
 

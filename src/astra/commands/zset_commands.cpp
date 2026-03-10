@@ -5,17 +5,21 @@
 // ==============================================================================
 
 #include "zset_commands.hpp"
-#include "command_auto_register.hpp"
+
+#include <absl/container/inlined_vector.h>
+
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "blocking_manager.hpp"
-#include <absl/container/inlined_vector.h>
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
 // ZADD key score member [score member ...]
-CommandResult HandleZAdd(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZAdd(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 3 || command.ArgCount() % 2 != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZADD' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZADD' command");
   }
 
   Database* db = context->GetDatabase();
@@ -57,9 +61,11 @@ CommandResult HandleZAdd(const astra::protocol::Command& command, CommandContext
 }
 
 // ZRANGE key start stop [WITHSCORES]
-CommandResult HandleZRange(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRange(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 3 || command.ArgCount() > 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANGE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZRANGE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -71,19 +77,22 @@ CommandResult HandleZRange(const astra::protocol::Command& command, CommandConte
   const auto& start_arg = command[1];
   const auto& stop_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() || !stop_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() ||
+      !stop_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
   int64_t start, stop;
-  
+
   try {
     if (!absl::SimpleAtoi(start_arg.AsString(), &start)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
     if (!absl::SimpleAtoi(stop_arg.AsString(), &stop)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
@@ -116,13 +125,16 @@ CommandResult HandleZRange(const astra::protocol::Command& command, CommandConte
     }
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // ZREM key member [member ...]
-CommandResult HandleZRem(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRem(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREM' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZREM' command");
   }
 
   Database* db = context->GetDatabase();
@@ -157,9 +169,11 @@ CommandResult HandleZRem(const astra::protocol::Command& command, CommandContext
 }
 
 // ZSCORE key member
-CommandResult HandleZScore(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZScore(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZSCORE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZSCORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -186,9 +200,11 @@ CommandResult HandleZScore(const astra::protocol::Command& command, CommandConte
 }
 
 // ZCARD key
-CommandResult HandleZCard(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZCard(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZCARD' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZCARD' command");
   }
 
   Database* db = context->GetDatabase();
@@ -207,9 +223,11 @@ CommandResult HandleZCard(const astra::protocol::Command& command, CommandContex
 }
 
 // ZCOUNT key min max
-CommandResult HandleZCount(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZCount(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZCOUNT' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZCOUNT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -221,13 +239,14 @@ CommandResult HandleZCount(const astra::protocol::Command& command, CommandConte
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
   double min, max;
-  
+
   try {
     if (!absl::SimpleAtod(min_arg.AsString(), &min)) {
       return CommandResult(false, "ERR value is not a valid float");
@@ -244,9 +263,11 @@ CommandResult HandleZCount(const astra::protocol::Command& command, CommandConte
 }
 
 // ZINCRBY key increment member
-CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZIncrBy(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINCRBY' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZINCRBY' command");
   }
 
   Database* db = context->GetDatabase();
@@ -258,14 +279,15 @@ CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandCont
   const auto& incr_arg = command[1];
   const auto& member_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !incr_arg.IsBulkString() || !member_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !incr_arg.IsBulkString() ||
+      !member_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
   std::string member = member_arg.AsString();
   double increment;
-  
+
   try {
     if (!absl::SimpleAtod(incr_arg.AsString(), &increment)) {
       return CommandResult(false, "ERR value is not a valid float");
@@ -275,19 +297,21 @@ CommandResult HandleZIncrBy(const astra::protocol::Command& command, CommandCont
   }
 
   double new_score = db->ZIncrBy(key, increment, member);
-  
+
   // Log to AOF
   std::string incr_str = incr_arg.AsString();
   std::array<absl::string_view, 3> aof_args = {key, incr_str, member};
   context->LogToAof("ZINCRBY", aof_args);
-  
+
   return CommandResult(RespValue(new_score));
 }
 
 // ZRANK key member
-CommandResult HandleZRank(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRank(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANK' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZRANK' command");
   }
 
   Database* db = context->GetDatabase();
@@ -304,7 +328,7 @@ CommandResult HandleZRank(const astra::protocol::Command& command, CommandContex
 
   std::string key = key_arg.AsString();
   std::string member = member_arg.AsString();
-  
+
   auto rank = db->ZRank(key, member, false);
   if (!rank.has_value()) {
     return CommandResult(RespValue());  // nil
@@ -313,9 +337,11 @@ CommandResult HandleZRank(const astra::protocol::Command& command, CommandContex
 }
 
 // ZREVRANK key member
-CommandResult HandleZRevRank(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRevRank(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREVRANK' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREVRANK' command");
   }
 
   Database* db = context->GetDatabase();
@@ -332,7 +358,7 @@ CommandResult HandleZRevRank(const astra::protocol::Command& command, CommandCon
 
   std::string key = key_arg.AsString();
   std::string member = member_arg.AsString();
-  
+
   auto rank = db->ZRank(key, member, true);  // reverse = true
   if (!rank.has_value()) {
     return CommandResult(RespValue());  // nil
@@ -345,9 +371,11 @@ CommandResult HandleZRevRank(const astra::protocol::Command& command, CommandCon
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBZPopMin(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BZPOPMIN' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'BZPOPMIN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -358,7 +386,7 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
   // Parse timeout (last argument) - will be used for blocking implementation
   const auto& timeout_arg = command[command.ArgCount() - 1];
   [[maybe_unused]] double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -374,13 +402,13 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
   // Try to pop from each key
   for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Pop the member with minimum score
     auto result = db->ZPopMin(key);
     if (result.has_value()) {
@@ -389,7 +417,8 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
       resp.push_back(RespValue(key));
       resp.push_back(RespValue(result->first));
       resp.push_back(RespValue(result->second));
-      return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+      return CommandResult(
+          RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
     }
   }
 
@@ -401,10 +430,10 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Collect all keys for blocking
     std::vector<std::string> keys;
     for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
@@ -413,7 +442,7 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
         keys.push_back(key_arg.AsString());
       }
     }
-    
+
     if (!keys.empty()) {
       // Create blocked client with callback
       BlockedClient blocked_client;
@@ -422,10 +451,12 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
       blocked_client.command = command;
       blocked_client.timeout_seconds = timeout;
       blocked_client.start_time = std::chrono::steady_clock::now();
-      blocked_client.connection = context->GetConnection();  // Save connection pointer
-      
+      blocked_client.connection =
+          context->GetConnection();  // Save connection pointer
+
       // Set callback to execute pop when woken up
-      blocked_client.callback = [db, keys](const RespValue& notification) -> RespValue {
+      blocked_client.callback =
+          [db, keys](const RespValue& notification) -> RespValue {
         // When woken up, try to pop from each key
         for (const auto& key : keys) {
           // Pop the member with minimum score
@@ -439,19 +470,19 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
             return RespValue(std::vector<RespValue>(resp.begin(), resp.end()));
           }
         }
-        
+
         // All sorted sets still empty
         return RespValue(RespType::kNullBulkString);
       };
-      
+
       // Add to blocking queue (use first key)
       blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
-      
+
       // Return blocking result (response will be sent later)
       return CommandResult::Blocking();
     }
   }
-  
+
   // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
@@ -461,9 +492,11 @@ CommandResult HandleBZPopMin(const astra::protocol::Command& command, CommandCon
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBZPopMax(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BZPOPMAX' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'BZPOPMAX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -474,7 +507,7 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
   // Parse timeout (last argument) - will be used for blocking implementation
   const auto& timeout_arg = command[command.ArgCount() - 1];
   [[maybe_unused]] double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -490,13 +523,13 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
   // Try to pop from each key
   for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Pop the member with maximum score
     auto result = db->ZPopMax(key);
     if (result.has_value()) {
@@ -505,7 +538,8 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
       resp.push_back(RespValue(key));
       resp.push_back(RespValue(result->first));
       resp.push_back(RespValue(result->second));
-      return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+      return CommandResult(
+          RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
     }
   }
 
@@ -517,10 +551,10 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Collect all keys for blocking
     std::vector<std::string> keys;
     for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
@@ -529,7 +563,7 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
         keys.push_back(key_arg.AsString());
       }
     }
-    
+
     if (!keys.empty()) {
       // Create blocked client with callback
       BlockedClient blocked_client;
@@ -538,10 +572,12 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
       blocked_client.command = command;
       blocked_client.timeout_seconds = timeout;
       blocked_client.start_time = std::chrono::steady_clock::now();
-      blocked_client.connection = context->GetConnection();  // Save connection pointer
-      
+      blocked_client.connection =
+          context->GetConnection();  // Save connection pointer
+
       // Set callback to execute pop when woken up
-      blocked_client.callback = [db, keys](const RespValue& notification) -> RespValue {
+      blocked_client.callback =
+          [db, keys](const RespValue& notification) -> RespValue {
         // When woken up, try to pop from each key
         for (const auto& key : keys) {
           // Pop the member with maximum score
@@ -555,19 +591,19 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
             return RespValue(std::vector<RespValue>(resp.begin(), resp.end()));
           }
         }
-        
+
         // All sorted sets still empty
         return RespValue(RespType::kNullBulkString);
       };
-      
+
       // Add to blocking queue (use first key)
       blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
-      
+
       // Return blocking result (response will be sent later)
       return CommandResult::Blocking();
     }
   }
-  
+
   // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
@@ -577,9 +613,11 @@ CommandResult HandleBZPopMax(const astra::protocol::Command& command, CommandCon
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBZMPop(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BZMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BZMPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -589,7 +627,7 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
 
   // Parse numkeys (first argument)
   const auto& numkeys_arg = command[0];
-  
+
   int64_t numkeys = 0;
   if (numkeys_arg.IsInteger()) {
     numkeys = numkeys_arg.AsInteger();
@@ -602,7 +640,7 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
   } else {
     return CommandResult(false, "ERR numkeys must be an integer");
   }
-  
+
   if (numkeys < 1) {
     return CommandResult(false, "ERR numkeys must be positive");
   }
@@ -610,12 +648,13 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
   // Calculate timeout index (numkeys + 1 for timeout)
   size_t timeout_idx = 1 + numkeys;
   if (timeout_idx >= command.ArgCount()) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BZMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BZMPOP' command");
   }
 
   const auto& timeout_arg = command[timeout_idx];
   [[maybe_unused]] double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -631,11 +670,11 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
   // Parse COUNT and direction (optional)
   int64_t count = 1;
   bool pop_max = false;  // default is MIN
-  
+
   for (size_t i = timeout_idx + 1; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) continue;
-    
+
     std::string arg_str = arg.AsString();
     std::string arg_lower;
     for (char c : arg_str) {
@@ -654,7 +693,8 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
           try {
             count = std::stoll(count_arg.AsString());
           } catch (...) {
-            return CommandResult(false, "ERR count is not an integer or out of range");
+            return CommandResult(false,
+                                 "ERR count is not an integer or out of range");
           }
         }
         ++i;  // skip the count value
@@ -669,17 +709,17 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
   // Try to pop from each key
   for (size_t i = 1; i <= static_cast<size_t>(numkeys); ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Pop multiple members
     std::vector<std::pair<std::string, double>> results;
     bool popped = false;
-    
+
     for (int64_t j = 0; j < count; ++j) {
       if (pop_max) {
         auto result = db->ZPopMax(key);
@@ -699,12 +739,12 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
         }
       }
     }
-    
+
     if (popped) {
       // Return [key, [[member1, score1], [member2, score2], ...]]
       std::vector<RespValue> outer_resp;
       outer_resp.push_back(RespValue(key));
-      
+
       std::vector<RespValue> inner_resp;
       for (const auto& [member, score] : results) {
         std::vector<RespValue> member_score;
@@ -713,7 +753,7 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
         inner_resp.push_back(RespValue(std::move(member_score)));
       }
       outer_resp.push_back(RespValue(std::move(inner_resp)));
-      
+
       return CommandResult(RespValue(std::move(outer_resp)));
     }
   }
@@ -726,10 +766,10 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Collect all keys for blocking
     std::vector<std::string> keys;
     for (size_t i = 1; i <= static_cast<size_t>(numkeys); ++i) {
@@ -738,7 +778,7 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
         keys.push_back(key_arg.AsString());
       }
     }
-    
+
     if (!keys.empty()) {
       // Create blocked client with callback
       BlockedClient blocked_client;
@@ -747,16 +787,19 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
       blocked_client.command = command;
       blocked_client.timeout_seconds = timeout;
       blocked_client.start_time = std::chrono::steady_clock::now();
-      blocked_client.connection = context->GetConnection();  // Save connection pointer
-      
+      blocked_client.connection =
+          context->GetConnection();  // Save connection pointer
+
       // Set callback to execute pop when woken up
-      blocked_client.callback = [db, keys, count, pop_max](const RespValue& notification) -> RespValue {
+      blocked_client.callback =
+          [db, keys, count,
+           pop_max](const RespValue& notification) -> RespValue {
         // When woken up, try to pop from each key
         for (const auto& key : keys) {
           // Pop multiple members
           std::vector<std::pair<std::string, double>> results;
           bool popped = false;
-          
+
           for (int64_t j = 0; j < count; ++j) {
             if (pop_max) {
               auto result = db->ZPopMax(key);
@@ -776,12 +819,12 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
               }
             }
           }
-          
+
           if (popped) {
             // Return [key, [[member1, score1], [member2, score2], ...]]
             std::vector<RespValue> outer_resp;
             outer_resp.push_back(RespValue(key));
-            
+
             std::vector<RespValue> inner_resp;
             for (const auto& [member, score] : results) {
               std::vector<RespValue> member_score;
@@ -790,31 +833,34 @@ CommandResult HandleBZMPop(const astra::protocol::Command& command, CommandConte
               inner_resp.push_back(RespValue(std::move(member_score)));
             }
             outer_resp.push_back(RespValue(std::move(inner_resp)));
-            
-            return RespValue(std::vector<RespValue>(outer_resp.begin(), outer_resp.end()));
+
+            return RespValue(
+                std::vector<RespValue>(outer_resp.begin(), outer_resp.end()));
           }
         }
-        
+
         // All sorted sets still empty
         return RespValue(RespType::kNullBulkString);
       };
-      
+
       // Add to blocking queue (use first key)
       blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
-      
+
       // Return blocking result (response will be sent later)
       return CommandResult::Blocking();
     }
   }
-  
+
   // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
 // ZREVRANGE key start stop [WITHSCORES]
-CommandResult HandleZRevRange(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRevRange(const astra::protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREVRANGE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREVRANGE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -826,15 +872,16 @@ CommandResult HandleZRevRange(const astra::protocol::Command& command, CommandCo
   const auto& start_arg = command[1];
   const auto& stop_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() || !stop_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() ||
+      !stop_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
-  
+
   int64_t start = 0;
   int64_t stop = -1;
-  
+
   try {
     start = std::stoll(start_arg.AsString());
     stop = std::stoll(stop_arg.AsString());
@@ -857,28 +904,33 @@ CommandResult HandleZRevRange(const astra::protocol::Command& command, CommandCo
     }
   }
 
-  auto results = db->ZRange(key, start, stop, true, with_scores);  // reverse = true
-  
+  auto results =
+      db->ZRange(key, start, stop, true, with_scores);  // reverse = true
+
   if (with_scores) {
     std::vector<RespValue> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
     absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
 // ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]
-CommandResult HandleZRangeByScore(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRangeByScore(const astra::protocol::Command& command,
+                                  CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANGEBYSCORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZRANGEBYSCORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -890,7 +942,8 @@ CommandResult HandleZRangeByScore(const astra::protocol::Command& command, Comma
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -906,7 +959,7 @@ CommandResult HandleZRangeByScore(const astra::protocol::Command& command, Comma
   for (size_t i = 3; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) continue;
-    
+
     std::string arg_str = arg.AsString();
     std::string arg_lower;
     for (char c : arg_str) {
@@ -928,28 +981,33 @@ CommandResult HandleZRangeByScore(const astra::protocol::Command& command, Comma
     }
   }
 
-  auto results = db->ZRangeByScore(key, min_str, max_str, false, with_scores, has_limit, offset, count);
-  
+  auto results = db->ZRangeByScore(key, min_str, max_str, false, with_scores,
+                                   has_limit, offset, count);
+
   if (with_scores) {
     absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
     absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
 // ZREVRANGEBYSCORE key max min [WITHSCORES] [LIMIT offset count]
-CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command,
+                                     CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREVRANGEBYSCORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREVRANGEBYSCORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -961,7 +1019,8 @@ CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command, Co
   const auto& max_arg = command[1];
   const auto& min_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !max_arg.IsBulkString() || !min_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !max_arg.IsBulkString() ||
+      !min_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -977,7 +1036,7 @@ CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command, Co
   for (size_t i = 3; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) continue;
-    
+
     std::string arg_str = arg.AsString();
     std::string arg_lower;
     for (char c : arg_str) {
@@ -999,28 +1058,33 @@ CommandResult HandleZRevRangeByScore(const astra::protocol::Command& command, Co
     }
   }
 
-  auto results = db->ZRangeByScore(key, min_str, max_str, true, with_scores, has_limit, offset, count);
-  
+  auto results = db->ZRangeByScore(key, min_str, max_str, true, with_scores,
+                                   has_limit, offset, count);
+
   if (with_scores) {
     absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
       resp.push_back(RespValue(score));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   } else {
     absl::InlinedVector<RespValue, 32> resp;
     for (const auto& [member, score] : results) {
       resp.push_back(RespValue(member));
     }
-    return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
   }
 }
 
 // ZPOPMIN key [count]
-CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZPopMin(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZPOPMIN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZPOPMIN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1035,7 +1099,7 @@ CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandCont
   }
 
   std::string key = key_arg.AsString();
-  
+
   int64_t count = 1;
   if (command.ArgCount() > 1) {
     const auto& count_arg = command[1];
@@ -1045,11 +1109,12 @@ CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandCont
       try {
         count = std::stoll(count_arg.AsString());
       } catch (...) {
-        return CommandResult(false, "ERR count is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR count is not an integer or out of range");
       }
     }
   }
-  
+
   if (count < 1) {
     return CommandResult(false, "ERR count must be positive");
   }
@@ -1075,14 +1140,17 @@ CommandResult HandleZPopMin(const astra::protocol::Command& command, CommandCont
     member_score.push_back(RespValue(score));
     resp.push_back(RespValue(std::move(member_score)));
   }
-  
-  return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+
+  return CommandResult(
+      RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
 }
 
 // ZPOPMAX key [count]
-CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZPopMax(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZPOPMAX' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZPOPMAX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1097,7 +1165,7 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
   }
 
   std::string key = key_arg.AsString();
-  
+
   int64_t count = 1;
   if (command.ArgCount() > 1) {
     const auto& count_arg = command[1];
@@ -1107,11 +1175,12 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
       try {
         count = std::stoll(count_arg.AsString());
       } catch (...) {
-        return CommandResult(false, "ERR count is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR count is not an integer or out of range");
       }
     }
   }
-  
+
   if (count < 1) {
     return CommandResult(false, "ERR count must be positive");
   }
@@ -1137,14 +1206,18 @@ CommandResult HandleZPopMax(const astra::protocol::Command& command, CommandCont
     member_score.push_back(RespValue(score));
     resp.push_back(RespValue(std::move(member_score)));
   }
-  
-  return CommandResult(RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
+
+  return CommandResult(
+      RespValue(std::vector<RespValue>(resp.begin(), resp.end())));
 }
 
-// ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
-CommandResult HandleZUnionStore(const astra::protocol::Command& command, CommandContext* context) {
+// ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]]
+// [AGGREGATE SUM|MIN|MAX]
+CommandResult HandleZUnionStore(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1164,7 +1237,8 @@ CommandResult HandleZUnionStore(const astra::protocol::Command& command, Command
 
   size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
   if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZUNIONSTORE' command");
   }
 
   std::string destination = dest_arg.AsString();
@@ -1207,7 +1281,8 @@ CommandResult HandleZUnionStore(const astra::protocol::Command& command, Command
     } else if (arg_str == "AGGREGATE") {
       ++pos;
       if (pos >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'AGGREGATE'");
+        return CommandResult(false,
+                             "ERR wrong number of arguments for 'AGGREGATE'");
       }
       const auto& agg_arg = command[pos];
       if (!agg_arg.IsBulkString()) {
@@ -1223,15 +1298,19 @@ CommandResult HandleZUnionStore(const astra::protocol::Command& command, Command
     }
   }
 
-  size_t count = db->ZUnionStore(destination, numkeys, keys, weights, aggregate);
-  
+  size_t count =
+      db->ZUnionStore(destination, numkeys, keys, weights, aggregate);
+
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
-// ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
-CommandResult HandleZInterStore(const astra::protocol::Command& command, CommandContext* context) {
+// ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]]
+// [AGGREGATE SUM|MIN|MAX]
+CommandResult HandleZInterStore(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1251,7 +1330,8 @@ CommandResult HandleZInterStore(const astra::protocol::Command& command, Command
 
   size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
   if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZINTERSTORE' command");
   }
 
   std::string destination = dest_arg.AsString();
@@ -1294,7 +1374,8 @@ CommandResult HandleZInterStore(const astra::protocol::Command& command, Command
     } else if (arg_str == "AGGREGATE") {
       ++pos;
       if (pos >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'AGGREGATE'");
+        return CommandResult(false,
+                             "ERR wrong number of arguments for 'AGGREGATE'");
       }
       const auto& agg_arg = command[pos];
       if (!agg_arg.IsBulkString()) {
@@ -1310,15 +1391,18 @@ CommandResult HandleZInterStore(const astra::protocol::Command& command, Command
     }
   }
 
-  size_t count = db->ZInterStore(destination, numkeys, keys, weights, aggregate);
-  
+  size_t count =
+      db->ZInterStore(destination, numkeys, keys, weights, aggregate);
+
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
 // ZDIFF numkeys key [key ...] [WITHSCORES]
-CommandResult HandleZDiff(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZDiff(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFF' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZDIFF' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1333,7 +1417,8 @@ CommandResult HandleZDiff(const astra::protocol::Command& command, CommandContex
 
   size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
   if (numkeys == 0 || command.ArgCount() < 1 + numkeys) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFF' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZDIFF' command");
   }
 
   std::vector<std::string> keys;
@@ -1355,7 +1440,7 @@ CommandResult HandleZDiff(const astra::protocol::Command& command, CommandContex
   }
 
   auto members = db->ZDiff(numkeys, keys);
-  
+
   if (with_scores) {
     std::vector<RespValue> resp;
     for (const auto& [member, score] : members) {
@@ -1373,9 +1458,11 @@ CommandResult HandleZDiff(const astra::protocol::Command& command, CommandContex
 }
 
 // ZDIFFSTORE destination numkeys key [key ...]
-CommandResult HandleZDiffStore(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleZDiffStore(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1395,7 +1482,8 @@ CommandResult HandleZDiffStore(const astra::protocol::Command& command, CommandC
 
   size_t numkeys = static_cast<size_t>(numkeys_arg.AsInteger());
   if (numkeys == 0 || command.ArgCount() < 2 + numkeys) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZDIFFSTORE' command");
   }
 
   std::string destination = dest_arg.AsString();
@@ -1410,37 +1498,61 @@ CommandResult HandleZDiffStore(const astra::protocol::Command& command, CommandC
   }
 
   size_t count = db->ZDiffStore(destination, numkeys, keys);
-  
+
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
 // Auto-register all zset commands
-ASTRADB_REGISTER_COMMAND(ZADD, -4, "write", RoutingStrategy::kByFirstKey, HandleZAdd);
-ASTRADB_REGISTER_COMMAND(ZRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRange);
-ASTRADB_REGISTER_COMMAND(ZREM, -3, "write", RoutingStrategy::kByFirstKey, HandleZRem);
-ASTRADB_REGISTER_COMMAND(ZSCORE, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZScore);
-ASTRADB_REGISTER_COMMAND(ZCARD, 2, "readonly", RoutingStrategy::kByFirstKey, HandleZCard);
-ASTRADB_REGISTER_COMMAND(ZCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey, HandleZCount);
-ASTRADB_REGISTER_COMMAND(ZINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleZIncrBy);
-ASTRADB_REGISTER_COMMAND(ZRANK, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZRank);
-ASTRADB_REGISTER_COMMAND(ZREVRANK, 3, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRank);
-ASTRADB_REGISTER_COMMAND(ZREVRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRange);
-ASTRADB_REGISTER_COMMAND(ZRANGEBYSCORE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRangeByScore);
-ASTRADB_REGISTER_COMMAND(ZREVRANGEBYSCORE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRangeByScore);
-ASTRADB_REGISTER_COMMAND(ZPOPMIN, -1, "write", RoutingStrategy::kByFirstKey, HandleZPopMin);
-ASTRADB_REGISTER_COMMAND(ZPOPMAX, -1, "write", RoutingStrategy::kByFirstKey, HandleZPopMax);
-ASTRADB_REGISTER_COMMAND(ZUNIONSTORE, -4, "write", RoutingStrategy::kByFirstKey, HandleZUnionStore);
-ASTRADB_REGISTER_COMMAND(ZINTERSTORE, -4, "write", RoutingStrategy::kByFirstKey, HandleZInterStore);
-ASTRADB_REGISTER_COMMAND(ZDIFF, -2, "readonly", RoutingStrategy::kNone, HandleZDiff);
-ASTRADB_REGISTER_COMMAND(ZDIFFSTORE, -3, "write", RoutingStrategy::kByFirstKey, HandleZDiffStore);
-ASTRADB_REGISTER_COMMAND(BZPOPMIN, -2, "write", RoutingStrategy::kByFirstKey, HandleBZPopMin);
-ASTRADB_REGISTER_COMMAND(BZPOPMAX, -2, "write", RoutingStrategy::kByFirstKey, HandleBZPopMax);
-ASTRADB_REGISTER_COMMAND(BZMPOP, -4, "write", RoutingStrategy::kByFirstKey, HandleBZMPop);
+ASTRADB_REGISTER_COMMAND(ZADD, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleZAdd);
+ASTRADB_REGISTER_COMMAND(ZRANGE, -4, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZRange);
+ASTRADB_REGISTER_COMMAND(ZREM, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleZRem);
+ASTRADB_REGISTER_COMMAND(ZSCORE, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZScore);
+ASTRADB_REGISTER_COMMAND(ZCARD, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZCard);
+ASTRADB_REGISTER_COMMAND(ZCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZCount);
+ASTRADB_REGISTER_COMMAND(ZINCRBY, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleZIncrBy);
+ASTRADB_REGISTER_COMMAND(ZRANK, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZRank);
+ASTRADB_REGISTER_COMMAND(ZREVRANK, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZRevRank);
+ASTRADB_REGISTER_COMMAND(ZREVRANGE, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRevRange);
+ASTRADB_REGISTER_COMMAND(ZRANGEBYSCORE, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRangeByScore);
+ASTRADB_REGISTER_COMMAND(ZREVRANGEBYSCORE, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRevRangeByScore);
+ASTRADB_REGISTER_COMMAND(ZPOPMIN, -1, "write", RoutingStrategy::kByFirstKey,
+                         HandleZPopMin);
+ASTRADB_REGISTER_COMMAND(ZPOPMAX, -1, "write", RoutingStrategy::kByFirstKey,
+                         HandleZPopMax);
+ASTRADB_REGISTER_COMMAND(ZUNIONSTORE, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleZUnionStore);
+ASTRADB_REGISTER_COMMAND(ZINTERSTORE, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleZInterStore);
+ASTRADB_REGISTER_COMMAND(ZDIFF, -2, "readonly", RoutingStrategy::kNone,
+                         HandleZDiff);
+ASTRADB_REGISTER_COMMAND(ZDIFFSTORE, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleZDiffStore);
+ASTRADB_REGISTER_COMMAND(BZPOPMIN, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleBZPopMin);
+ASTRADB_REGISTER_COMMAND(BZPOPMAX, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleBZPopMax);
+ASTRADB_REGISTER_COMMAND(BZMPOP, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleBZMPop);
 
-// ZINTER numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Compute the intersection of sorted sets
-CommandResult HandleZInter(const astra::protocol::Command& command, CommandContext* context) {
+// ZINTER numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE
+// SUM|MIN|MAX] - Compute the intersection of sorted sets
+CommandResult HandleZInter(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTER' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZINTER' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1459,7 +1571,8 @@ CommandResult HandleZInter(const astra::protocol::Command& command, CommandConte
   }
 
   if (command.ArgCount() < static_cast<size_t>(numkeys + 1)) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTER' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZINTER' command");
   }
 
   std::vector<std::string> keys;
@@ -1548,9 +1661,8 @@ CommandResult HandleZInter(const astra::protocol::Command& command, CommandConte
   }
 
   // Sort by score
-  std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-    return a.second < b.second;
-  });
+  std::sort(result.begin(), result.end(),
+            [](const auto& a, const auto& b) { return a.second < b.second; });
 
   // Build response
   std::vector<RespValue> resp;
@@ -1564,10 +1676,13 @@ CommandResult HandleZInter(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(std::move(resp)));
 }
 
-// ZINTERCARD numkeys key [key ...] [LIMIT limit] - Return the number of members in the intersection
-CommandResult HandleZInterCard(const astra::protocol::Command& command, CommandContext* context) {
+// ZINTERCARD numkeys key [key ...] [LIMIT limit] - Return the number of members
+// in the intersection
+CommandResult HandleZInterCard(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERCARD' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZINTERCARD' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1586,7 +1701,8 @@ CommandResult HandleZInterCard(const astra::protocol::Command& command, CommandC
   }
 
   if (command.ArgCount() < static_cast<size_t>(numkeys + 1)) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZINTERCARD' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZINTERCARD' command");
   }
 
   std::vector<std::string> keys;
@@ -1611,7 +1727,8 @@ CommandResult HandleZInterCard(const astra::protocol::Command& command, CommandC
     if (opt == "LIMIT" && pos + 1 < command.ArgCount()) {
       ++pos;
       int64_t limit_val;
-      if (!absl::SimpleAtoi(command[pos].AsString(), &limit_val) || limit_val < 0) {
+      if (!absl::SimpleAtoi(command[pos].AsString(), &limit_val) ||
+          limit_val < 0) {
         return CommandResult(false, "ERR limit is not a valid integer");
       }
       limit = static_cast<size_t>(limit_val);
@@ -1647,10 +1764,13 @@ CommandResult HandleZInterCard(const astra::protocol::Command& command, CommandC
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
-// ZUNION numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Compute the union of sorted sets
-CommandResult HandleZUnion(const astra::protocol::Command& command, CommandContext* context) {
+// ZUNION numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE
+// SUM|MIN|MAX] - Compute the union of sorted sets
+CommandResult HandleZUnion(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZUNION' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZUNION' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1669,7 +1789,8 @@ CommandResult HandleZUnion(const astra::protocol::Command& command, CommandConte
   }
 
   if (command.ArgCount() < static_cast<size_t>(numkeys + 1)) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZUNION' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZUNION' command");
   }
 
   std::vector<std::string> keys;
@@ -1747,9 +1868,8 @@ CommandResult HandleZUnion(const astra::protocol::Command& command, CommandConte
   }
 
   // Sort by score
-  std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-    return a.second < b.second;
-  });
+  std::sort(result.begin(), result.end(),
+            [](const auto& a, const auto& b) { return a.second < b.second; });
 
   // Build response
   std::vector<RespValue> resp;
@@ -1763,10 +1883,13 @@ CommandResult HandleZUnion(const astra::protocol::Command& command, CommandConte
   return CommandResult(RespValue(std::move(resp)));
 }
 
-// ZLEXCOUNT key min max - Count the number of members in a sorted set between a given lexicographical range
-CommandResult HandleZLexCount(const astra::protocol::Command& command, CommandContext* context) {
+// ZLEXCOUNT key min max - Count the number of members in a sorted set between a
+// given lexicographical range
+CommandResult HandleZLexCount(const astra::protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZLEXCOUNT' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZLEXCOUNT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1778,7 +1901,8 @@ CommandResult HandleZLexCount(const astra::protocol::Command& command, CommandCo
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -1793,7 +1917,8 @@ CommandResult HandleZLexCount(const astra::protocol::Command& command, CommandCo
   }
 
   // Parse min and max
-  auto parse_lex = [](const std::string& range) -> std::pair<bool, std::string> {
+  auto parse_lex =
+      [](const std::string& range) -> std::pair<bool, std::string> {
     bool exclusive = false;
     std::string value;
     if (range[0] == '(') {
@@ -1817,7 +1942,7 @@ CommandResult HandleZLexCount(const astra::protocol::Command& command, CommandCo
   for (const auto& [member, _] : members) {
     bool in_min = min_exclusive ? (member > min_value) : (member >= min_value);
     bool in_max = max_exclusive ? (member < max_value) : (member <= max_value);
-    
+
     if (in_min && in_max) {
       ++count;
     }
@@ -1826,10 +1951,13 @@ CommandResult HandleZLexCount(const astra::protocol::Command& command, CommandCo
   return CommandResult(RespValue(static_cast<int64_t>(count)));
 }
 
-// ZMPOP numkeys key [key ...] MIN|MAX [COUNT count] - Pop members from the first non-empty sorted set
-CommandResult HandleZMPop(const astra::protocol::Command& command, CommandContext* context) {
+// ZMPOP numkeys key [key ...] MIN|MAX [COUNT count] - Pop members from the
+// first non-empty sorted set
+CommandResult HandleZMPop(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZMPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1848,7 +1976,8 @@ CommandResult HandleZMPop(const astra::protocol::Command& command, CommandContex
   }
 
   if (command.ArgCount() < static_cast<size_t>(numkeys + 2)) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZMPOP' command");
   }
 
   std::vector<std::string> keys;
@@ -1883,8 +2012,10 @@ CommandResult HandleZMPop(const astra::protocol::Command& command, CommandContex
     if (opt == "COUNT" && pos + 1 < command.ArgCount()) {
       ++pos;
       int64_t count_val;
-      if (!absl::SimpleAtoi(command[pos].AsString(), &count_val) || count_val <= 0) {
-        return CommandResult(false, "ERR count is not a valid positive integer");
+      if (!absl::SimpleAtoi(command[pos].AsString(), &count_val) ||
+          count_val <= 0) {
+        return CommandResult(false,
+                             "ERR count is not a valid positive integer");
       }
       count = static_cast<size_t>(count_val);
     }
@@ -1907,7 +2038,7 @@ CommandResult HandleZMPop(const astra::protocol::Command& command, CommandContex
       // Build response
       std::vector<RespValue> result;
       result.emplace_back(RespValue(key));
-      
+
       std::vector<RespValue> members_array;
       for (const auto& [member, score] : popped) {
         members_array.emplace_back(RespValue(member));
@@ -1922,10 +2053,13 @@ CommandResult HandleZMPop(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(RespType::kNullArray));
 }
 
-// ZMSCORE key member [member ...] - Get the score associated with the given members
-CommandResult HandleZMScore(const astra::protocol::Command& command, CommandContext* context) {
+// ZMSCORE key member [member ...] - Get the score associated with the given
+// members
+CommandResult HandleZMScore(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZMSCORE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZMSCORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1958,10 +2092,13 @@ CommandResult HandleZMScore(const astra::protocol::Command& command, CommandCont
   return CommandResult(RespValue(std::move(result)));
 }
 
-// ZRANDMEMBER key [count [WITHSCORES]] - Get one or more random members from a sorted set
-CommandResult HandleZRandMember(const astra::protocol::Command& command, CommandContext* context) {
+// ZRANDMEMBER key [count [WITHSCORES]] - Get one or more random members from a
+// sorted set
+CommandResult HandleZRandMember(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANDMEMBER' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZRANDMEMBER' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1991,7 +2128,8 @@ CommandResult HandleZRandMember(const astra::protocol::Command& command, Command
       return CommandResult(false, "ERR wrong type of count argument");
     }
     if (!absl::SimpleAtoi(count_arg.AsString(), &count)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   }
 
@@ -2009,11 +2147,13 @@ CommandResult HandleZRandMember(const astra::protocol::Command& command, Command
   std::vector<std::pair<std::string, double>> random_members;
   if (count > 0) {
     // Get unique random members (when count is positive)
-    size_t actual_count = static_cast<size_t>(std::min(count, static_cast<int64_t>(all_members.size())));
+    size_t actual_count = static_cast<size_t>(
+        std::min(count, static_cast<int64_t>(all_members.size())));
     std::vector<size_t> indices(all_members.size());
     std::iota(indices.begin(), indices.end(), 0);
-    std::shuffle(indices.begin(), indices.end(), std::mt19937(std::random_device()()));
-    
+    std::shuffle(indices.begin(), indices.end(),
+                 std::mt19937(std::random_device()()));
+
     for (size_t i = 0; i < actual_count; ++i) {
       random_members.push_back(all_members[indices[i]]);
     }
@@ -2044,10 +2184,13 @@ CommandResult HandleZRandMember(const astra::protocol::Command& command, Command
   }
 }
 
-// ZRANGEBYLEX key min max [LIMIT offset count] - Return members in a sorted set by lexicographical range
-CommandResult HandleZRangeByLex(const astra::protocol::Command& command, CommandContext* context) {
+// ZRANGEBYLEX key min max [LIMIT offset count] - Return members in a sorted set
+// by lexicographical range
+CommandResult HandleZRangeByLex(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANGEBYLEX' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZRANGEBYLEX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2059,7 +2202,8 @@ CommandResult HandleZRangeByLex(const astra::protocol::Command& command, Command
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -2079,10 +2223,12 @@ CommandResult HandleZRangeByLex(const astra::protocol::Command& command, Command
     std::string opt = opt_arg.AsString();
     if (opt == "LIMIT" && i + 2 < command.ArgCount()) {
       int64_t offset_val, count_val;
-      if (!absl::SimpleAtoi(command[i + 1].AsString(), &offset_val) || offset_val < 0) {
+      if (!absl::SimpleAtoi(command[i + 1].AsString(), &offset_val) ||
+          offset_val < 0) {
         return CommandResult(false, "ERR offset is not a valid integer");
       }
-      if (!absl::SimpleAtoi(command[i + 2].AsString(), &count_val) || count_val < 0) {
+      if (!absl::SimpleAtoi(command[i + 2].AsString(), &count_val) ||
+          count_val < 0) {
         return CommandResult(false, "ERR count is not a valid integer");
       }
       offset = static_cast<size_t>(offset_val);
@@ -2098,7 +2244,8 @@ CommandResult HandleZRangeByLex(const astra::protocol::Command& command, Command
   }
 
   // Parse min and max
-  auto parse_lex = [](const std::string& range) -> std::pair<bool, std::string> {
+  auto parse_lex =
+      [](const std::string& range) -> std::pair<bool, std::string> {
     bool exclusive = false;
     std::string value;
     if (range[0] == '(') {
@@ -2122,7 +2269,7 @@ CommandResult HandleZRangeByLex(const astra::protocol::Command& command, Command
   for (const auto& [member, _] : members) {
     bool in_min = min_exclusive ? (member > min_value) : (member >= min_value);
     bool in_max = max_exclusive ? (member < max_value) : (member <= max_value);
-    
+
     if (in_min && in_max) {
       filtered.push_back(member);
     }
@@ -2145,10 +2292,13 @@ CommandResult HandleZRangeByLex(const astra::protocol::Command& command, Command
   return CommandResult(RespValue(std::move(resp)));
 }
 
-// ZRANGESTORE destination src min max [LIMIT offset count] - Store a range in a sorted set
-CommandResult HandleZRangeStore(const astra::protocol::Command& command, CommandContext* context) {
+// ZRANGESTORE destination src min max [LIMIT offset count] - Store a range in a
+// sorted set
+CommandResult HandleZRangeStore(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() < 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZRANGESTORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZRANGESTORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2161,7 +2311,8 @@ CommandResult HandleZRangeStore(const astra::protocol::Command& command, Command
   const auto& min_arg = command[2];
   const auto& max_arg = command[3];
 
-  if (!dest_arg.IsBulkString() || !src_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!dest_arg.IsBulkString() || !src_arg.IsBulkString() ||
+      !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -2171,7 +2322,8 @@ CommandResult HandleZRangeStore(const astra::protocol::Command& command, Command
   std::string max = max_arg.AsString();
 
   // Parse min and max
-  auto parse_lex = [](const std::string& range) -> std::pair<bool, std::string> {
+  auto parse_lex =
+      [](const std::string& range) -> std::pair<bool, std::string> {
     bool exclusive = false;
     std::string value;
     if (range[0] == '(') {
@@ -2202,7 +2354,7 @@ CommandResult HandleZRangeStore(const astra::protocol::Command& command, Command
   for (const auto& [member, score] : members) {
     bool in_min = min_exclusive ? (member > min_value) : (member >= min_value);
     bool in_max = max_exclusive ? (member < max_value) : (member <= max_value);
-    
+
     if (in_min && in_max) {
       filtered.push_back({member, score});
     }
@@ -2217,10 +2369,13 @@ CommandResult HandleZRangeStore(const astra::protocol::Command& command, Command
   return CommandResult(RespValue(static_cast<int64_t>(filtered.size())));
 }
 
-// ZREMRANGEBYLEX key min max - Remove all members in a sorted set between the given lexicographical range
-CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command, CommandContext* context) {
+// ZREMRANGEBYLEX key min max - Remove all members in a sorted set between the
+// given lexicographical range
+CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREMRANGEBYLEX' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREMRANGEBYLEX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2232,7 +2387,8 @@ CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command, Comm
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -2241,7 +2397,8 @@ CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command, Comm
   std::string max = max_arg.AsString();
 
   // Parse min and max
-  auto parse_lex = [](const std::string& range) -> std::pair<bool, std::string> {
+  auto parse_lex =
+      [](const std::string& range) -> std::pair<bool, std::string> {
     bool exclusive = false;
     std::string value;
     if (range[0] == '(') {
@@ -2271,7 +2428,7 @@ CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command, Comm
   for (const auto& [member, score] : members) {
     bool in_min = min_exclusive ? (member > min_value) : (member >= min_value);
     bool in_max = max_exclusive ? (member < max_value) : (member <= max_value);
-    
+
     if (in_min && in_max) {
       to_remove.push_back(member);
     }
@@ -2285,10 +2442,13 @@ CommandResult HandleZRemRangeByLex(const astra::protocol::Command& command, Comm
   return CommandResult(RespValue(static_cast<int64_t>(to_remove.size())));
 }
 
-// ZREMRANGEBYRANK key start stop - Remove all members in a sorted set within the given rank range
-CommandResult HandleZRemRangeByRank(const astra::protocol::Command& command, CommandContext* context) {
+// ZREMRANGEBYRANK key start stop - Remove all members in a sorted set within
+// the given rank range
+CommandResult HandleZRemRangeByRank(const astra::protocol::Command& command,
+                                    CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREMRANGEBYRANK' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREMRANGEBYRANK' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2300,14 +2460,16 @@ CommandResult HandleZRemRangeByRank(const astra::protocol::Command& command, Com
   const auto& start_arg = command[1];
   const auto& stop_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() || !stop_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !start_arg.IsBulkString() ||
+      !stop_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
   int64_t start, stop;
 
-  if (!absl::SimpleAtoi(start_arg.AsString(), &start) || !absl::SimpleAtoi(stop_arg.AsString(), &stop)) {
+  if (!absl::SimpleAtoi(start_arg.AsString(), &start) ||
+      !absl::SimpleAtoi(stop_arg.AsString(), &stop)) {
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
 
@@ -2345,10 +2507,13 @@ CommandResult HandleZRemRangeByRank(const astra::protocol::Command& command, Com
   return CommandResult(RespValue(static_cast<int64_t>(to_remove.size())));
 }
 
-// ZREMRANGEBYSCORE key min max - Remove all members in a sorted set within the given score range
-CommandResult HandleZRemRangeByScore(const astra::protocol::Command& command, CommandContext* context) {
+// ZREMRANGEBYSCORE key min max - Remove all members in a sorted set within the
+// given score range
+CommandResult HandleZRemRangeByScore(const astra::protocol::Command& command,
+                                     CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREMRANGEBYSCORE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREMRANGEBYSCORE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2360,7 +2525,8 @@ CommandResult HandleZRemRangeByScore(const astra::protocol::Command& command, Co
   const auto& min_arg = command[1];
   const auto& max_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() || !max_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !min_arg.IsBulkString() ||
+      !max_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -2406,7 +2572,7 @@ CommandResult HandleZRemRangeByScore(const astra::protocol::Command& command, Co
   for (const auto& [member, score] : members) {
     bool in_min = min_exclusive ? (score > min_score) : (score >= min_score);
     bool in_max = max_exclusive ? (score < max_score) : (score <= max_score);
-    
+
     if (in_min && in_max) {
       to_remove.push_back(member);
     }
@@ -2420,10 +2586,13 @@ CommandResult HandleZRemRangeByScore(const astra::protocol::Command& command, Co
   return CommandResult(RespValue(static_cast<int64_t>(to_remove.size())));
 }
 
-// ZREVRANGEBYLEX key max min [LIMIT offset count] - Return members in a sorted set by lexicographical range (reverse)
-CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command, CommandContext* context) {
+// ZREVRANGEBYLEX key max min [LIMIT offset count] - Return members in a sorted
+// set by lexicographical range (reverse)
+CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZREVRANGEBYLEX' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ZREVRANGEBYLEX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2435,7 +2604,8 @@ CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command, Comm
   const auto& max_arg = command[1];
   const auto& min_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !max_arg.IsBulkString() || !min_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !max_arg.IsBulkString() ||
+      !min_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -2450,7 +2620,8 @@ CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command, Comm
   }
 
   // Parse min and max (swapped for reverse)
-  auto parse_lex = [](const std::string& range) -> std::pair<bool, std::string> {
+  auto parse_lex =
+      [](const std::string& range) -> std::pair<bool, std::string> {
     bool exclusive = false;
     std::string value;
     if (range[0] == '(') {
@@ -2474,7 +2645,7 @@ CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command, Comm
   for (const auto& [member, _] : members) {
     bool in_min = min_exclusive ? (member > min_value) : (member >= min_value);
     bool in_max = max_exclusive ? (member < max_value) : (member <= max_value);
-    
+
     if (in_min && in_max) {
       filtered.push_back(member);
     }
@@ -2489,10 +2660,13 @@ CommandResult HandleZRevRangeByLex(const astra::protocol::Command& command, Comm
   return CommandResult(RespValue(std::move(resp)));
 }
 
-// ZSCAN key cursor [MATCH pattern] [COUNT count] - Incrementally iterate sorted set elements
-CommandResult HandleZScan(const astra::protocol::Command& command, CommandContext* context) {
+// ZSCAN key cursor [MATCH pattern] [COUNT count] - Incrementally iterate sorted
+// set elements
+CommandResult HandleZScan(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ZSCAN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'ZSCAN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -2517,7 +2691,7 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
 
   // Get all members
   auto all_members = db->ZRangeByRank(key, 0, -1, false, true);
-  
+
   // Parse options
   std::string pattern = "*";
   size_t count = 10;
@@ -2533,7 +2707,8 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
       pattern = command[++i].AsString();
     } else if (opt == "COUNT" && i + 1 < command.ArgCount()) {
       if (!absl::SimpleAtoi(command[++i].AsString(), &count)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
     }
   }
@@ -2544,18 +2719,21 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
     bool matches = false;
     if (pattern == "*") {
       matches = true;
-    } else if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
+    } else if (pattern[0] == '*' && pattern.back() == '*' &&
+               pattern.size() > 1) {
       // *middle* - contains
       std::string middle = pattern.substr(1, pattern.size() - 2);
       matches = (member.find(middle) != std::string::npos);
     } else if (pattern[0] == '*' && pattern.size() > 1) {
       // *suffix - ends with
       std::string suffix = pattern.substr(1);
-      matches = (member.size() >= suffix.size() && member.substr(member.size() - suffix.size()) == suffix);
+      matches = (member.size() >= suffix.size() &&
+                 member.substr(member.size() - suffix.size()) == suffix);
     } else if (pattern.back() == '*' && pattern.size() > 1) {
       // prefix* - starts with
       std::string prefix = pattern.substr(0, pattern.size() - 1);
-      matches = (member.size() >= prefix.size() && member.substr(0, prefix.size()) == prefix);
+      matches = (member.size() >= prefix.size() &&
+                 member.substr(0, prefix.size()) == prefix);
     } else {
       // exact match
       matches = (member == pattern);
@@ -2570,7 +2748,7 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
   std::vector<RespValue> result_array;
   size_t start = static_cast<size_t>(cursor);
   size_t end = std::min(start + count, matched_members.size());
-  
+
   for (size_t i = start; i < end; ++i) {
     result_array.emplace_back(RespValue(matched_members[i].first));
     result_array.emplace_back(RespValue(matched_members[i].second));
@@ -2578,13 +2756,13 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
 
   // Build response
   std::vector<RespValue> response;
-  
+
   // New cursor
   uint64_t new_cursor = (end >= matched_members.size()) ? 0 : end;
   RespValue cursor_val;
   cursor_val.SetString(std::to_string(new_cursor), RespType::kBulkString);
   response.emplace_back(cursor_val);
-  
+
   // Results
   response.emplace_back(RespValue(std::move(result_array)));
 
@@ -2592,19 +2770,33 @@ CommandResult HandleZScan(const astra::protocol::Command& command, CommandContex
 }
 
 // New zset commands (Redis 7.0+)
-ASTRADB_REGISTER_COMMAND(ZINTER, -3, "readonly", RoutingStrategy::kNone, HandleZInter);
-ASTRADB_REGISTER_COMMAND(ZINTERCARD, -2, "readonly", RoutingStrategy::kNone, HandleZInterCard);
-ASTRADB_REGISTER_COMMAND(ZUNION, -3, "readonly", RoutingStrategy::kNone, HandleZUnion);
-ASTRADB_REGISTER_COMMAND(ZLEXCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey, HandleZLexCount);
-ASTRADB_REGISTER_COMMAND(ZMPOP, -4, "write", RoutingStrategy::kNone, HandleZMPop);
-ASTRADB_REGISTER_COMMAND(ZMSCORE, -2, "readonly", RoutingStrategy::kByFirstKey, HandleZMScore);
-ASTRADB_REGISTER_COMMAND(ZRANDMEMBER, -2, "readonly", RoutingStrategy::kByFirstKey, HandleZRandMember);
-ASTRADB_REGISTER_COMMAND(ZRANGEBYLEX, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRangeByLex);
-ASTRADB_REGISTER_COMMAND(ZRANGESTORE, -4, "write", RoutingStrategy::kByFirstKey, HandleZRangeStore);
-ASTRADB_REGISTER_COMMAND(ZREMRANGEBYLEX, 4, "write", RoutingStrategy::kByFirstKey, HandleZRemRangeByLex);
-ASTRADB_REGISTER_COMMAND(ZREMRANGEBYRANK, 4, "write", RoutingStrategy::kByFirstKey, HandleZRemRangeByRank);
-ASTRADB_REGISTER_COMMAND(ZREMRANGEBYSCORE, 4, "write", RoutingStrategy::kByFirstKey, HandleZRemRangeByScore);
-ASTRADB_REGISTER_COMMAND(ZREVRANGEBYLEX, -4, "readonly", RoutingStrategy::kByFirstKey, HandleZRevRangeByLex);
-ASTRADB_REGISTER_COMMAND(ZSCAN, -3, "readonly", RoutingStrategy::kByFirstKey, HandleZScan);
+ASTRADB_REGISTER_COMMAND(ZINTER, -3, "readonly", RoutingStrategy::kNone,
+                         HandleZInter);
+ASTRADB_REGISTER_COMMAND(ZINTERCARD, -2, "readonly", RoutingStrategy::kNone,
+                         HandleZInterCard);
+ASTRADB_REGISTER_COMMAND(ZUNION, -3, "readonly", RoutingStrategy::kNone,
+                         HandleZUnion);
+ASTRADB_REGISTER_COMMAND(ZLEXCOUNT, 4, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZLexCount);
+ASTRADB_REGISTER_COMMAND(ZMPOP, -4, "write", RoutingStrategy::kNone,
+                         HandleZMPop);
+ASTRADB_REGISTER_COMMAND(ZMSCORE, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZMScore);
+ASTRADB_REGISTER_COMMAND(ZRANDMEMBER, -2, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRandMember);
+ASTRADB_REGISTER_COMMAND(ZRANGEBYLEX, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRangeByLex);
+ASTRADB_REGISTER_COMMAND(ZRANGESTORE, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleZRangeStore);
+ASTRADB_REGISTER_COMMAND(ZREMRANGEBYLEX, 4, "write",
+                         RoutingStrategy::kByFirstKey, HandleZRemRangeByLex);
+ASTRADB_REGISTER_COMMAND(ZREMRANGEBYRANK, 4, "write",
+                         RoutingStrategy::kByFirstKey, HandleZRemRangeByRank);
+ASTRADB_REGISTER_COMMAND(ZREMRANGEBYSCORE, 4, "write",
+                         RoutingStrategy::kByFirstKey, HandleZRemRangeByScore);
+ASTRADB_REGISTER_COMMAND(ZREVRANGEBYLEX, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleZRevRangeByLex);
+ASTRADB_REGISTER_COMMAND(ZSCAN, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleZScan);
 
 }  // namespace astra::commands

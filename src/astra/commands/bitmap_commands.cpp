@@ -2,10 +2,12 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "bitmap_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/base/logging.hpp"
+
 #include <algorithm>
 #include <stdexcept>
+
+#include "astra/base/logging.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
@@ -33,7 +35,8 @@ static bool GetBit(const std::string& bitmap, int64_t offset) {
     return false;
   }
   int64_t byte_offset = offset / 8;
-  int bit_in_byte = 7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
+  int bit_in_byte =
+      7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
   if (byte_offset >= static_cast<int64_t>(bitmap.size())) {
     return false;
   }
@@ -47,7 +50,8 @@ static void SetBit(std::string& bitmap, int64_t offset, bool value) {
   }
   EnsureBitmapSize(bitmap, offset);
   int64_t byte_offset = offset / 8;
-  int bit_in_byte = 7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
+  int bit_in_byte =
+      7 - (offset % 8);  // Redis uses MSB-first: bit 0 is the highest bit
   if (value) {
     bitmap[byte_offset] |= (1 << bit_in_byte);
   } else {
@@ -56,9 +60,11 @@ static void SetBit(std::string& bitmap, int64_t offset, bool value) {
 }
 
 // BITCOUNT key [start end] - Count set bits in a string
-CommandResult HandleBitCount(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleBitCount(const protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 1 || command.ArgCount() > 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitcount' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'bitcount' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -79,19 +85,23 @@ CommandResult HandleBitCount(const protocol::Command& command, CommandContext* c
   if (command.ArgCount() >= 2) {
     try {
       if (!absl::SimpleAtoi(command[1].AsString(), &start)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
     } catch (...) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   }
   if (command.ArgCount() >= 3) {
     try {
       if (!absl::SimpleAtoi(command[2].AsString(), &end)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
     } catch (...) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   }
 
@@ -115,10 +125,13 @@ CommandResult HandleBitCount(const protocol::Command& command, CommandContext* c
   return CommandResult(resp);
 }
 
-// BITOP operation destkey key [key ...] - Perform bitwise operations between strings
-CommandResult HandleBitOp(const protocol::Command& command, CommandContext* context) {
+// BITOP operation destkey key [key ...] - Perform bitwise operations between
+// strings
+CommandResult HandleBitOp(const protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitop' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'bitop' command");
   }
 
   const std::string& operation = command[0].AsString();
@@ -178,7 +191,8 @@ CommandResult HandleBitOp(const protocol::Command& command, CommandContext* cont
     }
   } else if (operation == "NOT") {
     if (sources.size() != 1) {
-      return CommandResult(false, "ERR BITOP NOT must be called with a single source key");
+      return CommandResult(
+          false, "ERR BITOP NOT must be called with a single source key");
     }
     for (size_t i = 0; i < max_len; ++i) {
       result[i] = ~sources[0][i];
@@ -197,16 +211,19 @@ CommandResult HandleBitOp(const protocol::Command& command, CommandContext* cont
 }
 
 // BITPOS key bit [start end] - Find first bit set or clear in a string
-CommandResult HandleBitPos(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleBitPos(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 2 || command.ArgCount() > 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitpos' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'bitpos' command");
   }
 
   const std::string& key = command[0].AsString();
   int64_t bit_value;
   try {
     if (!absl::SimpleAtoi(command[1].AsString(), &bit_value)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
     if (bit_value != 0 && bit_value != 1) {
       return CommandResult(false, "ERR bit value must be 0 or 1");
@@ -235,40 +252,30 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
   int64_t end = static_cast<int64_t>(bitmap.size()) - 1;
 
   if (command.ArgCount() >= 3) {
-
-      try {
-
-        if (!absl::SimpleAtoi(command[2].AsString(), &start)) {
-
-          return CommandResult(false, "ERR value is not an integer or out of range");
-
-        }
-
-      } catch (...) {
-
-        return CommandResult(false, "ERR value is not an integer or out of range");
-
+    try {
+      if (!absl::SimpleAtoi(command[2].AsString(), &start)) {
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
 
+    } catch (...) {
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
+  }
 
-    if (command.ArgCount() >= 4) {
-
-      try {
-
-        if (!absl::SimpleAtoi(command[3].AsString(), &end)) {
-
-          return CommandResult(false, "ERR value is not an integer or out of range");
-
-        }
-
-      } catch (...) {
-
-        return CommandResult(false, "ERR value is not an integer or out of range");
-
+  if (command.ArgCount() >= 4) {
+    try {
+      if (!absl::SimpleAtoi(command[3].AsString(), &end)) {
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
 
+    } catch (...) {
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
+  }
 
   // Handle negative indices
   int64_t len = static_cast<int64_t>(bitmap.size());
@@ -281,7 +288,8 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
 
   // Find the bit (MSB-first: bit 0 is the highest bit in each byte)
   bool target_bit = (bit_value == 1);
-  for (int64_t byte_idx = start; byte_idx <= end && byte_idx < len; ++byte_idx) {
+  for (int64_t byte_idx = start; byte_idx <= end && byte_idx < len;
+       ++byte_idx) {
     uint8_t byte = static_cast<uint8_t>(bitmap[byte_idx]);
     for (int bit_idx = 0; bit_idx < 8; ++bit_idx) {
       int actual_bit_idx = 7 - bit_idx;  // Redis uses MSB-first
@@ -300,10 +308,13 @@ CommandResult HandleBitPos(const protocol::Command& command, CommandContext* con
   return CommandResult(resp);
 }
 
-// BITFIELD key [GET encoding offset] [SET encoding offset value] [INCRBY encoding offset increment] [OVERFLOW WRAP|SAT|FAIL]
-CommandResult HandleBitField(const protocol::Command& command, CommandContext* context) {
+// BITFIELD key [GET encoding offset] [SET encoding offset value] [INCRBY
+// encoding offset increment] [OVERFLOW WRAP|SAT|FAIL]
+CommandResult HandleBitField(const protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'bitfield' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'bitfield' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -325,11 +336,14 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
 
     if (subcommand == "OVERFLOW") {
       if (i + 1 >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'BITFIELD ... OVERFLOW'");
+        return CommandResult(
+            false, "ERR wrong number of arguments for 'BITFIELD ... OVERFLOW'");
       }
       overflow_mode = command[i + 1].AsString();
-      if (overflow_mode != "WRAP" && overflow_mode != "SAT" && overflow_mode != "FAIL") {
-        return CommandResult(false, "ERR OVERFLOW only supports WRAP, SAT, FAIL");
+      if (overflow_mode != "WRAP" && overflow_mode != "SAT" &&
+          overflow_mode != "FAIL") {
+        return CommandResult(false,
+                             "ERR OVERFLOW only supports WRAP, SAT, FAIL");
       }
       i += 2;
       continue;
@@ -337,7 +351,8 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
 
     if (subcommand == "GET") {
       if (i + 2 >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'BITFIELD GET'");
+        return CommandResult(
+            false, "ERR wrong number of arguments for 'BITFIELD GET'");
       }
 
       // Parse encoding (e.g., "u8", "i16")
@@ -345,17 +360,20 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       int64_t offset;
       try {
         if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
-          return CommandResult(false, "ERR value is not an integer or out of range");
+          return CommandResult(false,
+                               "ERR value is not an integer or out of range");
         }
       } catch (...) {
-        return CommandResult(false, "ERR offset is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR offset is not an integer or out of range");
       }
 
       // Extract type and bits
       bool signed_type = (encoding[0] == 'i');
       int bits;
       if (!absl::SimpleAtoi(encoding.substr(1), &bits)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
 
       if (bits <= 0 || bits > 64) {
@@ -401,7 +419,8 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       i += 3;
     } else if (subcommand == "SET") {
       if (i + 3 >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'BITFIELD SET'");
+        return CommandResult(
+            false, "ERR wrong number of arguments for 'BITFIELD SET'");
       }
 
       const std::string& encoding = command[i + 1].AsString();
@@ -409,13 +428,16 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       int64_t new_value;
       try {
         if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
-          return CommandResult(false, "ERR value is not an integer or out of range");
+          return CommandResult(false,
+                               "ERR value is not an integer or out of range");
         }
         if (!absl::SimpleAtoi(command[i + 3].AsString(), &new_value)) {
-          return CommandResult(false, "ERR value is not an integer or out of range");
+          return CommandResult(false,
+                               "ERR value is not an integer or out of range");
         }
       } catch (...) {
-        return CommandResult(false, "ERR offset or value is not an integer or out of range");
+        return CommandResult(
+            false, "ERR offset or value is not an integer or out of range");
       }
 
       bool signed_type = (encoding[0] == 'i');
@@ -435,13 +457,15 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
           int64_t min_value = -(1LL << (bits - 1));
           int64_t max_signed_value = (1LL << (bits - 1)) - 1;
           if (new_value < min_value || new_value > max_signed_value) {
-            results.emplace_back(protocol::RespValue(protocol::RespType::kNullBulkString));
+            results.emplace_back(
+                protocol::RespValue(protocol::RespType::kNullBulkString));
             i += 4;
             continue;
           }
         } else {
           if (new_value < 0 || static_cast<uint64_t>(new_value) > max_value) {
-            results.emplace_back(protocol::RespValue(protocol::RespType::kNullBulkString));
+            results.emplace_back(
+                protocol::RespValue(protocol::RespType::kNullBulkString));
             i += 4;
             continue;
           }
@@ -455,7 +479,8 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
           if (new_value > max_signed_value) new_value = max_signed_value;
         } else {
           if (new_value < 0) new_value = 0;
-          if (static_cast<uint64_t>(new_value) > max_value) new_value = max_value;
+          if (static_cast<uint64_t>(new_value) > max_value)
+            new_value = max_value;
         }
       }
 
@@ -474,7 +499,8 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       i += 4;
     } else if (subcommand == "INCRBY") {
       if (i + 3 >= command.ArgCount()) {
-        return CommandResult(false, "ERR wrong number of arguments for 'BITFIELD INCRBY'");
+        return CommandResult(
+            false, "ERR wrong number of arguments for 'BITFIELD INCRBY'");
       }
 
       const std::string& encoding = command[i + 1].AsString();
@@ -482,13 +508,16 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       int64_t increment;
       try {
         if (!absl::SimpleAtoi(command[i + 2].AsString(), &offset)) {
-          return CommandResult(false, "ERR value is not an integer or out of range");
+          return CommandResult(false,
+                               "ERR value is not an integer or out of range");
         }
         if (!absl::SimpleAtoi(command[i + 3].AsString(), &increment)) {
-          return CommandResult(false, "ERR value is not an integer or out of range");
+          return CommandResult(false,
+                               "ERR value is not an integer or out of range");
         }
       } catch (...) {
-        return CommandResult(false, "ERR offset or increment is not an integer or out of range");
+        return CommandResult(
+            false, "ERR offset or increment is not an integer or out of range");
       }
 
       bool signed_type = (encoding[0] == 'i');
@@ -524,7 +553,8 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
       if (signed_type && bits < 64) {
         uint64_t sign_bit = 1ULL << (bits - 1);
         if (current_value & sign_bit) {
-          signed_current = static_cast<int64_t>(current_value | ~((1ULL << bits) - 1));
+          signed_current =
+              static_cast<int64_t>(current_value | ~((1ULL << bits) - 1));
         }
       }
 
@@ -555,21 +585,25 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
         } else {
           uint64_t max_value = (1ULL << bits) - 1;
           if (new_value < 0) new_value = 0;
-          if (static_cast<uint64_t>(new_value) > max_value) new_value = max_value;
+          if (static_cast<uint64_t>(new_value) > max_value)
+            new_value = max_value;
         }
       } else {  // WRAP
         uint64_t mask = (1ULL << bits) - 1;
-        new_value = static_cast<int64_t>(static_cast<uint64_t>(new_value) & mask);
+        new_value =
+            static_cast<int64_t>(static_cast<uint64_t>(new_value) & mask);
         if (signed_type && bits < 64) {
           uint64_t sign_bit = 1ULL << (bits - 1);
           if (static_cast<uint64_t>(new_value) & sign_bit) {
-            new_value = static_cast<int64_t>(static_cast<uint64_t>(new_value) | ~((1ULL << bits) - 1));
+            new_value = static_cast<int64_t>(static_cast<uint64_t>(new_value) |
+                                             ~((1ULL << bits) - 1));
           }
         }
       }
 
       if (overflow) {
-        results.emplace_back(protocol::RespValue(protocol::RespType::kNullBulkString));
+        results.emplace_back(
+            protocol::RespValue(protocol::RespType::kNullBulkString));
       } else {
         // Set the bits
         uint64_t value_to_set = static_cast<uint64_t>(new_value);
@@ -599,16 +633,19 @@ CommandResult HandleBitField(const protocol::Command& command, CommandContext* c
 }
 
 // GETBIT key offset - Get a single bit at offset
-CommandResult HandleGetBit(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleGetBit(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'getbit' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'getbit' command");
   }
 
   const std::string& key = command[0].AsString();
   int64_t offset;
   try {
     if (!absl::SimpleAtoi(command[1].AsString(), &offset)) {
-      return CommandResult(false, "ERR offset is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR offset is not an integer or out of range");
     }
   } catch (...) {
     return CommandResult(false, "ERR offset is not an integer or out of range");
@@ -632,9 +669,11 @@ CommandResult HandleGetBit(const protocol::Command& command, CommandContext* con
 }
 
 // SETBIT key offset value - Set a single bit at offset
-CommandResult HandleSetBit(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleSetBit(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'setbit' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'setbit' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -642,13 +681,16 @@ CommandResult HandleSetBit(const protocol::Command& command, CommandContext* con
   int64_t bit_value;
   try {
     if (!absl::SimpleAtoi(command[1].AsString(), &offset)) {
-      return CommandResult(false, "ERR offset is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR offset is not an integer or out of range");
     }
     if (!absl::SimpleAtoi(command[2].AsString(), &bit_value)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   } catch (...) {
-    return CommandResult(false, "ERR offset or value is not an integer or out of range");
+    return CommandResult(
+        false, "ERR offset or value is not an integer or out of range");
   }
 
   if (offset < 0 || (bit_value != 0 && bit_value != 1)) {
@@ -671,11 +713,17 @@ CommandResult HandleSetBit(const protocol::Command& command, CommandContext* con
 }
 
 // Auto-register all bitmap commands
-ASTRADB_REGISTER_COMMAND(BITCOUNT, -2, "readonly", RoutingStrategy::kByFirstKey, HandleBitCount);
-ASTRADB_REGISTER_COMMAND(BITOP, -4, "write", RoutingStrategy::kNone, HandleBitOp);
-ASTRADB_REGISTER_COMMAND(BITPOS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleBitPos);
-ASTRADB_REGISTER_COMMAND(BITFIELD, -2, "write", RoutingStrategy::kByFirstKey, HandleBitField);
-ASTRADB_REGISTER_COMMAND(GETBIT, 3, "readonly", RoutingStrategy::kByFirstKey, HandleGetBit);
-ASTRADB_REGISTER_COMMAND(SETBIT, 4, "write", RoutingStrategy::kByFirstKey, HandleSetBit);
+ASTRADB_REGISTER_COMMAND(BITCOUNT, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleBitCount);
+ASTRADB_REGISTER_COMMAND(BITOP, -4, "write", RoutingStrategy::kNone,
+                         HandleBitOp);
+ASTRADB_REGISTER_COMMAND(BITPOS, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleBitPos);
+ASTRADB_REGISTER_COMMAND(BITFIELD, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleBitField);
+ASTRADB_REGISTER_COMMAND(GETBIT, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleGetBit);
+ASTRADB_REGISTER_COMMAND(SETBIT, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleSetBit);
 
 }  // namespace astra::commands

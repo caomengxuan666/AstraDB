@@ -5,14 +5,17 @@
 // ==============================================================================
 
 #include "command_handler.hpp"
+
 #include <absl/strings/ascii.h>
-#include <unordered_map>
+
 #include <algorithm>
 #include <sstream>
+#include <unordered_map>
 
 namespace astra::commands {
 
-void CommandRegistry::Register(const CommandInfo& info, CommandHandler handler) noexcept {
+void CommandRegistry::Register(const CommandInfo& info,
+                               CommandHandler handler) noexcept {
   CommandEntry entry;
   entry.info = info;
   entry.handler = std::move(handler);
@@ -31,7 +34,8 @@ bool CommandRegistry::Exists(const std::string& name) const noexcept {
   return commands_.find(upper_name) != commands_.end();
 }
 
-const CommandInfo* CommandRegistry::GetInfo(const std::string& name) const noexcept {
+const CommandInfo* CommandRegistry::GetInfo(
+    const std::string& name) const noexcept {
   std::string upper_name = absl::AsciiStrToUpper(name);
   ASTRADB_LOG_TRACE("GetInfo: name='{}', upper_name='{}'", name, upper_name);
   auto it = commands_.find(upper_name);
@@ -43,14 +47,15 @@ const CommandInfo* CommandRegistry::GetInfo(const std::string& name) const noexc
   return nullptr;
 }
 
-CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, CommandContext* context) const noexcept {
+CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
+                                       CommandContext* context) const noexcept {
   if (command.name.empty()) {
     return CommandResult(false, "ERR empty command name");
   }
 
   // Convert command name to uppercase for case-insensitive lookup
   std::string upper_name = absl::AsciiStrToUpper(command.name);
-  
+
   auto it = commands_.find(upper_name);
   if (it == commands_.end()) {
     return CommandResult(false, "ERR unknown command '" + command.name + "'");
@@ -65,13 +70,12 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
   // arity > 0 means exact number of total args (command + arguments)
   // arity < 0 means at least |arity| total args
   int total_args = static_cast<int>(command.ArgCount()) + 1;
-  
+
   if (entry.info.arity > 0) {
     // Fixed arity - exact number required
     if (total_args != entry.info.arity) {
       std::ostringstream oss;
-      oss << "ERR wrong number of arguments for '" << upper_name
-          << "' command";
+      oss << "ERR wrong number of arguments for '" << upper_name << "' command";
       return CommandResult(false, oss.str());
     }
   } else if (entry.info.arity < 0) {
@@ -79,8 +83,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
     int min_args = -entry.info.arity;
     if (total_args < min_args) {
       std::ostringstream oss;
-      oss << "ERR wrong number of arguments for '" << upper_name
-          << "' command";
+      oss << "ERR wrong number of arguments for '" << upper_name << "' command";
       return CommandResult(false, oss.str());
     }
   }
@@ -91,7 +94,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
   if (caching_enabled_ && !entry.info.is_write) {
     // Only cache read commands
     std::string cache_key = GenerateCacheKey(command);
-    
+
     // Check cache
     auto cache_it = command_cache_.find(cache_key);
     if (cache_it != command_cache_.end()) {
@@ -99,20 +102,20 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
       cache_hit_count_++;
       cache_it->second.last_accessed_ms = absl::GetCurrentTimeNanos() / 1000000;
       cache_it->second.access_count++;
-      
+
       // Return cached result (if available)
       // Note: In a real implementation, we'd need to store the actual result
       // For now, we just track cache hits
     } else {
       // Cache miss
       cache_miss_count_++;
-      
+
       // Add to cache
       if (command_cache_.size() >= kMaxCacheSize) {
         // LRU eviction
         EvictLRUCacheEntry();
       }
-      
+
       // Create cache entry
       CachedCommandEntry cache_entry;
       cache_entry.command_name = upper_name;
@@ -121,7 +124,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
       cache_entry.last_accessed_ms = cache_entry.created_at_ms;
       cache_entry.access_count = 1;
       cache_entry.is_read_only = true;
-      
+
       // Cache command parameters
       for (size_t i = 0; i < command.ArgCount(); ++i) {
         const auto& arg = command[i];
@@ -136,13 +139,16 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command, 
         CachedParameterValue param_value;
         param_value.type = CachedParameterValue::Type::kString;
         param_value.string_value = arg_str;
-        cache_entry.parameters.emplace_back("arg_" + std::to_string(i), param_value);
+        cache_entry.parameters.emplace_back("arg_" + std::to_string(i),
+                                            param_value);
       }
-      
-      cache_entry.param_count = static_cast<uint32_t>(cache_entry.parameters.size());
-      cache_entry.estimated_size_bytes = static_cast<uint32_t>(
-          upper_name.size() + cache_key.size() + cache_entry.parameters.size() * 64);
-      
+
+      cache_entry.param_count =
+          static_cast<uint32_t>(cache_entry.parameters.size());
+      cache_entry.estimated_size_bytes =
+          static_cast<uint32_t>(upper_name.size() + cache_key.size() +
+                                cache_entry.parameters.size() * 64);
+
       command_cache_[cache_key] = std::move(cache_entry);
     }
   }
@@ -169,7 +175,8 @@ std::vector<std::string> CommandRegistry::GetCommandNames() const noexcept {
   return names;
 }
 
-RoutingStrategy CommandRegistry::GetRoutingStrategy(const std::string& command_name) const noexcept {
+RoutingStrategy CommandRegistry::GetRoutingStrategy(
+    const std::string& command_name) const noexcept {
   std::string upper_name = absl::AsciiStrToUpper(command_name);
   auto it = commands_.find(upper_name);
   if (it != commands_.end()) {
@@ -179,9 +186,10 @@ RoutingStrategy CommandRegistry::GetRoutingStrategy(const std::string& command_n
 }
 
 // Generate cache key from command name and arguments
-std::string CommandRegistry::GenerateCacheKey(const astra::protocol::Command& command) const noexcept {
+std::string CommandRegistry::GenerateCacheKey(
+    const astra::protocol::Command& command) const noexcept {
   std::string upper_name = absl::AsciiStrToUpper(command.name);
-  
+
   std::vector<std::pair<std::string, CachedParameterValue>> params;
   for (size_t i = 0; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
@@ -198,8 +206,9 @@ std::string CommandRegistry::GenerateCacheKey(const astra::protocol::Command& co
     param_value.string_value = arg_str;
     params.emplace_back("arg_" + std::to_string(i), param_value);
   }
-  
-  return CommandCacheFlatbuffersSerializer::GenerateCommandHash(upper_name, params);
+
+  return CommandCacheFlatbuffersSerializer::GenerateCommandHash(upper_name,
+                                                                params);
 }
 
 // Evict LRU cache entry
@@ -207,7 +216,7 @@ void CommandRegistry::EvictLRUCacheEntry() const noexcept {
   if (command_cache_.empty()) {
     return;
   }
-  
+
   // Find least recently used entry
   auto lru_it = command_cache_.begin();
   for (auto it = command_cache_.begin(); it != command_cache_.end(); ++it) {
@@ -215,7 +224,7 @@ void CommandRegistry::EvictLRUCacheEntry() const noexcept {
       lru_it = it;
     }
   }
-  
+
   // Erase the LRU entry
   command_cache_.erase(lru_it);
   cache_eviction_count_++;
@@ -225,14 +234,14 @@ void CommandRegistry::EvictLRUCacheEntry() const noexcept {
 static CommandRegistry* g_global_registry = nullptr;
 
 CommandRegistry& GetGlobalCommandRegistry() {
-  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: g_global_registry={}", 
+  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: g_global_registry={}",
                     g_global_registry != nullptr ? "set" : "nullptr");
-  
+
   if (g_global_registry != nullptr) {
     ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning global registry");
     return *g_global_registry;
   }
-  
+
   static CommandRegistry fallback_registry;
   ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning fallback registry");
   return fallback_registry;

@@ -13,6 +13,14 @@ target_sources(astradb_tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/hello_test.cpp
 )
 
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_link_options(astradb_tests PRIVATE 
+    -Wl,--no-fatal-warnings
+    -Wl,--no-warn-search-mismatch
+  )
+endif()
+
 # Link additional libraries needed for command tests
 target_link_libraries(astradb_tests PRIVATE
   astra_commands_whole

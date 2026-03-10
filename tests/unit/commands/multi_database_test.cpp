@@ -2,16 +2,16 @@
 // Multi-Database Functionality Tests
 // ==============================================================================
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-#include "astra/commands/database.hpp"
-#include "astra/commands/admin_commands.hpp"
-#include "astra/commands/string_commands.hpp"
-#include "astra/protocol/resp/resp_parser.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
-#include "astra/persistence/leveldb_adapter.hpp"
 #include "astra/base/version.hpp"
+#include "astra/commands/admin_commands.hpp"
+#include "astra/commands/database.hpp"
+#include "astra/commands/string_commands.hpp"
+#include "astra/persistence/leveldb_adapter.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::commands {
 namespace test {
@@ -36,7 +36,9 @@ class TestMultiDBContext : public CommandContext {
   DatabaseManager* GetDatabaseManager() const override { return db_manager_; }
 
   bool IsPersistenceEnabled() const override { return false; }
-  persistence::LevelDBAdapter* GetPersistence() const override { return nullptr; }
+  persistence::LevelDBAdapter* GetPersistence() const override {
+    return nullptr;
+  }
 
  private:
   DatabaseManager* db_manager_;
@@ -57,17 +59,18 @@ class MultiDatabaseTest : public ::testing::Test {
     db_manager_.reset();
   }
 
-  Command CreateCommand(const std::string& cmd_name, const std::vector<std::string>& args) {
+  Command CreateCommand(const std::string& cmd_name,
+                        const std::vector<std::string>& args) {
     Command command;
     command.name = cmd_name;
-    
+
     // Create RESP values for arguments
     for (const auto& arg : args) {
       RespValue arg_value;
       arg_value.SetString(arg, astra::protocol::RespType::kBulkString);
       command.args.push_back(arg_value);
     }
-    
+
     return command;
   }
 
@@ -81,7 +84,7 @@ TEST_F(MultiDatabaseTest, SelectCommand) {
   for (int i = 0; i < 16; ++i) {
     auto cmd = CreateCommand("SELECT", {std::to_string(i)});
     auto result = HandleSelect(cmd, context_.get());
-    
+
     EXPECT_TRUE(result.success);
     EXPECT_EQ(context_->GetDBIndex(), i);
   }

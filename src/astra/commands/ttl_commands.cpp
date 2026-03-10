@@ -5,16 +5,20 @@
 // ==============================================================================
 
 #include "ttl_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
+
 #include <cstdlib>
+
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
 // EXPIRE key seconds
-CommandResult HandleExpire(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleExpire(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'EXPIRE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'EXPIRE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -46,23 +50,29 @@ CommandResult HandleExpire(const astra::protocol::Command& command, CommandConte
     // Negative or zero means delete the key
     if (db->Exists(key)) {
       db->Del(key);
-      return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
+      return CommandResult(
+          RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
     }
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 
   bool success = db->SetExpireSeconds(key, seconds);
   if (success) {
-    return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
+    return CommandResult(
+        RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 }
 
 // EXPIREAT key timestamp
-CommandResult HandleExpireAt(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleExpireAt(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'EXPIREAT' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'EXPIREAT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -90,30 +100,37 @@ CommandResult HandleExpireAt(const astra::protocol::Command& command, CommandCon
     return CommandResult(false, "ERR value is not an integer or out of range");
   }
 
-  int64_t current_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() / 1000;
+  int64_t current_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() / 1000;
   int64_t expire_time_ms = timestamp * 1000;
 
   if (expire_time_ms <= current_time_ms * 1000) {
     // Timestamp is in the past, delete the key
     if (db->Exists(key)) {
       db->Del(key);
-      return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
+      return CommandResult(
+          RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
     }
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 
   bool success = db->SetExpireMs(key, expire_time_ms);
   if (success) {
-    return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
+    return CommandResult(
+        RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 }
 
 // PEXPIRE key milliseconds
-CommandResult HandlePExpire(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandlePExpire(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'PEXPIRE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'PEXPIRE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -145,25 +162,32 @@ CommandResult HandlePExpire(const astra::protocol::Command& command, CommandCont
     // Negative or zero means delete the key
     if (db->Exists(key)) {
       db->Del(key);
-      return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
+      return CommandResult(
+          RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
     }
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 
   // Convert relative time to absolute timestamp
-  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds;
+  int64_t expire_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds;
   bool success = db->SetExpireMs(key, expire_time_ms);
   if (success) {
-    return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
+    return CommandResult(
+        RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 }
 
 // PEXPIREAT key timestamp_ms
-CommandResult HandlePExpireAt(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandlePExpireAt(const astra::protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'PEXPIREAT' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'PEXPIREAT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -197,23 +221,29 @@ CommandResult HandlePExpireAt(const astra::protocol::Command& command, CommandCo
     // Timestamp is in the past, delete the key
     if (db->Exists(key)) {
       db->Del(key);
-      return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
+      return CommandResult(
+          RespValue(static_cast<int64_t>(1)));  // 1 = key deleted
     }
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 
   bool success = db->SetExpireMs(key, timestamp_ms);
   if (success) {
-    return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
+    return CommandResult(
+        RespValue(static_cast<int64_t>(1)));  // 1 = timeout was set
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found
   }
 }
 
 // TTL key - returns seconds until expiration
-CommandResult HandleTTL(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleTTL(const astra::protocol::Command& command,
+                        CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'TTL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'TTL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -234,9 +264,11 @@ CommandResult HandleTTL(const astra::protocol::Command& command, CommandContext*
 }
 
 // PTTL key - returns milliseconds until expiration
-CommandResult HandlePTTL(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandlePTTL(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'PTTL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'PTTL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -257,9 +289,11 @@ CommandResult HandlePTTL(const astra::protocol::Command& command, CommandContext
 }
 
 // PERSIST key - remove expiration
-CommandResult HandlePersist(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandlePersist(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'PERSIST' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'PERSIST' command");
   }
 
   Database* db = context->GetDatabase();
@@ -277,16 +311,21 @@ CommandResult HandlePersist(const astra::protocol::Command& command, CommandCont
   bool success = db->Persist(key);
 
   if (success) {
-    return CommandResult(RespValue(static_cast<int64_t>(1)));  // 1 = timeout removed
+    return CommandResult(
+        RespValue(static_cast<int64_t>(1)));  // 1 = timeout removed
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(0)));  // 0 = key not found or no timeout
+    return CommandResult(
+        RespValue(static_cast<int64_t>(0)));  // 0 = key not found or no timeout
   }
 }
 
-// EXPIRETIME key - returns the absolute Unix timestamp (in seconds) at which the key will expire
-CommandResult HandleExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+// EXPIRETIME key - returns the absolute Unix timestamp (in seconds) at which
+// the key will expire
+CommandResult HandleExpireTime(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'EXPIRETIME' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'EXPIRETIME' command");
   }
 
   Database* db = context->GetDatabase();
@@ -301,20 +340,25 @@ CommandResult HandleExpireTime(const astra::protocol::Command& command, CommandC
   }
 
   std::string key = key_arg.AsString();
-  
+
   // Get the expire time
   auto expire_time_ms = db->GetExpireTimeMs(key);
   if (expire_time_ms.has_value()) {
-    return CommandResult(RespValue(static_cast<int64_t>(*expire_time_ms / 1000)));
+    return CommandResult(
+        RespValue(static_cast<int64_t>(*expire_time_ms / 1000)));
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
+    return CommandResult(
+        RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
   }
 }
 
-// PEXPIRETIME key - returns the absolute Unix timestamp (in milliseconds) at which the key will expire
-CommandResult HandlePExpireTime(const astra::protocol::Command& command, CommandContext* context) {
+// PEXPIRETIME key - returns the absolute Unix timestamp (in milliseconds) at
+// which the key will expire
+CommandResult HandlePExpireTime(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'PEXPIRETIME' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'PEXPIRETIME' command");
   }
 
   Database* db = context->GetDatabase();
@@ -329,25 +373,35 @@ CommandResult HandlePExpireTime(const astra::protocol::Command& command, Command
   }
 
   std::string key = key_arg.AsString();
-  
+
   // Get the expire time
   auto expire_time_ms = db->GetExpireTimeMs(key);
   if (expire_time_ms.has_value()) {
     return CommandResult(RespValue(static_cast<int64_t>(*expire_time_ms)));
   } else {
-    return CommandResult(RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
+    return CommandResult(
+        RespValue(static_cast<int64_t>(-2)));  // -2 = key does not exist
   }
 }
 
 // Auto-register all TTL commands
-ASTRADB_REGISTER_COMMAND(EXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandleExpire);
-ASTRADB_REGISTER_COMMAND(EXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandleExpireAt);
-ASTRADB_REGISTER_COMMAND(PEXPIRE, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpire);
-ASTRADB_REGISTER_COMMAND(PEXPIREAT, 3, "write", RoutingStrategy::kByFirstKey, HandlePExpireAt);
-ASTRADB_REGISTER_COMMAND(EXPIRETIME, 2, "readonly", RoutingStrategy::kByFirstKey, HandleExpireTime);
-ASTRADB_REGISTER_COMMAND(PEXPIRETIME, 2, "readonly", RoutingStrategy::kByFirstKey, HandlePExpireTime);
-ASTRADB_REGISTER_COMMAND(TTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleTTL);
-ASTRADB_REGISTER_COMMAND(PTTL, 2, "readonly", RoutingStrategy::kByFirstKey, HandlePTTL);
-ASTRADB_REGISTER_COMMAND(PERSIST, 2, "write", RoutingStrategy::kByFirstKey, HandlePersist);
+ASTRADB_REGISTER_COMMAND(EXPIRE, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleExpire);
+ASTRADB_REGISTER_COMMAND(EXPIREAT, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleExpireAt);
+ASTRADB_REGISTER_COMMAND(PEXPIRE, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandlePExpire);
+ASTRADB_REGISTER_COMMAND(PEXPIREAT, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandlePExpireAt);
+ASTRADB_REGISTER_COMMAND(EXPIRETIME, 2, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleExpireTime);
+ASTRADB_REGISTER_COMMAND(PEXPIRETIME, 2, "readonly",
+                         RoutingStrategy::kByFirstKey, HandlePExpireTime);
+ASTRADB_REGISTER_COMMAND(TTL, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleTTL);
+ASTRADB_REGISTER_COMMAND(PTTL, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandlePTTL);
+ASTRADB_REGISTER_COMMAND(PERSIST, 2, "write", RoutingStrategy::kByFirstKey,
+                         HandlePersist);
 
 }  // namespace astra::commands

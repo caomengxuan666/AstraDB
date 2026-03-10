@@ -6,22 +6,24 @@
 
 #pragma once
 
-#include <string>
-#include <optional>
-#include <vector>
-#include <memory>
-#include <sstream>
-#include <iomanip>
-#include <tbb/parallel_for.h>
-#include <tbb/blocked_range.h>
 #include <absl/random/random.h>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+
+#include <iomanip>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
 #include "astra/container/dash_map.hpp"
-#include "astra/container/zset/btree_zset.hpp"
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
-#include "astra/storage/key_metadata.hpp"
-#include "astra/protocol/resp/resp_types.hpp"
+#include "astra/container/zset/btree_zset.hpp"
 #include "astra/core/memory/string_pool.hpp"
+#include "astra/protocol/resp/resp_types.hpp"
+#include "astra/storage/key_metadata.hpp"
 
 namespace astra::commands {
 
@@ -83,7 +85,8 @@ class Database {
     // Create new stream
     stream = std::make_shared<StreamData>();
     streams_.Insert(key, stream);
-    metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);  // Use String type for now
+    metadata_manager_.RegisterKey(
+        key, astra::storage::KeyType::kString);  // Use String type for now
     return stream.get();
   }
 
@@ -105,7 +108,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     StringValue value;
     if (strings_.Get(key, &value)) {
       return value;
@@ -119,72 +122,72 @@ class Database {
     if (!value.has_value()) {
       return "";
     }
-    
+
     const std::string& str = value->value;
     int64_t len = static_cast<int64_t>(str.size());
-    
+
     // Handle negative indices
     if (start < 0) start = len + start;
     if (end < 0) end = len + end;
-    
+
     // Clamp to valid range
     if (start < 0) start = 0;
     if (end >= len) end = len - 1;
-    
+
     if (start > end || start >= len) {
       return "";
     }
-    
+
     return str.substr(start, end - start + 1);
   }
 
   // SETRANGE key offset value - Overwrite part of string
-  size_t SetRange(const std::string& key, int64_t offset, const std::string& value) {
+  size_t SetRange(const std::string& key, int64_t offset,
+                  const std::string& value) {
     auto existing = Get(key);
     std::string str;
-    
+
     if (existing.has_value()) {
       str = existing->value;
     }
-    
+
     // Extend string if needed
     if (offset < 0) {
       return str.size();  // Invalid offset
     }
-    
+
     size_t new_len = offset + value.size();
     if (new_len > str.size()) {
       str.resize(new_len, '\0');
     }
-    
+
     // Copy value at offset
     std::copy(value.begin(), value.end(), str.begin() + offset);
-    
+
     Set(key, str);
     return str.size();
   }
 
   bool Del(const std::string& key) {
     metadata_manager_.UnregisterKey(key);
-    return strings_.Remove(key) || 
-           hashes_.Remove(key) ||
-           sets_.Remove(key) ||
+    return strings_.Remove(key) || hashes_.Remove(key) || sets_.Remove(key) ||
            zsets_.Remove(key);
   }
 
   size_t Del(const std::vector<std::string>& keys) {
     std::atomic<size_t> count{0};
-    
+
     // Use TBB parallel_for for large key sets
     if (keys.size() > 100) {
       tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-          for (size_t i = range.begin(); i != range.end(); ++i) {
-            if (Del(keys[i])) {
-              count.fetch_add(1, std::memory_order_relaxed);
-            }
-          }
-        });
+                        [&](const tbb::blocked_range<size_t>& range) {
+                          for (size_t i = range.begin(); i != range.end();
+                               ++i) {
+                            if (Del(keys[i])) {
+                              count.fetch_add(1, std::memory_order_relaxed);
+                            }
+                          }
+                        });
     } else {
       // Sequential for small key sets
       for (const auto& key : keys) {
@@ -193,35 +196,35 @@ class Database {
         }
       }
     }
-    
+
     return count.load();
   }
 
-  bool Exists(const std::string& key) {
-    return metadata_manager_.IsValid(key);
-  }
+  bool Exists(const std::string& key) { return metadata_manager_.IsValid(key); }
 
   // Get key version for WATCH support
   uint64_t GetKeyVersion(const std::string& key) {
     return metadata_manager_.GetKeyVersion(key);
   }
 
-  std::vector<std::optional<std::string>> MGet(const std::vector<std::string>& keys) {
+  std::vector<std::optional<std::string>> MGet(
+      const std::vector<std::string>& keys) {
     std::vector<std::optional<std::string>> results(keys.size());
-    
+
     // Use TBB parallel_for for large key sets
     if (keys.size() > 100) {
       tbb::parallel_for(tbb::blocked_range<size_t>(0, keys.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-          for (size_t i = range.begin(); i != range.end(); ++i) {
-            auto value = Get(keys[i]);
-            if (value.has_value()) {
-              results[i] = value->value;
-            } else {
-              results[i] = std::nullopt;
-            }
-          }
-        });
+                        [&](const tbb::blocked_range<size_t>& range) {
+                          for (size_t i = range.begin(); i != range.end();
+                               ++i) {
+                            auto value = Get(keys[i]);
+                            if (value.has_value()) {
+                              results[i] = value->value;
+                            } else {
+                              results[i] = std::nullopt;
+                            }
+                          }
+                        });
     } else {
       // Sequential for small key sets
       for (size_t i = 0; i < keys.size(); ++i) {
@@ -233,13 +236,14 @@ class Database {
         }
       }
     }
-    
+
     return results;
   }
 
   // ========== Hash Operations ==========
 
-  bool HSet(const std::string& key, const std::string& field, const std::string& value) {
+  bool HSet(const std::string& key, const std::string& field,
+            const std::string& value) {
     auto hash = GetHash(key);
     if (!hash) {
       hash = std::make_shared<HashType>(16);
@@ -249,11 +253,12 @@ class Database {
     return hash->Insert(field, value);
   }
 
-  std::optional<std::string> HGet(const std::string& key, const std::string& field) {
+  std::optional<std::string> HGet(const std::string& key,
+                                  const std::string& field) {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return std::nullopt;
@@ -269,7 +274,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return false;
@@ -281,7 +286,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return false;
@@ -293,7 +298,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return 0;
@@ -307,11 +312,12 @@ class Database {
     return count;
   }
 
-  std::vector<std::pair<std::string, std::string>> HGetAll(const std::string& key) {
+  std::vector<std::pair<std::string, std::string>> HGetAll(
+      const std::string& key) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return {};
@@ -323,7 +329,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       return 0;
@@ -332,14 +338,15 @@ class Database {
   }
 
   // HINCRBY key field increment
-  int64_t HIncrBy(const std::string& key, const std::string& field, int64_t increment) {
+  int64_t HIncrBy(const std::string& key, const std::string& field,
+                  int64_t increment) {
     auto hash = GetHash(key);
     if (!hash) {
       hash = std::make_shared<HashType>(16);
       hashes_.Insert(key, hash);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
     }
-    
+
     std::string value;
     int64_t int_value = 0;
     if (hash->Get(field, &value)) {
@@ -351,21 +358,22 @@ class Database {
         return 0;  // Will be handled by command
       }
     }
-    
+
     int_value += increment;
     hash->Insert(field, absl::StrCat(int_value));
     return int_value;
   }
 
   // HINCRBYFLOAT key field increment
-  double HIncrByFloat(const std::string& key, const std::string& field, double increment) {
+  double HIncrByFloat(const std::string& key, const std::string& field,
+                      double increment) {
     auto hash = GetHash(key);
     if (!hash) {
       hash = std::make_shared<HashType>(16);
       hashes_.Insert(key, hash);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
     }
-    
+
     std::string value;
     double float_value = 0.0;
     if (hash->Get(field, &value)) {
@@ -377,14 +385,14 @@ class Database {
         return 0.0;  // Will be handled by command
       }
     }
-    
+
     float_value += increment;
-    
+
     // Format without trailing zeros
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(17) << float_value;
     std::string str_value = oss.str();
-    
+
     // Remove trailing zeros
     size_t dot_pos = str_value.find('.');
     if (dot_pos != std::string::npos) {
@@ -397,13 +405,14 @@ class Database {
         str_value.pop_back();
       }
     }
-    
+
     hash->Insert(field, str_value);
     return float_value;
   }
 
   // HSETNX key field value - Set only if field doesn't exist
-  bool HSetNx(const std::string& key, const std::string& field, const std::string& value) {
+  bool HSetNx(const std::string& key, const std::string& field,
+              const std::string& value) {
     auto hash = GetHash(key);
     if (!hash) {
       hash = std::make_shared<HashType>(16);
@@ -412,31 +421,32 @@ class Database {
       hash->Insert(field, value);
       return true;
     }
-    
+
     // Check if field already exists
     if (hash->Contains(field)) {
       return false;
     }
-    
+
     hash->Insert(field, value);
     return true;
   }
 
   // HMGET key field [field ...]
-  std::vector<std::optional<std::string>> HMGet(const std::string& key, const std::vector<std::string>& fields) {
+  std::vector<std::optional<std::string>> HMGet(
+      const std::string& key, const std::vector<std::string>& fields) {
     std::vector<std::optional<std::string>> results;
-    
+
     if (!metadata_manager_.IsValid(key)) {
       results.resize(fields.size());
       return results;
     }
-    
+
     auto hash = GetHash(key);
     if (!hash) {
       results.resize(fields.size());
       return results;
     }
-    
+
     for (const auto& field : fields) {
       std::string value;
       if (hash->Get(field, &value)) {
@@ -464,7 +474,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto set = GetSet(key);
     if (!set) {
       return false;
@@ -476,7 +486,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto set = GetSet(key);
     if (!set) {
       return false;
@@ -488,7 +498,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto set = GetSet(key);
     if (!set) {
       return {};
@@ -500,7 +510,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto set = GetSet(key);
     if (!set) {
       return 0;
@@ -512,18 +522,18 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto set = GetSet(key);
     if (!set || set->Empty()) {
       return std::nullopt;
     }
-    
+
     // Get a random member and remove it
     auto members = set->GetAll();
     if (members.empty()) {
       return std::nullopt;
     }
-    
+
     // Use absl::BitGen for random selection
     static absl::BitGen bitgen;
     size_t idx = absl::Uniform<size_t>(bitgen, 0, members.size());
@@ -536,18 +546,18 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto set = GetSet(key);
     if (!set || set->Empty()) {
       return std::nullopt;
     }
-    
+
     // Get a random member without removing
     auto members = set->GetAll();
     if (members.empty()) {
       return std::nullopt;
     }
-    
+
     // Use absl::BitGen for random selection
     static absl::BitGen bitgen;
     size_t idx = absl::Uniform<size_t>(bitgen, 0, members.size());
@@ -556,19 +566,20 @@ class Database {
 
   // SMOVE source destination member
   // Move member from source set to destination set
-  bool SMove(const std::string& source, const std::string& destination, const std::string& member) {
+  bool SMove(const std::string& source, const std::string& destination,
+             const std::string& member) {
     if (!metadata_manager_.IsValid(source)) {
       return false;
     }
-    
+
     auto source_set = GetSet(source);
     if (!source_set || !source_set->Contains(member)) {
       return false;
     }
-    
+
     // Remove from source
     source_set->Remove(member);
-    
+
     // Add to destination
     auto dest_set = GetSet(destination);
     if (!dest_set) {
@@ -577,7 +588,7 @@ class Database {
       metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
     }
     dest_set->Insert(member);
-    
+
     return true;
   }
 
@@ -587,44 +598,45 @@ class Database {
     if (keys.empty()) {
       return {};
     }
-    
+
     // Get members from the first set
     auto first_set = GetSet(keys[0]);
     if (!first_set) {
       return {};
     }
-    
+
     auto result = first_set->GetAll();
-    
+
     // Intersect with remaining sets
     for (size_t i = 1; i < keys.size(); ++i) {
       if (!metadata_manager_.IsValid(keys[i])) {
         return {};
       }
-      
+
       auto current_set = GetSet(keys[i]);
       if (!current_set) {
         return {};
       }
-      
+
       // Find intersection
       std::vector<std::string> temp;
       auto current_members = current_set->GetAll();
-      std::unordered_set<std::string> current_set_members(current_members.begin(), current_members.end());
-      
+      std::unordered_set<std::string> current_set_members(
+          current_members.begin(), current_members.end());
+
       for (const auto& member : result) {
         if (current_set_members.find(member) != current_set_members.end()) {
           temp.push_back(member);
         }
       }
-      
+
       result = std::move(temp);
-      
+
       if (result.empty()) {
         break;
       }
     }
-    
+
     return result;
   }
 
@@ -632,19 +644,19 @@ class Database {
   // Return union of multiple sets
   std::vector<std::string> SUnion(const std::vector<std::string>& keys) {
     std::unordered_set<std::string> union_set;
-    
+
     for (const auto& key : keys) {
       if (!metadata_manager_.IsValid(key)) {
         continue;
       }
-      
+
       auto set = GetSet(key);
       if (set) {
         auto members = set->GetAll();
         union_set.insert(members.begin(), members.end());
       }
     }
-    
+
     return std::vector<std::string>(union_set.begin(), union_set.end());
   }
 
@@ -654,26 +666,27 @@ class Database {
     if (keys.empty()) {
       return {};
     }
-    
+
     // Get members from the first set
     auto first_set = GetSet(keys[0]);
     if (!first_set) {
       return {};
     }
-    
+
     auto result = first_set->GetAll();
-    
+
     // Remove members from all other sets
     for (size_t i = 1; i < keys.size(); ++i) {
       if (!metadata_manager_.IsValid(keys[i])) {
         continue;
       }
-      
+
       auto current_set = GetSet(keys[i]);
       if (current_set) {
         auto current_members = current_set->GetAll();
-        std::unordered_set<std::string> current_set_members(current_members.begin(), current_members.end());
-        
+        std::unordered_set<std::string> current_set_members(
+            current_members.begin(), current_members.end());
+
         // Remove members that exist in current set
         auto it = result.begin();
         while (it != result.end()) {
@@ -685,15 +698,16 @@ class Database {
         }
       }
     }
-    
+
     return result;
   }
 
   // SINTERSTORE destination key [key ...]
   // Store intersection in destination set, return number of members
-  size_t SInterStore(const std::string& destination, const std::vector<std::string>& keys) {
+  size_t SInterStore(const std::string& destination,
+                     const std::vector<std::string>& keys) {
     auto members = SInter(keys);
-    
+
     // Clear destination set if it exists
     auto dest_set = GetSet(destination);
     if (dest_set) {
@@ -703,20 +717,21 @@ class Database {
       sets_.Insert(destination, dest_set);
       metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
     }
-    
+
     // Add members to destination
     for (const auto& member : members) {
       dest_set->Insert(member);
     }
-    
+
     return members.size();
   }
 
   // SUNIONSTORE destination key [key ...]
   // Store union in destination set, return number of members
-  size_t SUnionStore(const std::string& destination, const std::vector<std::string>& keys) {
+  size_t SUnionStore(const std::string& destination,
+                     const std::vector<std::string>& keys) {
     auto members = SUnion(keys);
-    
+
     // Clear destination set if it exists
     auto dest_set = GetSet(destination);
     if (dest_set) {
@@ -726,20 +741,21 @@ class Database {
       sets_.Insert(destination, dest_set);
       metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
     }
-    
+
     // Add members to destination
     for (const auto& member : members) {
       dest_set->Insert(member);
     }
-    
+
     return members.size();
   }
 
   // SDIFFSTORE destination key [key ...]
   // Store difference in destination set, return number of members
-  size_t SDiffStore(const std::string& destination, const std::vector<std::string>& keys) {
+  size_t SDiffStore(const std::string& destination,
+                    const std::vector<std::string>& keys) {
     auto members = SDiff(keys);
-    
+
     // Clear destination set if it exists
     auto dest_set = GetSet(destination);
     if (dest_set) {
@@ -749,12 +765,12 @@ class Database {
       sets_.Insert(destination, dest_set);
       metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kSet);
     }
-    
+
     // Add members to destination
     for (const auto& member : members) {
       dest_set->Insert(member);
     }
-    
+
     return members.size();
   }
 
@@ -770,11 +786,12 @@ class Database {
     return zset->Add(member, score);
   }
 
-  std::optional<double> ZScore(const std::string& key, const std::string& member) {
+  std::optional<double> ZScore(const std::string& key,
+                               const std::string& member) {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return std::nullopt;
@@ -783,54 +800,52 @@ class Database {
   }
 
   std::vector<std::pair<std::string, double>> ZRangeByRank(
-      const std::string& key, int64_t start, int64_t stop, bool reverse = false, bool with_scores = false) {
+      const std::string& key, int64_t start, int64_t stop, bool reverse = false,
+      bool with_scores = false) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return {};
     }
-    
+
     uint64_t size = zset->Size();
     if (size == 0) {
       return {};
     }
-    
+
     // Convert negative indices to positive
     if (start < 0) {
       start = static_cast<int64_t>(size) + start;
       if (start < 0) start = 0;
     }
-    
+
     if (stop < 0) {
       stop = static_cast<int64_t>(size) + stop;
       if (stop < 0) stop = -1;
     }
-    
+
     // Clamp to valid range
     if (start >= static_cast<int64_t>(size)) {
       return {};
     }
-    
+
     if (stop >= static_cast<int64_t>(size)) {
       stop = static_cast<int64_t>(size) - 1;
     }
-    
-    return zset->GetRangeByRank(
-        static_cast<uint64_t>(start),
-        static_cast<uint64_t>(stop),
-        false,
-        with_scores
-    );
+
+    return zset->GetRangeByRank(static_cast<uint64_t>(start),
+                                static_cast<uint64_t>(stop), false,
+                                with_scores);
   }
 
   bool ZRem(const std::string& key, const std::string& member) {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return false;
@@ -838,62 +853,64 @@ class Database {
     return zset->Remove(member);
   }
 
-  // ZREVRANGE - Return a range of members in a sorted set, by score, with scores ordered from high to low
-  std::vector<std::pair<std::string, double>> ZRange(
-      const std::string& key, int64_t start, int64_t stop, bool reverse, bool with_scores) {
+  // ZREVRANGE - Return a range of members in a sorted set, by score, with
+  // scores ordered from high to low
+  std::vector<std::pair<std::string, double>> ZRange(const std::string& key,
+                                                     int64_t start,
+                                                     int64_t stop, bool reverse,
+                                                     bool with_scores) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return {};
     }
-    
+
     uint64_t size = zset->Size();
     if (size == 0) {
       return {};
     }
-    
+
     // Convert negative indices to positive
     if (start < 0) {
       start = static_cast<int64_t>(size) + start;
       if (start < 0) start = 0;
     }
-    
+
     if (stop < 0) {
       stop = static_cast<int64_t>(size) + stop;
       if (stop < 0) stop = -1;
     }
-    
+
     // Clamp to valid range
     if (start >= static_cast<int64_t>(size)) {
       return {};
     }
-    
+
     if (stop >= static_cast<int64_t>(size)) {
       stop = static_cast<int64_t>(size) - 1;
     }
-    
-    return zset->GetRangeByRank(
-        static_cast<uint64_t>(start),
-        static_cast<uint64_t>(stop),
-        reverse,
-        with_scores
-    );
+
+    return zset->GetRangeByRank(static_cast<uint64_t>(start),
+                                static_cast<uint64_t>(stop), reverse,
+                                with_scores);
   }
 
-  // ZPOPMIN - Remove and return the member with the lowest score in a sorted set
-  std::optional<std::pair<std::string, double>> ZPopMin(const std::string& key) {
+  // ZPOPMIN - Remove and return the member with the lowest score in a sorted
+  // set
+  std::optional<std::pair<std::string, double>> ZPopMin(
+      const std::string& key) {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset || zset->Size() == 0) {
       return std::nullopt;
     }
-    
+
     auto result = zset->GetRangeByRank(0, 0, false, true);
     if (!result.empty()) {
       auto [member, score] = result[0];
@@ -903,22 +920,25 @@ class Database {
       }
       return result[0];
     }
-    
+
     return std::nullopt;
   }
 
-  // ZPOPMAX - Remove and return the member with the highest score in a sorted set
-  std::optional<std::pair<std::string, double>> ZPopMax(const std::string& key) {
+  // ZPOPMAX - Remove and return the member with the highest score in a sorted
+  // set
+  std::optional<std::pair<std::string, double>> ZPopMax(
+      const std::string& key) {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset || zset->Size() == 0) {
       return std::nullopt;
     }
-    
-    auto result = zset->GetRangeByRank(zset->Size() - 1, zset->Size() - 1, false, true);
+
+    auto result =
+        zset->GetRangeByRank(zset->Size() - 1, zset->Size() - 1, false, true);
     if (!result.empty()) {
       auto [member, score] = result[0];
       zset->Remove(member);
@@ -927,29 +947,25 @@ class Database {
       }
       return result[0];
     }
-    
+
     return std::nullopt;
   }
 
   // ZRANGEBYSCORE - Return a range of members in a sorted set, by score
   std::vector<std::pair<std::string, double>> ZRangeByScore(
-      const std::string& key,
-      const std::string& min_str,
-      const std::string& max_str,
-      bool reverse = false,
-      bool with_scores = false,
-      bool has_limit = false,
-      int64_t offset = 0,
+      const std::string& key, const std::string& min_str,
+      const std::string& max_str, bool reverse = false,
+      bool with_scores = false, bool has_limit = false, int64_t offset = 0,
       int64_t count = -1) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return {};
     }
-    
+
     // Parse min/max scores with possible prefixes (-inf, +inf, (, [)
     auto parse_score = [](const std::string& s) -> std::pair<bool, double> {
       if (s == "-inf" || s == "-INF") {
@@ -958,27 +974,27 @@ class Database {
       if (s == "+inf" || s == "+INF" || s == "inf" || s == "INF") {
         return {true, std::numeric_limits<double>::infinity()};
       }
-      
+
       bool exclusive = false;
       std::string score_str = s;
       if (!s.empty() && (s[0] == '(' || s[0] == '[')) {
         exclusive = (s[0] == '(');
         score_str = s.substr(1);
       }
-      
+
       double value;
       if (absl::SimpleAtod(score_str, &value)) {
         return {exclusive, value};
       }
       return {false, 0.0};
     };
-    
+
     auto [min_exclusive, min_score] = parse_score(min_str);
     auto [max_exclusive, max_score] = parse_score(max_str);
-    
+
     // Get range by score
     auto results = zset->GetRangeByScore(min_score, max_score, with_scores);
-    
+
     // Filter out exclusive boundaries
     std::vector<std::pair<std::string, double>> filtered;
     for (const auto& [member, score] : results) {
@@ -986,38 +1002,39 @@ class Database {
       if (max_exclusive && score >= max_score) continue;
       filtered.push_back({member, score});
     }
-    
+
     // Reverse if needed
     if (reverse) {
       std::reverse(filtered.begin(), filtered.end());
     }
-    
+
     // Apply LIMIT if specified
     if (has_limit) {
       std::vector<std::pair<std::string, double>> limited;
       int64_t start = offset;
-      int64_t end = (count < 0) ? static_cast<int64_t>(filtered.size()) : (offset + count);
-      
+      int64_t end = (count < 0) ? static_cast<int64_t>(filtered.size())
+                                : (offset + count);
+
       if (start < 0) {
         start = static_cast<int64_t>(filtered.size()) + start;
         if (start < 0) start = 0;
       }
-      
+
       if (start >= static_cast<int64_t>(filtered.size())) {
         return {};
       }
-      
+
       if (end > static_cast<int64_t>(filtered.size())) {
         end = static_cast<int64_t>(filtered.size());
       }
-      
+
       for (int64_t i = start; i < end; ++i) {
         limited.push_back(filtered[static_cast<size_t>(i)]);
       }
-      
+
       return limited;
     }
-    
+
     return filtered;
   }
 
@@ -1025,7 +1042,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return 0;
@@ -1037,7 +1054,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return 0;
@@ -1045,25 +1062,28 @@ class Database {
     return zset->CountRange(min, max);
   }
 
-  double ZIncrBy(const std::string& key, double increment, const std::string& member) {
+  double ZIncrBy(const std::string& key, double increment,
+                 const std::string& member) {
     auto zset = GetZSet(key);
     if (!zset) {
       zset = std::make_shared<ZSetType>(1024);
       zsets_.Insert(key, zset);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kZSet);
     }
-    
+
     auto current_score = zset->GetScore(member);
     double new_score = current_score.value_or(0.0) + increment;
     zset->Add(member, new_score);
     return new_score;
   }
 
-  std::optional<uint64_t> ZRank(const std::string& key, const std::string& member, bool reverse = false) {
+  std::optional<uint64_t> ZRank(const std::string& key,
+                                const std::string& member,
+                                bool reverse = false) {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto zset = GetZSet(key);
     if (!zset) {
       return std::nullopt;
@@ -1071,9 +1091,9 @@ class Database {
     return zset->GetRank(member, reverse);
   }
 
-  // ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
-  // Store union of sorted sets at keys in destination
-  size_t ZUnionStore(const std::string& destination, size_t numkeys, 
+  // ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]]
+  // [AGGREGATE SUM|MIN|MAX] Store union of sorted sets at keys in destination
+  size_t ZUnionStore(const std::string& destination, size_t numkeys,
                      const std::vector<std::string>& keys,
                      const std::vector<double>& weights,
                      const std::string& aggregate) {
@@ -1100,7 +1120,7 @@ class Database {
       for (const auto& [member, score] : members) {
         double weighted_score = score * weight;
         auto it = aggregated_scores.find(member);
-        
+
         if (it == aggregated_scores.end()) {
           aggregated_scores[member] = weighted_score;
         } else {
@@ -1123,7 +1143,8 @@ class Database {
     } else {
       dest_zset = std::make_shared<ZSetType>(aggregated_scores.size());
       zsets_.Insert(destination, dest_zset);
-      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+      metadata_manager_.RegisterKey(destination,
+                                    astra::storage::KeyType::kZSet);
     }
 
     // Add aggregated members to destination
@@ -1134,8 +1155,9 @@ class Database {
     return aggregated_scores.size();
   }
 
-  // ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
-  // Store intersection of sorted sets at keys in destination
+  // ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]]
+  // [AGGREGATE SUM|MIN|MAX] Store intersection of sorted sets at keys in
+  // destination
   size_t ZInterStore(const std::string& destination, size_t numkeys,
                      const std::vector<std::string>& keys,
                      const std::vector<double>& weights,
@@ -1150,11 +1172,13 @@ class Database {
       return 0;
     }
 
-    auto first_members = first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
+    auto first_members =
+        first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
     std::unordered_map<std::string, double> intersection_scores;
 
     for (const auto& [member, score] : first_members) {
-      intersection_scores[member] = score * ((weights.size() > 0) ? weights[0] : 1.0);
+      intersection_scores[member] =
+          score * ((weights.size() > 0) ? weights[0] : 1.0);
     }
 
     // Intersect with remaining sets
@@ -1168,8 +1192,10 @@ class Database {
         return 0;
       }
 
-      auto current_members = current_zset->GetRangeByRank(0, current_zset->Size() - 1, false, true);
-      std::unordered_map<std::string, double> current_map(current_members.begin(), current_members.end());
+      auto current_members = current_zset->GetRangeByRank(
+          0, current_zset->Size() - 1, false, true);
+      std::unordered_map<std::string, double> current_map(
+          current_members.begin(), current_members.end());
       double weight = (i < weights.size()) ? weights[i] : 1.0;
 
       std::unordered_map<std::string, double> temp;
@@ -1201,7 +1227,8 @@ class Database {
     } else {
       dest_zset = std::make_shared<ZSetType>(intersection_scores.size());
       zsets_.Insert(destination, dest_zset);
-      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+      metadata_manager_.RegisterKey(destination,
+                                    astra::storage::KeyType::kZSet);
     }
 
     // Add intersection members to destination
@@ -1214,7 +1241,8 @@ class Database {
 
   // ZDIFF numkeys key [key ...]
   // Return difference of sorted sets (first set minus all others)
-  std::vector<std::pair<std::string, double>> ZDiff(size_t numkeys, const std::vector<std::string>& keys) {
+  std::vector<std::pair<std::string, double>> ZDiff(
+      size_t numkeys, const std::vector<std::string>& keys) {
     if (keys.size() != numkeys || numkeys == 0) {
       return {};
     }
@@ -1225,8 +1253,10 @@ class Database {
       return {};
     }
 
-    auto result = first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
-    std::unordered_map<std::string, double> result_map(result.begin(), result.end());
+    auto result =
+        first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
+    std::unordered_map<std::string, double> result_map(result.begin(),
+                                                       result.end());
 
     // Remove members from all other sets
     for (size_t i = 1; i < numkeys; ++i) {
@@ -1236,7 +1266,8 @@ class Database {
 
       auto current_zset = GetZSet(keys[i]);
       if (current_zset) {
-        auto current_members = current_zset->GetRangeByRank(0, current_zset->Size() - 1, false, true);
+        auto current_members = current_zset->GetRangeByRank(
+            0, current_zset->Size() - 1, false, true);
         std::unordered_set<std::string> current_set;
         for (const auto& [member, _] : current_members) {
           current_set.insert(member);
@@ -1259,7 +1290,8 @@ class Database {
 
   // ZDIFFSTORE destination numkeys key [key ...]
   // Store difference of sorted sets in destination
-  size_t ZDiffStore(const std::string& destination, size_t numkeys, const std::vector<std::string>& keys) {
+  size_t ZDiffStore(const std::string& destination, size_t numkeys,
+                    const std::vector<std::string>& keys) {
     auto members = ZDiff(numkeys, keys);
 
     // Clear destination set if it exists
@@ -1269,7 +1301,8 @@ class Database {
     } else {
       dest_zset = std::make_shared<ZSetType>(members.size());
       zsets_.Insert(destination, dest_zset);
-      metadata_manager_.RegisterKey(destination, astra::storage::KeyType::kZSet);
+      metadata_manager_.RegisterKey(destination,
+                                    astra::storage::KeyType::kZSet);
     }
 
     // Add members to destination
@@ -1308,12 +1341,12 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return std::nullopt;
     }
-    
+
     auto value = list->PopLeft();
     if (!value.has_value() || list->Empty()) {
       lists_.Remove(key);
@@ -1326,12 +1359,12 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return std::nullopt;
     }
-    
+
     auto value = list->PopRight();
     if (!value.has_value() || list->Empty()) {
       lists_.Remove(key);
@@ -1344,7 +1377,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return 0;
@@ -1356,7 +1389,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return std::nullopt;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return std::nullopt;
@@ -1368,7 +1401,7 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return false;
@@ -1376,11 +1409,12 @@ class Database {
     return list->Set(index, value);
   }
 
-  std::vector<std::string> LRange(const std::string& key, int64_t start, int64_t stop) {
+  std::vector<std::string> LRange(const std::string& key, int64_t start,
+                                  int64_t stop) {
     if (!metadata_manager_.IsValid(key)) {
       return {};
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return {};
@@ -1392,14 +1426,14 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return false;
     }
-    
+
     list->Trim(start, stop);
-    
+
     // Remove key if list is empty after trim
     if (list->Empty()) {
       lists_.Remove(key);
@@ -1412,14 +1446,14 @@ class Database {
     if (!metadata_manager_.IsValid(key)) {
       return 0;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return 0;
     }
-    
+
     size_t removed = list->Remove(value, count);
-    
+
     // Remove key if list is empty after removal
     if (list->Empty()) {
       lists_.Remove(key);
@@ -1428,11 +1462,12 @@ class Database {
     return removed;
   }
 
-  bool LInsert(const std::string& key, int64_t pivot_index, const std::string& value, bool before = true) {
+  bool LInsert(const std::string& key, int64_t pivot_index,
+               const std::string& value, bool before = true) {
     if (!metadata_manager_.IsValid(key)) {
       return false;
     }
-    
+
     auto list = GetList(key);
     if (!list) {
       return false;
@@ -1440,13 +1475,14 @@ class Database {
     return list->Insert(pivot_index, value, before);
   }
 
-  std::optional<std::string> RPopLPush(const std::string& source, const std::string& destination) {
+  std::optional<std::string> RPopLPush(const std::string& source,
+                                       const std::string& destination) {
     // Pop from source
     auto value = RPop(source);
     if (!value.has_value()) {
       return std::nullopt;
     }
-    
+
     // Push to destination
     RPush(destination, *value);
     return value;
@@ -1484,9 +1520,7 @@ class Database {
 
   // ========== Utility Operations ==========
 
-  size_t Size() const {
-    return strings_.Size();
-  }
+  size_t Size() const { return strings_.Size(); }
 
   // Get key type
   std::optional<astra::storage::KeyType> GetType(const std::string& key) {
@@ -1499,9 +1533,7 @@ class Database {
   }
 
   // Get database size (number of keys)
-  size_t DbSize() const {
-    return metadata_manager_.Size();
-  }
+  size_t DbSize() const { return metadata_manager_.Size(); }
 
   // Flush all data
   void Clear() {
@@ -1575,9 +1607,7 @@ class DatabaseManager {
     return databases_[index].get();
   }
 
-  size_t GetDatabaseCount() const {
-    return databases_.size();
-  }
+  size_t GetDatabaseCount() const { return databases_.size(); }
 
  private:
   std::vector<std::unique_ptr<Database>> databases_;

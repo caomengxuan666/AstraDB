@@ -5,9 +5,10 @@
 // ==============================================================================
 
 #include <gtest/gtest.h>
+
+#include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/command_auto_register.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::commands {
@@ -18,8 +19,11 @@ using astra::protocol::RespValue;
 // Command context with transaction support
 class TransactionTestContext : public CommandContext {
  public:
-  TransactionTestContext() : db_(nullptr), db_index_(0), authenticated_(true),
-    in_transaction_(false) {}
+  TransactionTestContext()
+      : db_(nullptr),
+        db_index_(0),
+        authenticated_(true),
+        in_transaction_(false) {}
 
   Database* GetDatabase() const override { return db_; }
   void SetDatabase(Database* db) { db_ = db; }
@@ -35,7 +39,8 @@ class TransactionTestContext : public CommandContext {
   void QueueCommand(const protocol::Command& cmd) override {
     queued_commands_.push_back(cmd);
   }
-  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override {
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands()
+      const override {
     return queued_commands_;
   }
   void ClearQueuedCommands() override { queued_commands_.clear(); }
@@ -53,7 +58,8 @@ class TransactionTestContext : public CommandContext {
     return watched_keys_;
   }
   bool IsWatchedKeyModified(
-      const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version) const override {
+      const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version)
+      const override {
     for (const auto& key : watched_keys_) {
       auto it = watched_key_versions_.find(key);
       if (it != watched_key_versions_.end()) {
@@ -77,8 +83,7 @@ class TransactionTestContext : public CommandContext {
 
     // Commands that are allowed inside MULTI
     static const absl::flat_hash_set<std::string> kTransactionCommands = {
-      "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"
-    };
+        "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"};
 
     // Handle EXEC specially - execute all queued commands
     if (cmd.name == "EXEC") {
@@ -108,8 +113,10 @@ class TransactionTestContext : public CommandContext {
       return CommandResult(response);
     }
 
-    // If in transaction and command is not a transaction control command, queue it
-    if (in_transaction && kTransactionCommands.find(cmd.name) == kTransactionCommands.end()) {
+    // If in transaction and command is not a transaction control command, queue
+    // it
+    if (in_transaction &&
+        kTransactionCommands.find(cmd.name) == kTransactionCommands.end()) {
       QueueCommand(cmd);
 
       // Send QUEUED response
@@ -148,9 +155,7 @@ class TransactionCommandTest : public ::testing::Test {
     context_->SetRegistry(registry_.get());
   }
 
-  void TearDown() override {
-    context_->GetDatabase()->Clear();
-  }
+  void TearDown() override { context_->GetDatabase()->Clear(); }
 
   std::unique_ptr<DatabaseManager> db_manager_;
   std::unique_ptr<CommandRegistry> registry_;
@@ -202,7 +207,7 @@ TEST_F(TransactionCommandTest, MULTI_EXEC) {
 
   // Verify both commands were executed
   EXPECT_FALSE(context_->IsInTransaction());
-  
+
   // Verify keys were actually set
   Command get_cmd1;
   get_cmd1.name = "GET";
@@ -324,7 +329,7 @@ TEST_F(TransactionCommandTest, WATCH_XEXEC) {
   result = context_->ExecuteWithTransactionHandling(exec_cmd);
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsArray());
-  
+
   // Verify the key was updated
   Command get_cmd;
   get_cmd.name = "GET";
@@ -355,4 +360,4 @@ TEST_F(TransactionCommandTest, UNWATCH) {
   EXPECT_EQ(result.response.AsString(), "OK");
 }
 
-} // namespace astra::commands
+}  // namespace astra::commands

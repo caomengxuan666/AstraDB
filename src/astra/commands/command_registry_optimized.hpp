@@ -7,6 +7,7 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -59,7 +60,8 @@ struct CommandEqual {
     }
     // Use SIMD for larger strings
     if (lhs.size() >= 16) {
-      return astra::base::simd::CaseInsensitiveEquals(lhs.data(), rhs.data(), lhs.size());
+      return astra::base::simd::CaseInsensitiveEquals(lhs.data(), rhs.data(),
+                                                      lhs.size());
     }
     // Direct comparison for small strings
     return lhs == rhs;
@@ -84,7 +86,8 @@ struct CommandEqual {
 
 class OptimizedCommandRegistry final {
  public:
-  using MapType = absl::flat_hash_map<std::string, CommandEntry, CommandHash, CommandEqual>;
+  using MapType =
+      absl::flat_hash_map<std::string, CommandEntry, CommandHash, CommandEqual>;
 
   OptimizedCommandRegistry() {
     // Reserve space for common commands
@@ -104,9 +107,7 @@ class OptimizedCommandRegistry final {
   }
 
   // Unregister a command
-  void Unregister(std::string_view name) noexcept {
-    registry_.erase(name);
-  }
+  void Unregister(std::string_view name) noexcept { registry_.erase(name); }
 
   // Check if command exists
   bool Exists(std::string_view name) const noexcept {
@@ -123,7 +124,8 @@ class OptimizedCommandRegistry final {
   }
 
   // Execute a command
-  CommandResult Execute(const astra::protocol::Command& command, CommandContext* context) const noexcept {
+  CommandResult Execute(const astra::protocol::Command& command,
+                        CommandContext* context) const noexcept {
     if (command.name.empty()) {
       return CommandResult(false, "ERR empty command name");
     }
@@ -139,13 +141,15 @@ class OptimizedCommandRegistry final {
     if (entry.info.arity >= 0) {
       // Fixed arity
       if (static_cast<int>(command.ArgCount()) != entry.info.arity) {
-        return CommandResult(false, "ERR wrong number of arguments for '" + command.name + "' command");
+        return CommandResult(false, "ERR wrong number of arguments for '" +
+                                        command.name + "' command");
       }
     } else {
       // Variable arity (negative means at least |arity| arguments)
       int min_args = -entry.info.arity;
       if (static_cast<int>(command.ArgCount()) < min_args) {
-        return CommandResult(false, "ERR wrong number of arguments for '" + command.name + "' command");
+        return CommandResult(false, "ERR wrong number of arguments for '" +
+                                        command.name + "' command");
       }
     }
 
@@ -171,7 +175,8 @@ class OptimizedCommandRegistry final {
   }
 
   // Get routing strategy
-  RoutingStrategy GetRoutingStrategy(std::string_view command_name) const noexcept {
+  RoutingStrategy GetRoutingStrategy(
+      std::string_view command_name) const noexcept {
     auto it = registry_.find(command_name);
     if (it != registry_.end()) {
       return it->second.info.routing;
@@ -180,9 +185,7 @@ class OptimizedCommandRegistry final {
   }
 
   // Get size
-  size_t Size() const noexcept {
-    return registry_.size();
-  }
+  size_t Size() const noexcept { return registry_.size(); }
 
  private:
   MapType registry_;

@@ -4,10 +4,9 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+
 #include "astra/protocol/resp/resp_types.hpp"
-#include <absl/container/flat_hash_map.h>
 #include "command_handler.hpp"
-#include <absl/container/flat_hash_map.h>
 #include "database.hpp"
 
 namespace astra::commands {
@@ -21,18 +20,23 @@ struct TransactionState {
 };
 
 // MULTI - Start a transaction
-CommandResult HandleMulti(const protocol::Command& command, CommandContext* context);
+CommandResult HandleMulti(const protocol::Command& command,
+                          CommandContext* context);
 
 // EXEC - Execute all commands in the transaction
-CommandResult HandleExec(const protocol::Command& command, CommandContext* context);
+CommandResult HandleExec(const protocol::Command& command,
+                         CommandContext* context);
 
 // DISCARD - Discard the current transaction
-CommandResult HandleDiscard(const protocol::Command& command, CommandContext* context);
+CommandResult HandleDiscard(const protocol::Command& command,
+                            CommandContext* context);
 
 // WATCH - Watch keys for changes
-CommandResult HandleWatch(const protocol::Command& command, CommandContext* context);
+CommandResult HandleWatch(const protocol::Command& command,
+                          CommandContext* context);
 
 // UNWATCH - Unwatch all keys
-CommandResult HandleUnwatch(const protocol::Command& command, CommandContext* context);
+CommandResult HandleUnwatch(const protocol::Command& command,
+                            CommandContext* context);
 
 }  // namespace astra::commands

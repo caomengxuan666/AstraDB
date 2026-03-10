@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster_commands.hpp"
+
 #include "astra/base/logging.hpp"
 
 namespace astra::commands {
@@ -37,9 +38,11 @@ static uint16_t GetSlotForKey(const std::string& key) noexcept {
 }
 
 // CLUSTER INFO - Get cluster information
-CommandResult HandleClusterInfo(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterInfo(const protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster info' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster info' command");
   }
 
   // Return default cluster info (cluster not enabled)
@@ -62,9 +65,11 @@ CommandResult HandleClusterInfo(const protocol::Command& command, CommandContext
 }
 
 // CLUSTER NODES - List all nodes in the cluster
-CommandResult HandleClusterNodes(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterNodes(const protocol::Command& command,
+                                 CommandContext* context) {
   if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster nodes' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster nodes' command");
   }
 
   // Return empty nodes list
@@ -76,27 +81,33 @@ CommandResult HandleClusterNodes(const protocol::Command& command, CommandContex
 }
 
 // CLUSTER MEET - Add a node to the cluster
-CommandResult HandleClusterMeet(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterMeet(const protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster meet' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster meet' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER FORGET - Remove a node from the cluster
-CommandResult HandleClusterForget(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterForget(const protocol::Command& command,
+                                  CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster forget' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster forget' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER SLOTS - Get cluster slots mapping
-CommandResult HandleClusterSlots(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterSlots(const protocol::Command& command,
+                                 CommandContext* context) {
   if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster slots' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster slots' command");
   }
 
   protocol::RespValue resp;
@@ -106,9 +117,11 @@ CommandResult HandleClusterSlots(const protocol::Command& command, CommandContex
 }
 
 // CLUSTER REPLICAS - List replicas of a node
-CommandResult HandleClusterReplicas(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterReplicas(const protocol::Command& command,
+                                    CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster replicas' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster replicas' command");
   }
 
   protocol::RespValue resp;
@@ -118,45 +131,57 @@ CommandResult HandleClusterReplicas(const protocol::Command& command, CommandCon
 }
 
 // CLUSTER ADDSLOTS - Assign slots to a node
-CommandResult HandleClusterAddSlots(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterAddSlots(const protocol::Command& command,
+                                    CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster addslots' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster addslots' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER DELSLOTS - Remove slots from a node
-CommandResult HandleClusterDelSlots(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterDelSlots(const protocol::Command& command,
+                                    CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster delslots' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster delslots' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER FLUSHSLOTS - Remove all slots from a node
-CommandResult HandleClusterFlushSlots(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterFlushSlots(const protocol::Command& command,
+                                      CommandContext* context) {
   if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster flushslots' command");
+    return CommandResult(
+        false,
+        "ERR wrong number of arguments for 'cluster flushslots' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER SETSLOT - Assign a slot to a specific node
-CommandResult HandleClusterSetSlot(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterSetSlot(const protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster setslot' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster setslot' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER GETKEYSINSLOT - Get keys in a specific slot
-CommandResult HandleClusterGetKeysInSlot(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterGetKeysInSlot(const protocol::Command& command,
+                                         CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster getkeysinslot' command");
+    return CommandResult(
+        false,
+        "ERR wrong number of arguments for 'cluster getkeysinslot' command");
   }
 
   protocol::RespValue resp;
@@ -165,9 +190,12 @@ CommandResult HandleClusterGetKeysInSlot(const protocol::Command& command, Comma
 }
 
 // CLUSTER COUNTKEYSINSLOT - Count keys in a specific slot
-CommandResult HandleClusterCountKeysInSlot(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterCountKeysInSlot(const protocol::Command& command,
+                                           CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster countkeysinslot' command");
+    return CommandResult(
+        false,
+        "ERR wrong number of arguments for 'cluster countkeysinslot' command");
   }
 
   protocol::RespValue resp;
@@ -176,9 +204,11 @@ CommandResult HandleClusterCountKeysInSlot(const protocol::Command& command, Com
 }
 
 // CLUSTER KEYSLOT - Calculate the hash slot for a given key
-CommandResult HandleClusterKeySlot(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterKeySlot(const protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster keyslot' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster keyslot' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -190,18 +220,22 @@ CommandResult HandleClusterKeySlot(const protocol::Command& command, CommandCont
 }
 
 // CLUSTER BUMPEPOCH - Increment the config epoch
-CommandResult HandleClusterBumpEpoch(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterBumpEpoch(const protocol::Command& command,
+                                     CommandContext* context) {
   if (command.ArgCount() != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster bumpepoch' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster bumpepoch' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");
 }
 
 // CLUSTER RESET - Reset a node
-CommandResult HandleClusterReset(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClusterReset(const protocol::Command& command,
+                                 CommandContext* context) {
   if (command.ArgCount() > 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'cluster reset' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'cluster reset' command");
   }
 
   return CommandResult(false, "ERR This instance has cluster support disabled");

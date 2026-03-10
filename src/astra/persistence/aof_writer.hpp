@@ -11,30 +11,28 @@
 
 #pragma once
 
-#include <absl/strings/string_view.h>
+#include <absl/functional/any_invocable.h>
 #include <absl/strings/str_cat.h>
+#include <absl/strings/string_view.h>
 #include <absl/synchronization/mutex.h>
 #include <absl/synchronization/notification.h>
 #include <absl/time/time.h>
-
 #include <zstd.h>
 
-#include <memory>
-#include <string>
 #include <atomic>
-#include <fstream>
-#include <thread>
 #include <condition_variable>
-#include <queue>
-#include <functional>
 #include <filesystem>
+#include <fstream>
+#include <functional>
+#include <memory>
+#include <queue>
+#include <string>
+#include <thread>
 #include <vector>
 
-#include <absl/functional/any_invocable.h>
-#include "astra/base/macros.hpp"
-#include <absl/functional/any_invocable.h>
-#include "astra/base/logging.hpp"
 #include "aof_flatbuffers.hpp"
+#include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
 
 namespace astra::persistence {
 
@@ -47,9 +45,9 @@ enum class AofSyncPolicy {
 
 // AOF format types
 enum class AofFormat {
-  kResp,          // Redis RESP text format (default, compatible)
-  kFlatbuffers,   // Binary FlatBuffers format (faster, more compact)
-  kHybrid         // Both formats for compatibility
+  kResp,         // Redis RESP text format (default, compatible)
+  kFlatbuffers,  // Binary FlatBuffers format (faster, more compact)
+  kHybrid        // Both formats for compatibility
 };
 
 // AOF configuration options
@@ -58,23 +56,25 @@ struct AofOptions {
   AofSyncPolicy sync_policy = AofSyncPolicy::kEverySec;
   bool auto_rewrite = true;
   size_t rewrite_min_size = 64 * 1024 * 1024;  // 64MB
-  double rewrite_growth_factor = 1.0;  // Rewrite when size doubles
-  size_t buffer_size = 4 * 1024 * 1024;  // 4MB write buffer
-  
+  double rewrite_growth_factor = 1.0;          // Rewrite when size doubles
+  size_t buffer_size = 4 * 1024 * 1024;        // 4MB write buffer
+
   // Format and compression options
   AofFormat format = AofFormat::kResp;  // Output format
-  bool compress = false;  // Enable zstd compression
+  bool compress = false;                // Enable zstd compression
   int compression_level = 3;  // zstd compression level (1-22, default 3)
 };
 
 // AOF entry representing a write command
 struct AofEntry {
-  std::string command;  // Full RESP command or FlatBuffers binary data
+  std::string command;          // Full RESP command or FlatBuffers binary data
   bool is_flatbuffers = false;  // True if data is FlatBuffers format
-  
+
   AofEntry() = default;
-  explicit AofEntry(std::string cmd) : command(std::move(cmd)), is_flatbuffers(false) {}
-  AofEntry(std::string cmd, bool fb) : command(std::move(cmd)), is_flatbuffers(fb) {}
+  explicit AofEntry(std::string cmd)
+      : command(std::move(cmd)), is_flatbuffers(false) {}
+  AofEntry(std::string cmd, bool fb)
+      : command(std::move(cmd)), is_flatbuffers(fb) {}
 };
 
 // AOF Writer - handles append-only file writing
@@ -92,7 +92,7 @@ class AofWriter {
   // Initialize AOF writer
   bool Init(const AofOptions& options) noexcept {
     options_ = options;
-    
+
     // Create directory if not exists
     std::filesystem::path p(options_.aof_path);
     std::error_code ec;
@@ -101,20 +101,20 @@ class AofWriter {
       ASTRADB_LOG_ERROR("Failed to create AOF directory: {}", ec.message());
       return false;
     }
-    
+
     // Open AOF file for appending
     file_.open(options_.aof_path, std::ios::binary | std::ios::app);
     if (ASTRADB_UNLIKELY(!file_.is_open())) {
       ASTRADB_LOG_ERROR("Failed to open AOF file: {}", options_.aof_path);
       return false;
     }
-    
+
     // Start background sync thread if needed
     if (options_.sync_policy == AofSyncPolicy::kEverySec) {
       running_.store(true, std::memory_order_release);
       sync_thread_ = std::thread(&AofWriter::SyncThread, this);
     }
-    
+
     initialized_.store(true, std::memory_order_release);
     ASTRADB_LOG_INFO("AOF writer initialized: {}", options_.aof_path);
     return true;
@@ -125,12 +125,12 @@ class AofWriter {
     if (!running_.exchange(false, std::memory_order_acq_rel)) {
       return;
     }
-    
+
     sync_cv_.SignalAll();
     if (sync_thread_.joinable()) {
       sync_thread_.join();
     }
-    
+
     // Flush remaining data
     Flush();
     file_.close();
@@ -142,26 +142,27 @@ class AofWriter {
     if (ASTRADB_UNLIKELY(!initialized_.load(std::memory_order_acquire))) {
       return false;
     }
-    
+
     // Write to buffer
     {
       absl::MutexLock lock(&buffer_mutex_);
       buffer_.append(command.data(), command.size());
       buffer_size_.fetch_add(command.size(), std::memory_order_relaxed);
     }
-    
+
     // Sync immediately if policy is Always
     if (options_.sync_policy == AofSyncPolicy::kAlways) {
       return Sync();
     }
-    
+
     return true;
   }
 
   // Append SET command
   bool AppendSet(absl::string_view key, absl::string_view value) noexcept {
     // Format: *3\r\n$3\r\nSET\r\n$key_len\r\nkey\r\n$value_len\r\nvalue\r\n
-    std::string cmd = FormatRespCommand("SET", {std::string(key), std::string(value)});
+    std::string cmd =
+        FormatRespCommand("SET", {std::string(key), std::string(value)});
     return Append(cmd);
   }
 
@@ -172,25 +173,27 @@ class AofWriter {
   }
 
   // FlatBuffers Append methods (when format is kFlatbuffers or kHybrid)
-  
+
   // Append SET command using FlatBuffers
-  bool AppendSetFlatbuffers(int db_index, absl::string_view key, absl::string_view value) noexcept {
+  bool AppendSetFlatbuffers(int db_index, absl::string_view key,
+                            absl::string_view value) noexcept {
     if (options_.format == AofFormat::kResp) {
       return AppendSet(key, value);  // Fall back to RESP
     }
-    
-    auto data = AofFlatbuffersSerializer::SerializeSetCommand(db_index, std::string(key), std::string(value));
-    
+
+    auto data = AofFlatbuffersSerializer::SerializeSetCommand(
+        db_index, std::string(key), std::string(value));
+
     {
       absl::MutexLock lock(&buffer_mutex_);
       buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
       buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
     }
-    
+
     if (options_.sync_policy == AofSyncPolicy::kAlways) {
       return Sync();
     }
-    
+
     return true;
   }
 
@@ -199,88 +202,101 @@ class AofWriter {
     if (options_.format == AofFormat::kResp) {
       return AppendDel(key);  // Fall back to RESP
     }
-    
-    auto data = AofFlatbuffersSerializer::SerializeDelCommand(db_index, std::string(key));
-    
+
+    auto data = AofFlatbuffersSerializer::SerializeDelCommand(db_index,
+                                                              std::string(key));
+
     {
       absl::MutexLock lock(&buffer_mutex_);
       buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
       buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
     }
-    
+
     if (options_.sync_policy == AofSyncPolicy::kAlways) {
       return Sync();
     }
-    
+
     return true;
   }
 
   // Append EXPIRE command using FlatBuffers
-  bool AppendExpireFlatbuffers(int db_index, absl::string_view key, int64_t ttl_ms) noexcept {
+  bool AppendExpireFlatbuffers(int db_index, absl::string_view key,
+                               int64_t ttl_ms) noexcept {
     if (options_.format == AofFormat::kResp) {
       return AppendExpire(key, ttl_ms);  // Fall back to RESP
     }
-    
-    auto data = AofFlatbuffersSerializer::SerializeExpireCommand(db_index, std::string(key), ttl_ms);
-    
+
+    auto data = AofFlatbuffersSerializer::SerializeExpireCommand(
+        db_index, std::string(key), ttl_ms);
+
     {
       absl::MutexLock lock(&buffer_mutex_);
       buffer_.append(reinterpret_cast<const char*>(data.data()), data.size());
       buffer_size_.fetch_add(data.size(), std::memory_order_relaxed);
     }
-    
+
     if (options_.sync_policy == AofSyncPolicy::kAlways) {
       return Sync();
     }
-    
+
     return true;
   }
 
   // Append HSET command
-  bool AppendHSet(absl::string_view key, absl::string_view field, absl::string_view value) noexcept {
-    std::string cmd = FormatRespCommand("HSET", {std::string(key), std::string(field), std::string(value)});
+  bool AppendHSet(absl::string_view key, absl::string_view field,
+                  absl::string_view value) noexcept {
+    std::string cmd = FormatRespCommand(
+        "HSET", {std::string(key), std::string(field), std::string(value)});
     return Append(cmd);
   }
 
   // Append HDEL command
   bool AppendHDel(absl::string_view key, absl::string_view field) noexcept {
-    std::string cmd = FormatRespCommand("HDEL", {std::string(key), std::string(field)});
+    std::string cmd =
+        FormatRespCommand("HDEL", {std::string(key), std::string(field)});
     return Append(cmd);
   }
 
   // Append SADD command
   bool AppendSAdd(absl::string_view key, absl::string_view member) noexcept {
-    std::string cmd = FormatRespCommand("SADD", {std::string(key), std::string(member)});
+    std::string cmd =
+        FormatRespCommand("SADD", {std::string(key), std::string(member)});
     return Append(cmd);
   }
 
   // Append SREM command
   bool AppendSRem(absl::string_view key, absl::string_view member) noexcept {
-    std::string cmd = FormatRespCommand("SREM", {std::string(key), std::string(member)});
+    std::string cmd =
+        FormatRespCommand("SREM", {std::string(key), std::string(member)});
     return Append(cmd);
   }
 
   // Append ZADD command
-  bool AppendZAdd(absl::string_view key, double score, absl::string_view member) noexcept {
-    std::string cmd = FormatRespCommand("ZADD", {std::string(key), absl::StrCat(score), std::string(member)});
+  bool AppendZAdd(absl::string_view key, double score,
+                  absl::string_view member) noexcept {
+    std::string cmd = FormatRespCommand(
+        "ZADD", {std::string(key), absl::StrCat(score), std::string(member)});
     return Append(cmd);
   }
 
   // Append ZREM command
   bool AppendZRem(absl::string_view key, absl::string_view member) noexcept {
-    std::string cmd = FormatRespCommand("ZREM", {std::string(key), std::string(member)});
+    std::string cmd =
+        FormatRespCommand("ZREM", {std::string(key), std::string(member)});
     return Append(cmd);
   }
 
   // Append LPUSH command
   bool AppendLPush(absl::string_view key, absl::string_view value) noexcept {
-    std::string cmd = FormatRespCommand("LPUSH", {std::string(key), std::string(value)});
+    std::string cmd =
+        FormatRespCommand("LPUSH", {std::string(key), std::string(value)});
     return Append(cmd);
   }
 
   // Append RPUSH command
   bool AppendRPush(absl::string_view key, absl::string_view value) noexcept {
-    std::string cmd = FormatRespCommand("RPUSH", {std::string(key), std::string(value)});
+    std::string cmd =
+        FormatRespCommand("RPUSH", {std::string(key), std::string(value)});
     return Append(cmd);
   }
 
@@ -298,13 +314,15 @@ class AofWriter {
 
   // Append EXPIRE command
   bool AppendExpire(absl::string_view key, int64_t seconds) noexcept {
-    std::string cmd = FormatRespCommand("EXPIRE", {std::string(key), absl::StrCat(seconds)});
+    std::string cmd =
+        FormatRespCommand("EXPIRE", {std::string(key), absl::StrCat(seconds)});
     return Append(cmd);
   }
 
   // Append PEXPIRE command
   bool AppendPExpire(absl::string_view key, int64_t ms) noexcept {
-    std::string cmd = FormatRespCommand("PEXPIRE", {std::string(key), absl::StrCat(ms)});
+    std::string cmd =
+        FormatRespCommand("PEXPIRE", {std::string(key), absl::StrCat(ms)});
     return Append(cmd);
   }
 
@@ -314,7 +332,7 @@ class AofWriter {
     if (buffer_.empty()) {
       return true;
     }
-    
+
     if (options_.compress) {
       // Compress with zstd
       return FlushCompressed();
@@ -327,30 +345,31 @@ class AofWriter {
       return file_.good();
     }
   }
-  
+
   // Flush with zstd compression
   bool FlushCompressed() noexcept {
     // Reserve space for compressed data
     size_t bound = ZSTD_compressBound(buffer_.size());
     compress_buffer_.resize(bound);
-    
+
     // Compress
     size_t compressed_size = ZSTD_compress(
-        compress_buffer_.data(), compress_buffer_.size(),
-        buffer_.data(), buffer_.size(),
-        options_.compression_level);
-    
+        compress_buffer_.data(), compress_buffer_.size(), buffer_.data(),
+        buffer_.size(), options_.compression_level);
+
     if (ZSTD_isError(compressed_size)) {
-      ASTRADB_LOG_ERROR("zstd compression failed: {}", ZSTD_getErrorName(compressed_size));
+      ASTRADB_LOG_ERROR("zstd compression failed: {}",
+                        ZSTD_getErrorName(compressed_size));
       // Fallback to uncompressed
       file_.write(buffer_.data(), buffer_.size());
     } else {
       // Write compressed block: [size(4 bytes)][compressed data]
       uint32_t size = static_cast<uint32_t>(compressed_size);
       file_.write(reinterpret_cast<const char*>(&size), sizeof(size));
-      file_.write(reinterpret_cast<const char*>(compress_buffer_.data()), compressed_size);
+      file_.write(reinterpret_cast<const char*>(compress_buffer_.data()),
+                  compressed_size);
     }
-    
+
     file_.flush();
     buffer_.clear();
     buffer_size_.store(0, std::memory_order_relaxed);
@@ -392,7 +411,8 @@ class AofWriter {
     }
 
     // Stop background sync during rewrite
-    std::atomic<bool> was_running = running_.exchange(false, std::memory_order_acq_rel);
+    std::atomic<bool> was_running =
+        running_.exchange(false, std::memory_order_acq_rel);
     sync_cv_.SignalAll();
     if (sync_thread_.joinable()) {
       sync_thread_.join();
@@ -425,7 +445,7 @@ class AofWriter {
     std::filesystem::path temp_p(temp_path);
     std::filesystem::path final_p(options_.aof_path);
     std::error_code ec;
-    
+
     // Backup old AOF
     std::string backup_path = options_.aof_path + ".backup";
     if (std::filesystem::exists(final_p, ec)) {
@@ -434,7 +454,7 @@ class AofWriter {
         ASTRADB_LOG_WARN("Failed to backup old AOF: {}", ec.message());
       }
     }
-    
+
     // Rename temp file to final file
     std::filesystem::rename(temp_p, final_p, ec);
     if (ec) {
@@ -473,8 +493,9 @@ class AofWriter {
   // Check if rewrite is needed
   bool ShouldRewrite() const noexcept {
     size_t current_size = GetFileSize();
-    return current_size > options_.rewrite_min_size && 
-           current_size > options_.rewrite_min_size * options_.rewrite_growth_factor;
+    return current_size > options_.rewrite_min_size &&
+           current_size >
+               options_.rewrite_min_size * options_.rewrite_growth_factor;
   }
 
  private:
@@ -483,7 +504,7 @@ class AofWriter {
                                        const std::vector<std::string>& args) {
     std::string result;
     const size_t total_args = args.size() + 1;  // +1 for command name
-    
+
     // Calculate total size for efficiency
     size_t total_size = 32;  // Overhead for array header
     total_size += cmd_name.size() + 16;
@@ -491,18 +512,18 @@ class AofWriter {
       total_size += arg.size() + 16;
     }
     result.reserve(total_size);
-    
+
     // Array header: *N\r\n
     absl::StrAppend(&result, "*", total_args, "\r\n");
-    
+
     // Command name: $len\r\ncmd\r\n
     absl::StrAppend(&result, "$", cmd_name.size(), "\r\n", cmd_name, "\r\n");
-    
+
     // Arguments
     for (const auto& arg : args) {
       absl::StrAppend(&result, "$", arg.size(), "\r\n", arg, "\r\n");
     }
-    
+
     return result;
   }
 
@@ -511,11 +532,11 @@ class AofWriter {
     while (running_.load(std::memory_order_acquire)) {
       absl::MutexLock lock(&sync_mutex_);
       sync_cv_.WaitWithTimeout(&sync_mutex_, absl::Seconds(1));
-      
+
       if (!running_.load(std::memory_order_acquire)) {
         break;
       }
-      
+
       Sync();
     }
   }
@@ -528,7 +549,7 @@ class AofWriter {
   std::atomic<size_t> buffer_size_{0};
   std::atomic<bool> initialized_{false};
   std::atomic<bool> running_{false};
-  
+
   std::thread sync_thread_;
   absl::Mutex sync_mutex_;
   absl::CondVar sync_cv_;

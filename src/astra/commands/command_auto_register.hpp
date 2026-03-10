@@ -8,12 +8,14 @@
 
 #include <absl/container/flat_hash_map.h>
 #include <absl/synchronization/mutex.h>
-#include "command_handler.hpp"
+
 #include <functional>
 #include <memory>
-#include <string>
 #include <mutex>
+#include <string>
 #include <unordered_map>
+
+#include "command_handler.hpp"
 
 namespace astra::commands {
 
@@ -37,12 +39,8 @@ class RuntimeCommandRegistry {
   }
 
   // Register a command (thread-safe)
-  void RegisterCommand(
-      std::string_view name,
-      int arity,
-      std::string_view flags,
-      RoutingStrategy routing,
-      CommandHandler handler);
+  void RegisterCommand(std::string_view name, int arity, std::string_view flags,
+                       RoutingStrategy routing, CommandHandler handler);
 
   // Apply all registered commands to a registry
   void ApplyToRegistry(CommandRegistry& registry);
@@ -67,16 +65,17 @@ class RuntimeCommandRegistry {
 
 // Macro for automatic command registration
 // Note: ASTRADB_CONCAT is defined in base/macros.hpp
-// Uses constructor-based registration that preserves function pointer references
-#define ASTRADB_REGISTER_COMMAND(Name, Arity, Flags, Routing, Handler) \
-  namespace { \
-    struct CommandRegistrar_##Name { \
-      CommandRegistrar_##Name() { \
-        ::astra::commands::RuntimeCommandRegistry::Instance().RegisterCommand( \
-            #Name, Arity, Flags, Routing, Handler); \
-      } \
-    } ASTRADB_CONCAT(g_cmd_reg_, __LINE__); \
-  } \
+// Uses constructor-based registration that preserves function pointer
+// references
+#define ASTRADB_REGISTER_COMMAND(Name, Arity, Flags, Routing, Handler)       \
+  namespace {                                                                \
+  struct CommandRegistrar_##Name {                                           \
+    CommandRegistrar_##Name() {                                              \
+      ::astra::commands::RuntimeCommandRegistry::Instance().RegisterCommand( \
+          #Name, Arity, Flags, Routing, Handler);                            \
+    }                                                                        \
+  } ASTRADB_CONCAT(g_cmd_reg_, __LINE__);                                    \
+  }                                                                          \
   static_assert(true, "")
 
 }  // namespace astra::commands

@@ -5,21 +5,26 @@
 // ==============================================================================
 
 #include "list_commands.hpp"
-#include "command_auto_register.hpp"
-#include "blocking_manager.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
-#include "astra/network/connection.hpp"
+
 #include <absl/container/inlined_vector.h>
+
 #include <algorithm>
-#include <sstream>
 #include <chrono>
+#include <sstream>
+
+#include "astra/network/connection.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "blocking_manager.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
 // LPUSH key value [value ...]
-CommandResult HandleLPush(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLPush(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LPUSH' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LPUSH' command");
   }
 
   Database* db = context->GetDatabase();
@@ -34,7 +39,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
   }
 
   std::string key = key_arg.AsString();
-  
+
   // Push all values (in reverse order since LPUSH adds to head)
   for (size_t i = command.ArgCount() - 1; i >= 1; --i) {
     const auto& value_arg = command[i];
@@ -54,9 +59,11 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 }
 
 // RPUSH key value [value ...]
-CommandResult HandleRPush(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleRPush(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'RPUSH' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'RPUSH' command");
   }
 
   Database* db = context->GetDatabase();
@@ -71,7 +78,7 @@ CommandResult HandleRPush(const astra::protocol::Command& command, CommandContex
   }
 
   std::string key = key_arg.AsString();
-  
+
   // Push all values
   for (size_t i = 1; i < command.ArgCount(); ++i) {
     const auto& value_arg = command[i];
@@ -91,9 +98,11 @@ CommandResult HandleRPush(const astra::protocol::Command& command, CommandContex
 }
 
 // LPOP key
-CommandResult HandleLPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLPop(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -118,9 +127,11 @@ CommandResult HandleLPop(const astra::protocol::Command& command, CommandContext
 }
 
 // RPOP key
-CommandResult HandleRPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleRPop(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'RPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'RPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -145,9 +156,11 @@ CommandResult HandleRPop(const astra::protocol::Command& command, CommandContext
 }
 
 // LLEN key
-CommandResult HandleLLen(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLLen(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LLEN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LLEN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -168,9 +181,11 @@ CommandResult HandleLLen(const astra::protocol::Command& command, CommandContext
 }
 
 // LINDEX key index
-CommandResult HandleLIndex(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLIndex(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LINDEX' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LINDEX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -208,9 +223,11 @@ CommandResult HandleLIndex(const astra::protocol::Command& command, CommandConte
 }
 
 // LSET key index value
-CommandResult HandleLSet(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLSet(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LSET' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LSET' command");
   }
 
   Database* db = context->GetDatabase();
@@ -256,9 +273,11 @@ CommandResult HandleLSet(const astra::protocol::Command& command, CommandContext
 }
 
 // LRANGE key start stop
-CommandResult HandleLRange(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLRange(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LRANGE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LRANGE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -306,13 +325,16 @@ CommandResult HandleLRange(const astra::protocol::Command& command, CommandConte
     array.push_back(RespValue(val));
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // LTRIM key start stop
-CommandResult HandleLTrim(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLTrim(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LTRIM' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LTRIM' command");
   }
 
   Database* db = context->GetDatabase();
@@ -364,9 +386,11 @@ CommandResult HandleLTrim(const astra::protocol::Command& command, CommandContex
 }
 
 // LREM key count value
-CommandResult HandleLRem(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLRem(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LREM' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LREM' command");
   }
 
   Database* db = context->GetDatabase();
@@ -406,9 +430,11 @@ CommandResult HandleLRem(const astra::protocol::Command& command, CommandContext
 }
 
 // LINSERT key BEFORE|AFTER pivot value
-CommandResult HandleLInsert(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLInsert(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LINSERT' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LINSERT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -473,9 +499,11 @@ CommandResult HandleLInsert(const astra::protocol::Command& command, CommandCont
 }
 
 // RPOPLPUSH source destination
-CommandResult HandleRPopLPush(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleRPopLPush(const astra::protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'RPOPLPUSH' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'RPOPLPUSH' command");
   }
 
   Database* db = context->GetDatabase();
@@ -511,9 +539,11 @@ CommandResult HandleRPopLPush(const astra::protocol::Command& command, CommandCo
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBLPop(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BLPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BLPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -524,7 +554,7 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
   // Parse timeout (last argument)
   const auto& timeout_arg = command[command.ArgCount() - 1];
   double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -540,13 +570,13 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
   // Check keys in order
   for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Try to pop from this key
     auto value = db->LPop(key);
     if (value.has_value()) {
@@ -554,7 +584,8 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
       absl::InlinedVector<RespValue, 32> result;
       result.push_back(RespValue(key));
       result.push_back(RespValue(*value));
-      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
+      return CommandResult(
+          RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -566,15 +597,15 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Debug: check command[0] type and value
-    ASTRADB_LOG_DEBUG("BLPOP blocking: command[0] type={}, value='{}'", 
-                     static_cast<int>(command[0].GetType()), 
-                     command[0].AsString());
-    
+    ASTRADB_LOG_DEBUG("BLPOP blocking: command[0] type={}, value='{}'",
+                      static_cast<int>(command[0].GetType()),
+                      command[0].AsString());
+
     // Create blocked client with callback
     BlockedClient blocked_client;
     blocked_client.client_id = client_id;
@@ -582,14 +613,17 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
     blocked_client.command = command;
     blocked_client.timeout_seconds = timeout;
     blocked_client.start_time = std::chrono::steady_clock::now();
-    blocked_client.connection = context->GetConnection();  // Save connection pointer
-    
+    blocked_client.connection =
+        context->GetConnection();  // Save connection pointer
+
     // Debug: check blocked_client.key after assignment
     ASTRADB_LOG_DEBUG("BLPOP: blocked_client.key='{}'", blocked_client.key);
-    
+
     // Set callback to execute LPop when woken up
-    // The notification parameter contains information about why we were woken up
-    blocked_client.callback = [db, key = command[0].AsString()](const RespValue& notification) -> RespValue {
+    // The notification parameter contains information about why we were woken
+    // up
+    blocked_client.callback = [db, key = command[0].AsString()](
+                                  const RespValue& notification) -> RespValue {
       ASTRADB_LOG_DEBUG("BLPOP callback invoked for key='{}'", key);
       // When woken up, try to pop from the list
       auto value = db->LPop(key);
@@ -606,18 +640,19 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
         return RespValue(RespType::kNullBulkString);
       }
     };
-    
+
     // Add to blocking queue
     // Important: Copy key before moving blocked_client to avoid moving the key
     std::string key_copy = blocked_client.key;
-    ASTRADB_LOG_DEBUG("BLPOP: About to call AddBlockedClient with key='{}'", key_copy);
+    ASTRADB_LOG_DEBUG("BLPOP: About to call AddBlockedClient with key='{}'",
+                      key_copy);
     blocking_manager->AddBlockedClient(key_copy, std::move(blocked_client));
-    
+
     // Return blocking result (response will be sent later)
     ASTRADB_LOG_DEBUG("BLPOP: Returning blocking result");
     return CommandResult::Blocking();
   }
-  
+
   // Non-blocking mode, return nil
   ASTRADB_LOG_DEBUG("BLPOP: Returning nil (non-blocking mode)");
   return CommandResult(RespValue(RespType::kNullBulkString));
@@ -628,9 +663,11 @@ CommandResult HandleBLPop(const astra::protocol::Command& command, CommandContex
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBRPop(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BRPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BRPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -641,7 +678,7 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
   // Parse timeout (last argument) - will be used for blocking implementation
   const auto& timeout_arg = command[command.ArgCount() - 1];
   [[maybe_unused]] double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -657,13 +694,13 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
   // Check keys in order
   for (size_t i = 0; i < command.ArgCount() - 1; ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Try to pop from this key
     auto value = db->RPop(key);
     if (value.has_value()) {
@@ -671,7 +708,8 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
       std::vector<RespValue> result;
       result.push_back(RespValue(key));
       result.push_back(RespValue(*value));
-      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
+      return CommandResult(
+          RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -683,10 +721,10 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Create blocked client with callback
     BlockedClient blocked_client;
     blocked_client.client_id = client_id;
@@ -694,10 +732,12 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
     blocked_client.command = command;
     blocked_client.timeout_seconds = timeout;
     blocked_client.start_time = std::chrono::steady_clock::now();
-    blocked_client.connection = context->GetConnection();  // Save connection pointer
-    
+    blocked_client.connection =
+        context->GetConnection();  // Save connection pointer
+
     // Set callback to execute RPop when woken up
-    blocked_client.callback = [db, key = command[0].AsString()](const RespValue& notification) -> RespValue {
+    blocked_client.callback = [db, key = command[0].AsString()](
+                                  const RespValue& notification) -> RespValue {
       // When woken up, try to pop from the list
       auto value = db->RPop(key);
       if (value.has_value()) {
@@ -711,14 +751,15 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
         return RespValue(RespType::kNullBulkString);
       }
     };
-    
+
     // Add to blocking queue
-    blocking_manager->AddBlockedClient(blocked_client.key, std::move(blocked_client));
-    
+    blocking_manager->AddBlockedClient(blocked_client.key,
+                                       std::move(blocked_client));
+
     // Return blocking result (response will be sent later)
     return CommandResult::Blocking();
   }
-  
+
   // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
@@ -728,9 +769,11 @@ CommandResult HandleBRPop(const astra::protocol::Command& command, CommandContex
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBRPopLPush(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBRPopLPush(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BRPOPLPUSH' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'BRPOPLPUSH' command");
   }
 
   Database* db = context->GetDatabase();
@@ -784,9 +827,11 @@ CommandResult HandleBRPopLPush(const astra::protocol::Command& command, CommandC
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBLMove(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBLMove(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 5) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BLMOVE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BLMOVE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -802,17 +847,18 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
 
   if (!source_arg.IsBulkString() || !dest_arg.IsBulkString() ||
       !from_arg.IsBulkString() || !to_arg.IsBulkString()) {
-    return CommandResult(false, "ERR wrong type of arguments for 'BLMOVE' command");
+    return CommandResult(false,
+                         "ERR wrong type of arguments for 'BLMOVE' command");
   }
 
   // Parse direction
   std::string from = from_arg.AsString();
   std::string to = to_arg.AsString();
-  
+
   if (from != "LEFT" && from != "RIGHT") {
     return CommandResult(false, "ERR syntax error");
   }
-  
+
   if (to != "LEFT" && to != "RIGHT") {
     return CommandResult(false, "ERR syntax error");
   }
@@ -836,7 +882,7 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
 
   // Perform the move operation
   std::optional<std::string> value;
-  
+
   if (from == "LEFT" && to == "LEFT") {
     // LPOP then LPUSH
     value = db->LPop(source);
@@ -872,10 +918,10 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
         // Blocking manager not available, return nil
         return CommandResult(RespValue(RespType::kNullBulkString));
       }
-      
+
       // Get connection ID
       uint64_t client_id = context->GetConnectionId();
-      
+
       // Create blocked client with callback
       BlockedClient blocked_client;
       blocked_client.client_id = client_id;
@@ -883,13 +929,16 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
       blocked_client.command = command;
       blocked_client.timeout_seconds = timeout;
       blocked_client.start_time = std::chrono::steady_clock::now();
-      blocked_client.connection = context->GetConnection();  // Save connection pointer
-      
+      blocked_client.connection =
+          context->GetConnection();  // Save connection pointer
+
       // Set callback to execute move when woken up
-      blocked_client.callback = [db, source, dest, from, to](const RespValue& notification) -> RespValue {
+      blocked_client.callback =
+          [db, source, dest, from,
+           to](const RespValue& notification) -> RespValue {
         // When woken up, try to move from source to dest
         std::optional<std::string> value;
-        
+
         if (from == "LEFT" && to == "LEFT") {
           // LPOP then LPUSH
           value = db->LPop(source);
@@ -915,7 +964,7 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
             db->RPush(dest, *value);
           }
         }
-        
+
         if (value.has_value()) {
           return RespValue(*value);
         } else {
@@ -923,14 +972,14 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
           return RespValue(RespType::kNullBulkString);
         }
       };
-      
+
       // Add to blocking queue
       blocking_manager->AddBlockedClient(source, std::move(blocked_client));
-      
+
       // Return blocking result (response will be sent later)
       return CommandResult::Blocking();
     }
-    
+
     // Non-blocking mode, return nil
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
@@ -943,9 +992,11 @@ CommandResult HandleBLMove(const astra::protocol::Command& command, CommandConte
 // TODO: Implement real blocking with wait queues and timeout management
 // TODO: Implement client notification when data becomes available
 // TODO: Track blocked clients and wake them up when data is pushed
-CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleBLMPop(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'BLMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'BLMPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -956,7 +1007,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
   // Parse timeout (first argument) - will be used for blocking implementation
   const auto& timeout_arg = command[0];
   [[maybe_unused]] double timeout = 0.0;
-  
+
   if (timeout_arg.IsInteger()) {
     timeout = static_cast<double>(timeout_arg.AsInteger());
   } else if (timeout_arg.IsBulkString()) {
@@ -973,17 +1024,18 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
   size_t count_idx = command.ArgCount() - 2;
   const auto& count_arg = command[count_idx];
   int64_t count = 1;
-  
+
   if (count_arg.IsInteger()) {
     count = count_arg.AsInteger();
   } else if (count_arg.IsBulkString()) {
     try {
       count = std::stoll(count_arg.AsString());
     } catch (...) {
-      return CommandResult(false, "ERR count is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR count is not an integer or out of range");
     }
   }
-  
+
   if (count < 1) {
     return CommandResult(false, "ERR count must be positive");
   }
@@ -991,7 +1043,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
   // Parse direction (last argument, optional, default LEFT)
   std::string direction = "LEFT";
   const auto& dir_arg = command[command.ArgCount() - 1];
-  
+
   if (dir_arg.IsBulkString()) {
     std::string dir = dir_arg.AsString();
     if (dir == "LEFT" || dir == "RIGHT") {
@@ -1002,17 +1054,17 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
   // Try to pop from each key
   for (size_t i = 1; i < count_idx; ++i) {
     const auto& key_arg = command[i];
-    
+
     if (!key_arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
 
     std::string key = key_arg.AsString();
-    
+
     // Pop elements based on direction
     std::vector<std::string> values;
     bool popped = false;
-    
+
     for (int64_t j = 0; j < count; ++j) {
       if (direction == "LEFT") {
         auto value = db->LPop(key);
@@ -1032,19 +1084,20 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
         }
       }
     }
-    
+
     if (popped) {
       // Return [key, [value1, value2, ...]]
       std::vector<RespValue> result;
       result.push_back(RespValue(key));
-      
+
       std::vector<RespValue> value_array;
       for (const auto& val : values) {
         value_array.push_back(RespValue(val));
       }
       result.push_back(RespValue(std::move(value_array)));
-      
-      return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
+
+      return CommandResult(
+          RespValue(std::vector<RespValue>(result.begin(), result.end())));
     }
   }
 
@@ -1056,10 +1109,10 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
       // Blocking manager not available, return nil
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    
+
     // Get connection ID
     uint64_t client_id = context->GetConnectionId();
-    
+
     // Collect all keys for blocking
     std::vector<std::string> keys;
     for (size_t i = 1; i < count_idx; ++i) {
@@ -1068,7 +1121,7 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
         keys.push_back(key_arg.AsString());
       }
     }
-    
+
     if (!keys.empty()) {
       // Create blocked client with callback
       BlockedClient blocked_client;
@@ -1077,16 +1130,19 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
       blocked_client.command = command;
       blocked_client.timeout_seconds = timeout;
       blocked_client.start_time = std::chrono::steady_clock::now();
-      blocked_client.connection = context->GetConnection();  // Save connection pointer
-      
+      blocked_client.connection =
+          context->GetConnection();  // Save connection pointer
+
       // Set callback to execute pop when woken up
-      blocked_client.callback = [db, keys, count, direction](const RespValue& notification) -> RespValue {
+      blocked_client.callback =
+          [db, keys, count,
+           direction](const RespValue& notification) -> RespValue {
         // When woken up, try to pop from each key
         for (const auto& key : keys) {
           // Pop elements based on direction
           std::vector<std::string> values;
           bool popped = false;
-          
+
           for (int64_t j = 0; j < count; ++j) {
             if (direction == "LEFT") {
               auto value = db->LPop(key);
@@ -1106,42 +1162,46 @@ CommandResult HandleBLMPop(const astra::protocol::Command& command, CommandConte
               }
             }
           }
-          
+
           if (popped) {
             // Return [key, [value1, value2, ...]]
             absl::InlinedVector<RespValue, 32> result;
             result.push_back(RespValue(key));
-            
+
             std::vector<RespValue> value_array;
             for (const auto& val : values) {
               value_array.push_back(RespValue(val));
             }
             result.push_back(RespValue(std::move(value_array)));
-            
-            return RespValue(std::vector<RespValue>(result.begin(), result.end()));
+
+            return RespValue(
+                std::vector<RespValue>(result.begin(), result.end()));
           }
         }
-        
+
         // All lists still empty
         return RespValue(RespType::kNullBulkString);
       };
-      
+
       // Add to blocking queue (use first key)
       blocking_manager->AddBlockedClient(keys[0], std::move(blocked_client));
-      
+
       // Return blocking result (response will be sent later)
       return CommandResult::Blocking();
     }
   }
-  
+
   // Non-blocking mode, return nil
   return CommandResult(RespValue(RespType::kNullBulkString));
 }
 
-// LMOVE source destination LEFT|RIGHT LEFT|RIGHT - Pop from one list and push to another
-CommandResult HandleLMove(const astra::protocol::Command& command, CommandContext* context) {
+// LMOVE source destination LEFT|RIGHT LEFT|RIGHT - Pop from one list and push
+// to another
+CommandResult HandleLMove(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LMOVE' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LMOVE' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1154,7 +1214,7 @@ CommandResult HandleLMove(const astra::protocol::Command& command, CommandContex
   const auto& from_arg = command[2];
   const auto& to_arg = command[3];
 
-  if (!source_arg.IsBulkString() || !dest_arg.IsBulkString() || 
+  if (!source_arg.IsBulkString() || !dest_arg.IsBulkString() ||
       !from_arg.IsBulkString() || !to_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
@@ -1191,10 +1251,13 @@ CommandResult HandleLMove(const astra::protocol::Command& command, CommandContex
   return CommandResult(RespValue(element.value()));
 }
 
-// LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count] - Pop from first non-empty list
-CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContext* context) {
+// LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count] - Pop from first
+// non-empty list
+CommandResult HandleLMPop(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LMPOP' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1213,7 +1276,8 @@ CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContex
   }
 
   if (command.ArgCount() < static_cast<size_t>(numkeys + 2)) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LMPOP' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LMPOP' command");
   }
 
   std::vector<std::string> keys;
@@ -1248,8 +1312,10 @@ CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContex
     if (opt == "COUNT" && pos + 1 < command.ArgCount()) {
       ++pos;
       int64_t count_val;
-      if (!absl::SimpleAtoi(command[pos].AsString(), &count_val) || count_val <= 0) {
-        return CommandResult(false, "ERR count is not a valid positive integer");
+      if (!absl::SimpleAtoi(command[pos].AsString(), &count_val) ||
+          count_val <= 0) {
+        return CommandResult(false,
+                             "ERR count is not a valid positive integer");
       }
       count = static_cast<size_t>(count_val);
     }
@@ -1272,7 +1338,7 @@ CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContex
       // Build response
       std::vector<RespValue> result;
       result.emplace_back(RespValue(key));
-      
+
       std::vector<RespValue> elements_array;
       for (const auto& elem : popped) {
         elements_array.emplace_back(RespValue(elem));
@@ -1287,9 +1353,11 @@ CommandResult HandleLMPop(const astra::protocol::Command& command, CommandContex
 }
 
 // LPOS key element [rank rank] [COUNT count] - Return index of element in list
-CommandResult HandleLPos(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLPos(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LPOS' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LPOS' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1321,13 +1389,16 @@ CommandResult HandleLPos(const astra::protocol::Command& command, CommandContext
     if (opt == "RANK" && i + 1 < command.ArgCount()) {
       ++i;
       if (!absl::SimpleAtoi(command[i].AsString(), &rank)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
     } else if (opt == "COUNT" && i + 1 < command.ArgCount()) {
       ++i;
       int64_t count_val;
-      if (!absl::SimpleAtoi(command[i].AsString(), &count_val) || count_val < 0) {
-        return CommandResult(false, "ERR count is not a valid positive integer");
+      if (!absl::SimpleAtoi(command[i].AsString(), &count_val) ||
+          count_val < 0) {
+        return CommandResult(false,
+                             "ERR count is not a valid positive integer");
       }
       count = static_cast<size_t>(count_val);
     }
@@ -1372,9 +1443,11 @@ CommandResult HandleLPos(const astra::protocol::Command& command, CommandContext
 }
 
 // LPUSHX key value - Push element to left only if list exists
-CommandResult HandleLPushX(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleLPushX(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'LPUSHX' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'LPUSHX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1394,7 +1467,8 @@ CommandResult HandleLPushX(const astra::protocol::Command& command, CommandConte
 
   // Check if list exists
   auto key_type = db->GetType(key);
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kList) {
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kList) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
   }
 
@@ -1405,9 +1479,11 @@ CommandResult HandleLPushX(const astra::protocol::Command& command, CommandConte
 }
 
 // RPUSHX key value - Push element to right only if list exists
-CommandResult HandleRPushX(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleRPushX(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'RPUSHX' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'RPUSHX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -1427,7 +1503,8 @@ CommandResult HandleRPushX(const astra::protocol::Command& command, CommandConte
 
   // Check if list exists
   auto key_type = db->GetType(key);
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kList) {
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kList) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
   }
 
@@ -1438,27 +1515,49 @@ CommandResult HandleRPushX(const astra::protocol::Command& command, CommandConte
 }
 
 // Auto-register all list commands
-ASTRADB_REGISTER_COMMAND(LPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleLPush);
-ASTRADB_REGISTER_COMMAND(RPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleRPush);
-ASTRADB_REGISTER_COMMAND(LPOP, 2, "write", RoutingStrategy::kByFirstKey, HandleLPop);
-ASTRADB_REGISTER_COMMAND(RPOP, 2, "write", RoutingStrategy::kByFirstKey, HandleRPop);
-ASTRADB_REGISTER_COMMAND(LLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleLLen);
-ASTRADB_REGISTER_COMMAND(LINDEX, 3, "readonly", RoutingStrategy::kByFirstKey, HandleLIndex);
-ASTRADB_REGISTER_COMMAND(LSET, 4, "write", RoutingStrategy::kByFirstKey, HandleLSet);
-ASTRADB_REGISTER_COMMAND(LRANGE, 4, "readonly", RoutingStrategy::kByFirstKey, HandleLRange);
-ASTRADB_REGISTER_COMMAND(LTRIM, 4, "write", RoutingStrategy::kByFirstKey, HandleLTrim);
-ASTRADB_REGISTER_COMMAND(LREM, 4, "write", RoutingStrategy::kByFirstKey, HandleLRem);
-ASTRADB_REGISTER_COMMAND(LINSERT, 5, "write", RoutingStrategy::kByFirstKey, HandleLInsert);
-ASTRADB_REGISTER_COMMAND(RPOPLPUSH, 3, "write", RoutingStrategy::kByFirstKey, HandleRPopLPush);
-ASTRADB_REGISTER_COMMAND(BLPOP, -2, "write", RoutingStrategy::kByFirstKey, HandleBLPop);
-ASTRADB_REGISTER_COMMAND(BRPOP, -2, "write", RoutingStrategy::kByFirstKey, HandleBRPop);
-ASTRADB_REGISTER_COMMAND(BRPOPLPUSH, -3, "write", RoutingStrategy::kByFirstKey, HandleBRPopLPush);
-ASTRADB_REGISTER_COMMAND(BLMOVE, -5, "write", RoutingStrategy::kByFirstKey, HandleBLMove);
-ASTRADB_REGISTER_COMMAND(BLMPOP, -4, "write", RoutingStrategy::kByFirstKey, HandleBLMPop);
-ASTRADB_REGISTER_COMMAND(LMOVE, -5, "write", RoutingStrategy::kByFirstKey, HandleLMove);
-ASTRADB_REGISTER_COMMAND(LMPOP, -4, "write", RoutingStrategy::kNone, HandleLMPop);
-ASTRADB_REGISTER_COMMAND(LPOS, -3, "readonly", RoutingStrategy::kByFirstKey, HandleLPos);
-ASTRADB_REGISTER_COMMAND(LPUSHX, 3, "write", RoutingStrategy::kByFirstKey, HandleLPushX);
-ASTRADB_REGISTER_COMMAND(RPUSHX, 3, "write", RoutingStrategy::kByFirstKey, HandleRPushX);
+ASTRADB_REGISTER_COMMAND(LPUSH, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleLPush);
+ASTRADB_REGISTER_COMMAND(RPUSH, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleRPush);
+ASTRADB_REGISTER_COMMAND(LPOP, 2, "write", RoutingStrategy::kByFirstKey,
+                         HandleLPop);
+ASTRADB_REGISTER_COMMAND(RPOP, 2, "write", RoutingStrategy::kByFirstKey,
+                         HandleRPop);
+ASTRADB_REGISTER_COMMAND(LLEN, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleLLen);
+ASTRADB_REGISTER_COMMAND(LINDEX, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleLIndex);
+ASTRADB_REGISTER_COMMAND(LSET, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleLSet);
+ASTRADB_REGISTER_COMMAND(LRANGE, 4, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleLRange);
+ASTRADB_REGISTER_COMMAND(LTRIM, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleLTrim);
+ASTRADB_REGISTER_COMMAND(LREM, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleLRem);
+ASTRADB_REGISTER_COMMAND(LINSERT, 5, "write", RoutingStrategy::kByFirstKey,
+                         HandleLInsert);
+ASTRADB_REGISTER_COMMAND(RPOPLPUSH, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleRPopLPush);
+ASTRADB_REGISTER_COMMAND(BLPOP, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleBLPop);
+ASTRADB_REGISTER_COMMAND(BRPOP, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleBRPop);
+ASTRADB_REGISTER_COMMAND(BRPOPLPUSH, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleBRPopLPush);
+ASTRADB_REGISTER_COMMAND(BLMOVE, -5, "write", RoutingStrategy::kByFirstKey,
+                         HandleBLMove);
+ASTRADB_REGISTER_COMMAND(BLMPOP, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleBLMPop);
+ASTRADB_REGISTER_COMMAND(LMOVE, -5, "write", RoutingStrategy::kByFirstKey,
+                         HandleLMove);
+ASTRADB_REGISTER_COMMAND(LMPOP, -4, "write", RoutingStrategy::kNone,
+                         HandleLMPop);
+ASTRADB_REGISTER_COMMAND(LPOS, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleLPos);
+ASTRADB_REGISTER_COMMAND(LPUSHX, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleLPushX);
+ASTRADB_REGISTER_COMMAND(RPUSHX, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleRPushX);
 
 }  // namespace astra::commands

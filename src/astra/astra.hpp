@@ -25,4 +25,4 @@ namespace server {
 class Server;
 }
 
-} // namespace astra
+}  // namespace astra

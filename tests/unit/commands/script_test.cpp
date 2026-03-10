@@ -5,9 +5,10 @@
 // ==============================================================================
 
 #include <gtest/gtest.h>
+
+#include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/script_commands.hpp"
 
 namespace astra::commands {
@@ -32,7 +33,10 @@ class ScriptTestContext : public CommandContext {
   bool IsInTransaction() const override { return false; }
   void BeginTransaction() override {}
   void QueueCommand(const protocol::Command& cmd) override {}
-  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override { return {}; }
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands()
+      const override {
+    return {};
+  }
   void ClearQueuedCommands() override {}
   void DiscardTransaction() override {}
   void WatchKey(const std::string& key, uint64_t version) override {}
@@ -40,7 +44,11 @@ class ScriptTestContext : public CommandContext {
     static absl::flat_hash_set<std::string> empty;
     return empty;
   }
-  bool IsWatchedKeyModified(const absl::AnyInvocable<uint64_t(const std::string&) const>&) const override { return false; }
+  bool IsWatchedKeyModified(
+      const absl::AnyInvocable<uint64_t(const std::string&) const>&)
+      const override {
+    return false;
+  }
   void ClearWatchedKeys() override {}
 
  private:
@@ -58,7 +66,7 @@ class ScriptCommandTest : public ::testing::Test {
     RuntimeCommandRegistry::Instance().ApplyToRegistry(*registry_);
     context_ = std::make_unique<ScriptTestContext>();
     context_->SetDatabase(db_manager_->GetDatabase(0));
-    
+
     // Clear script cache before each test
     GetGlobalScriptCache().Clear();
   }
@@ -106,7 +114,7 @@ TEST_F(ScriptCommandTest, EVAL_ReturnTable) {
   auto result = registry_->Execute(eval_cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsArray());
-  
+
   const auto& arr = result.response.AsArray();
   ASSERT_EQ(arr.size(), 5);
   EXPECT_TRUE(arr[0].IsInteger());
@@ -185,7 +193,7 @@ TEST_F(ScriptCommandTest, EVALSHA_CachedScript) {
   auto load_result = registry_->Execute(load_cmd, context_.get());
   ASSERT_TRUE(load_result.success);
   std::string sha1 = load_result.response.AsString();
-  
+
   // Verify it's a 40-character hex string (SHA1)
   EXPECT_EQ(sha1.length(), 40);
 
@@ -204,7 +212,8 @@ TEST_F(ScriptCommandTest, EVALSHA_CachedScript) {
 TEST_F(ScriptCommandTest, EVALSHA_NonExistentScript) {
   Command evalsha_cmd;
   evalsha_cmd.name = "EVALSHA";
-  evalsha_cmd.args.emplace_back(std::string("0000000000000000000000000000000000000000"));
+  evalsha_cmd.args.emplace_back(
+      std::string("0000000000000000000000000000000000000000"));
   evalsha_cmd.args.emplace_back(std::string("0"));
 
   auto result = registry_->Execute(evalsha_cmd, context_.get());
@@ -222,7 +231,7 @@ TEST_F(ScriptCommandTest, SCRIPT_LOAD) {
   auto result = registry_->Execute(script_cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsBulkString());
-  
+
   // Verify it's a 40-character hex string (SHA1)
   std::string sha1 = result.response.AsString();
   EXPECT_EQ(sha1.length(), 40);
@@ -247,7 +256,7 @@ TEST_F(ScriptCommandTest, SCRIPT_EXISTS) {
   result = registry_->Execute(exists_cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsArray());
-  
+
   const auto& arr = result.response.AsArray();
   ASSERT_EQ(arr.size(), 1);
   EXPECT_TRUE(arr[0].IsInteger());
@@ -258,12 +267,13 @@ TEST_F(ScriptCommandTest, SCRIPT_EXISTS_NonExistent) {
   Command exists_cmd;
   exists_cmd.name = "SCRIPT";
   exists_cmd.args.emplace_back(std::string("EXISTS"));
-  exists_cmd.args.emplace_back(std::string("0000000000000000000000000000000000000000"));
+  exists_cmd.args.emplace_back(
+      std::string("0000000000000000000000000000000000000000"));
 
   auto result = registry_->Execute(exists_cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsArray());
-  
+
   const auto& arr = result.response.AsArray();
   ASSERT_EQ(arr.size(), 1);
   EXPECT_TRUE(arr[0].IsInteger());
@@ -300,7 +310,8 @@ TEST_F(ScriptCommandTest, SCRIPT_UnknownSubcommand) {
 
   auto result = registry_->Execute(script_cmd, context_.get());
   ASSERT_FALSE(result.success);
-  EXPECT_NE(result.error.find("ERR unknown SCRIPT subcommand"), std::string::npos);
+  EXPECT_NE(result.error.find("ERR unknown SCRIPT subcommand"),
+            std::string::npos);
 }
 
 TEST_F(ScriptCommandTest, EVAL_MultipleReturnValues) {
@@ -312,7 +323,7 @@ TEST_F(ScriptCommandTest, EVAL_MultipleReturnValues) {
   auto result = registry_->Execute(eval_cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsArray());
-  
+
   const auto& arr = result.response.AsArray();
   ASSERT_EQ(arr.size(), 3);
   EXPECT_TRUE(arr[0].IsInteger());
@@ -365,18 +376,20 @@ TEST_F(ScriptCommandTest, EVAL_WithNegativeNumkeys) {
 
   auto result = registry_->Execute(eval_cmd, context_.get());
   ASSERT_FALSE(result.success);
-  EXPECT_NE(result.error.find("Number of keys can't be negative"), std::string::npos);
+  EXPECT_NE(result.error.find("Number of keys can't be negative"),
+            std::string::npos);
 }
 
 TEST_F(ScriptCommandTest, EVAL_WithTooManyKeys) {
   Command eval_cmd;
   eval_cmd.name = "EVAL";
   eval_cmd.args.emplace_back(std::string("return 'hello'"));
-  eval_cmd.args.emplace_back(std::string("10")); // 10 keys but no args
+  eval_cmd.args.emplace_back(std::string("10"));  // 10 keys but no args
 
   auto result = registry_->Execute(eval_cmd, context_.get());
   ASSERT_FALSE(result.success);
-  EXPECT_NE(result.error.find("Number of keys can't be greater"), std::string::npos);
+  EXPECT_NE(result.error.find("Number of keys can't be greater"),
+            std::string::npos);
 }
 
-} // namespace astra::commands
+}  // namespace astra::commands

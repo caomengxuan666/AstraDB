@@ -7,7 +7,9 @@
 #pragma once
 
 #include <absl/base/thread_annotations.h>
+#include <absl/functional/any_invocable.h>
 #include <absl/synchronization/mutex.h>
+
 #include <atomic>
 #include <cstddef>
 #include <deque>
@@ -15,7 +17,6 @@
 #include <memory>
 #include <vector>
 
-#include <absl/functional/any_invocable.h>
 #include "astra/base/macros.hpp"
 
 namespace astra::core::memory {
@@ -37,10 +38,8 @@ class ObjectPool final {
   using Deleter = absl::AnyInvocable<void(T*)>;
 
   // Constructor
-  explicit ObjectPool(
-      size_t max_size = 1024,
-      Factory factory = nullptr,
-      Deleter deleter = nullptr);
+  explicit ObjectPool(size_t max_size = 1024, Factory factory = nullptr,
+                      Deleter deleter = nullptr);
 
   // Destructor
   ~ObjectPool();
@@ -86,14 +85,12 @@ class ObjectPool final {
 // ==============================================================================
 
 template <typename T>
-ObjectPool<T>::ObjectPool(
-    size_t max_size,
-    Factory factory,
-    Deleter deleter)
+ObjectPool<T>::ObjectPool(size_t max_size, Factory factory, Deleter deleter)
     : max_size_(max_size),
-      factory_(factory ? std::move(factory) : Factory([]() { return new T(); })),
-      deleter_(deleter ? std::move(deleter) : Deleter([](T* obj) { delete obj; })) {
-}
+      factory_(factory ? std::move(factory)
+                       : Factory([]() { return new T(); })),
+      deleter_(deleter ? std::move(deleter)
+                       : Deleter([](T* obj) { delete obj; })) {}
 
 template <typename T>
 ObjectPool<T>::~ObjectPool() {
@@ -103,10 +100,10 @@ ObjectPool<T>::~ObjectPool() {
 template <typename T>
 std::unique_ptr<T, typename ObjectPool<T>::Deleter> ObjectPool<T>::Acquire() {
   T* obj = nullptr;
-  
+
   {
     absl::MutexLock lock(&mutex_);
-    
+
     if (!free_objects_.empty()) {
       obj = free_objects_.front();
       free_objects_.pop_front();
@@ -114,10 +111,10 @@ std::unique_ptr<T, typename ObjectPool<T>::Deleter> ObjectPool<T>::Acquire() {
       obj = factory_();
       total_created_++;
     }
-    
+
     used_count_.fetch_add(1, std::memory_order_relaxed);
   }
-  
+
   return std::unique_ptr<T, Deleter>(obj, [this](T* obj) {
     // this pointer cannot be null in well-defined C++ code
     this->Release(obj);
@@ -129,16 +126,16 @@ void ObjectPool<T>::Release(T* obj) {
   if (!obj) {
     return;
   }
-  
+
   {
     absl::MutexLock lock(&mutex_);
-    
+
     if (free_objects_.size() < max_size_) {
       free_objects_.push_back(obj);
     } else {
       deleter_(obj);
     }
-    
+
     used_count_.fetch_sub(1, std::memory_order_relaxed);
   }
 }
@@ -163,11 +160,11 @@ size_t ObjectPool<T>::GetUsed() const {
 template <typename T>
 void ObjectPool<T>::Clear() {
   absl::MutexLock lock(&mutex_);
-  
+
   for (auto* obj : free_objects_) {
     deleter_(obj);
   }
-  
+
   free_objects_.clear();
 }
 
@@ -184,9 +181,7 @@ class SimpleObjectPool final {
     }
   }
 
-  ~SimpleObjectPool() {
-    Clear();
-  }
+  ~SimpleObjectPool() { Clear(); }
 
   ASTRABI_DISABLE_COPY_MOVE(SimpleObjectPool)
 
@@ -194,7 +189,7 @@ class SimpleObjectPool final {
     if (free_objects_.empty()) {
       return new T();
     }
-    
+
     T* obj = free_objects_.back();
     free_objects_.pop_back();
     return obj;
@@ -221,4 +216,4 @@ class SimpleObjectPool final {
   size_t created_count_{0};
 };
 
-} // namespace astra::core::memory
+}  // namespace astra::core::memory

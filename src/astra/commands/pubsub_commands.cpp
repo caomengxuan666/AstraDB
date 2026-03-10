@@ -2,15 +2,19 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "pubsub_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/base/logging.hpp"
+
 #include <absl/strings/ascii.h>
+
+#include "astra/base/logging.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
-CommandResult HandleSubscribe(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleSubscribe(const protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'subscribe' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'subscribe' command");
   }
 
   auto* manager = context->GetPubSubManager();
@@ -35,7 +39,8 @@ CommandResult HandleSubscribe(const protocol::Command& command, CommandContext* 
   return CommandResult();
 }
 
-CommandResult HandleUnsubscribe(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleUnsubscribe(const protocol::Command& command,
+                                CommandContext* context) {
   auto* manager = context->GetPubSubManager();
   if (!manager) {
     return CommandResult(false, "ERR pub/sub not available");
@@ -55,9 +60,11 @@ CommandResult HandleUnsubscribe(const protocol::Command& command, CommandContext
   return CommandResult();
 }
 
-CommandResult HandlePublish(const protocol::Command& command, CommandContext* context) {
+CommandResult HandlePublish(const protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'publish' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'publish' command");
   }
 
   auto* manager = context->GetPubSubManager();
@@ -76,9 +83,11 @@ CommandResult HandlePublish(const protocol::Command& command, CommandContext* co
   return CommandResult(response);
 }
 
-CommandResult HandlePSubscribe(const protocol::Command& command, CommandContext* context) {
+CommandResult HandlePSubscribe(const protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'psubscribe' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'psubscribe' command");
   }
 
   auto* manager = context->GetPubSubManager();
@@ -101,7 +110,8 @@ CommandResult HandlePSubscribe(const protocol::Command& command, CommandContext*
   return CommandResult();
 }
 
-CommandResult HandlePUnsubscribe(const protocol::Command& command, CommandContext* context) {
+CommandResult HandlePUnsubscribe(const protocol::Command& command,
+                                 CommandContext* context) {
   auto* manager = context->GetPubSubManager();
   if (!manager) {
     return CommandResult(false, "ERR pub/sub not available");
@@ -121,9 +131,11 @@ CommandResult HandlePUnsubscribe(const protocol::Command& command, CommandContex
   return CommandResult();
 }
 
-CommandResult HandlePubSub(const protocol::Command& command, CommandContext* context) {
+CommandResult HandlePubSub(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'pubsub' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'pubsub' command");
   }
 
   const std::string& subcommand = command[0].AsString();
@@ -140,16 +152,16 @@ CommandResult HandlePubSub(const protocol::Command& command, CommandContext* con
     if (command.ArgCount() > 1) {
       pattern = command[1].AsString();
     }
-    
+
     auto channels = manager->GetActiveChannels(pattern);
-    
+
     std::vector<protocol::RespValue> result;
     for (const auto& ch : channels) {
       protocol::RespValue channel_name;
       channel_name.SetString(ch, protocol::RespType::kBulkString);
       result.push_back(channel_name);
     }
-    
+
     protocol::RespValue response;
     response.SetArray(std::move(result));
     return CommandResult(response);
@@ -183,11 +195,17 @@ CommandResult HandlePubSub(const protocol::Command& command, CommandContext* con
 }
 
 // Register Pub/Sub commands
-ASTRADB_REGISTER_COMMAND(SUBSCRIBE, -2, "pubsub", RoutingStrategy::kNone, HandleSubscribe);
-ASTRADB_REGISTER_COMMAND(UNSUBSCRIBE, -1, "pubsub", RoutingStrategy::kNone, HandleUnsubscribe);
-ASTRADB_REGISTER_COMMAND(PUBLISH, 3, "pubsub", RoutingStrategy::kNone, HandlePublish);
-ASTRADB_REGISTER_COMMAND(PSUBSCRIBE, -2, "pubsub", RoutingStrategy::kNone, HandlePSubscribe);
-ASTRADB_REGISTER_COMMAND(PUNSUBSCRIBE, -1, "pubsub", RoutingStrategy::kNone, HandlePUnsubscribe);
-ASTRADB_REGISTER_COMMAND(PUBSUB, -2, "pubsub", RoutingStrategy::kNone, HandlePubSub);
+ASTRADB_REGISTER_COMMAND(SUBSCRIBE, -2, "pubsub", RoutingStrategy::kNone,
+                         HandleSubscribe);
+ASTRADB_REGISTER_COMMAND(UNSUBSCRIBE, -1, "pubsub", RoutingStrategy::kNone,
+                         HandleUnsubscribe);
+ASTRADB_REGISTER_COMMAND(PUBLISH, 3, "pubsub", RoutingStrategy::kNone,
+                         HandlePublish);
+ASTRADB_REGISTER_COMMAND(PSUBSCRIBE, -2, "pubsub", RoutingStrategy::kNone,
+                         HandlePSubscribe);
+ASTRADB_REGISTER_COMMAND(PUNSUBSCRIBE, -1, "pubsub", RoutingStrategy::kNone,
+                         HandlePUnsubscribe);
+ASTRADB_REGISTER_COMMAND(PUBSUB, -2, "pubsub", RoutingStrategy::kNone,
+                         HandlePubSub);
 
 }  // namespace astra::commands

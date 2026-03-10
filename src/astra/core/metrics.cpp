@@ -53,10 +53,8 @@ void AstraMetrics::UpdateMemoryMetrics() {
   // macOS memory usage
   struct task_basic_info info;
   mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
-  kern_return_t kerr = task_info(mach_task_self(),
-                                TASK_BASIC_INFO_COUNT,
-                                (task_info_t)&info,
-                                &count);
+  kern_return_t kerr = task_info(mach_task_self(), TASK_BASIC_INFO_COUNT,
+                                 (task_info_t)&info, &count);
   if (kerr == KERN_SUCCESS) {
     SetMemoryUsed(info.resident_size);
     SetMemoryTotal(info.virtual_size);
@@ -102,4 +100,4 @@ void AstraMetrics::UpdatePersistenceMetrics() {
   // }
 }
 
-} // namespace astra::metrics
+}  // namespace astra::metrics

@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <utility>
 
@@ -56,7 +56,8 @@ class ConstexprMap {
     using reference = const value_type&;
 
     constexpr const_iterator() noexcept : ptr_(nullptr) {}
-    constexpr explicit const_iterator(const value_type* ptr) noexcept : ptr_(ptr) {}
+    constexpr explicit const_iterator(const value_type* ptr) noexcept
+        : ptr_(ptr) {}
 
     constexpr reference operator*() const noexcept { return *ptr_; }
     constexpr pointer operator->() const noexcept { return ptr_; }
@@ -84,7 +85,8 @@ class ConstexprMap {
   using iterator = const_iterator;
 
   // Construct from std::array of std::pair (compile-time)
-  constexpr explicit ConstexprMap(const std::array<std::pair<Key, Value>, N>& arr) {
+  constexpr explicit ConstexprMap(
+      const std::array<std::pair<Key, Value>, N>& arr) {
     for (std::size_t i = 0; i < N; ++i) {
       data_[i].first = arr[i].first;
       data_[i].second = arr[i].second;
@@ -103,7 +105,8 @@ class ConstexprMap {
     return const_iterator(reinterpret_cast<const value_type*>(data_.data()));
   }
   constexpr const_iterator end() const noexcept {
-    return const_iterator(reinterpret_cast<const value_type*>(data_.data() + N));
+    return const_iterator(
+        reinterpret_cast<const value_type*>(data_.data() + N));
   }
   constexpr const_iterator cbegin() const noexcept { return begin(); }
   constexpr const_iterator cend() const noexcept { return end(); }
@@ -178,7 +181,8 @@ constexpr bool operator!=(const ConstexprMap<K, V, N>& lhs,
 
 // Factory function from std::array
 template <typename Key, typename Value, std::size_t N>
-constexpr auto make_constexpr_map(const std::array<std::pair<Key, Value>, N>& arr) {
+constexpr auto make_constexpr_map(
+    const std::array<std::pair<Key, Value>, N>& arr) {
   return ConstexprMap<Key, Value, N>(arr);
 }
 

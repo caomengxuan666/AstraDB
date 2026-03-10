@@ -10,16 +10,17 @@
 #include <absl/base/thread_annotations.h>
 #include <absl/container/fixed_array.h>
 #include <absl/synchronization/mutex.h>
+
 #include <atomic>
 #include <cstddef>
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32) || defined(_WIN64)
-  #include <malloc.h>
+#include <malloc.h>
 #elif defined(__ANDROID__)
-  #include <cstdlib>
+#include <cstdlib>
 #endif
 
 #include "astra/base/macros.hpp"
@@ -36,17 +37,13 @@ class StringBlock final {
   static constexpr size_t kAlignment = 8;
 
   explicit StringBlock(size_t size = kDefaultBlockSize)
-      : size_(size),
-        offset_(0),
-        data_(AllocateAligned(size)) {
+      : size_(size), offset_(0), data_(AllocateAligned(size)) {
     if (!data_) {
       throw std::bad_alloc();
     }
   }
 
-  ~StringBlock() {
-    FreeAligned(data_);
-  }
+  ~StringBlock() { FreeAligned(data_); }
 
   ASTRABI_DISABLE_COPY_MOVE(StringBlock)
 
@@ -61,23 +58,15 @@ class StringBlock final {
   }
 
   // Check if this block has enough space
-  bool HasSpace(size_t len) const {
-    return offset_ + len <= size_;
-  }
+  bool HasSpace(size_t len) const { return offset_ + len <= size_; }
 
   // Get remaining space
-  size_t Remaining() const {
-    return size_ - offset_;
-  }
+  size_t Remaining() const { return size_ - offset_; }
 
   // Reset the block (reuse for new allocations)
-  void Reset() {
-    offset_ = 0;
-  }
+  void Reset() { offset_ = 0; }
 
-  size_t GetOffset() const {
-    return offset_;
-  }
+  size_t GetOffset() const { return offset_; }
 
  private:
   static char* AllocateAligned(size_t size) {
@@ -119,8 +108,7 @@ class StringBlock final {
 class StringPool final {
  public:
   explicit StringPool(size_t block_size = StringBlock::kDefaultBlockSize)
-      : block_size_(block_size),
-        current_block_(new StringBlock(block_size)) {
+      : block_size_(block_size), current_block_(new StringBlock(block_size)) {
     // Pre-allocate one block (constructor runs in single-threaded context)
     blocks_.push_back(current_block_);
   }
@@ -154,7 +142,7 @@ class StringPool final {
   // Allocate raw buffer
   char* Allocate(size_t size) {
     absl::MutexLock lock(&mutex_);
-    
+
     // Try to allocate from current block
     char* ptr = current_block_->Allocate(size);
     if (ptr) {
@@ -219,11 +207,11 @@ class StringPool final {
   // Compact the pool by removing unused blocks
   void Compact() {
     absl::MutexLock lock(&mutex_);
-    
+
     // Keep at least one block
     auto it = blocks_.begin();
     ++it;
-    
+
     while (it != blocks_.end()) {
       if ((*it)->GetOffset() == 0) {
         delete *it;
@@ -259,18 +247,16 @@ template <size_t InlineSize = 15>
 class SmallStringOpt {
  public:
   SmallStringOpt() = default;
-  
+
   explicit SmallStringOpt(const std::string& str) {
     Assign(str.data(), str.size());
   }
-  
+
   explicit SmallStringOpt(std::string_view str) {
     Assign(str.data(), str.size());
   }
-  
-  SmallStringOpt(const char* data, size_t len) {
-    Assign(data, len);
-  }
+
+  SmallStringOpt(const char* data, size_t len) { Assign(data, len); }
 
   void Assign(const char* data, size_t len) {
     if (len <= InlineSize) {
@@ -328,14 +314,10 @@ class SmallStringOpt {
   }
 
   // Get size
-  size_t Size() const {
-    return size_;
-  }
+  size_t Size() const { return size_; }
 
   // Is empty
-  bool Empty() const {
-    return size_ == 0;
-  }
+  bool Empty() const { return size_ == 0; }
 
   // Clear
   void Clear() {
@@ -347,9 +329,7 @@ class SmallStringOpt {
   }
 
  private:
-  bool IsInline() const {
-    return size_ <= InlineSize;
-  }
+  bool IsInline() const { return size_ <= InlineSize; }
 
   void MoveFrom(SmallStringOpt&& other) {
     size_ = other.size_;

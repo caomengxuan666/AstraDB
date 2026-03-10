@@ -2,19 +2,23 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "client_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/base/logging.hpp"
-#include "astra/server/server.hpp"
-#include "astra/network/connection.hpp"
-#include <sstream>
+
 #include <iomanip>
+#include <sstream>
+
+#include "astra/base/logging.hpp"
+#include "astra/network/connection.hpp"
+#include "astra/server/server.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
 // CLIENT LIST - List all connected clients
-CommandResult HandleClientList(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClientList(const protocol::Command& command,
+                               CommandContext* context) {
   // CLIENT LIST takes no arguments beyond the subcommand
-  // The subcommand is already handled by the router, so we accept 0 additional args
+  // The subcommand is already handled by the router, so we accept 0 additional
+  // args
 
   // Get server from context
   auto server_ptr = context->GetServer();
@@ -26,13 +30,13 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
 
   // Get connection list
   auto connections = server->GetConnections();
-  
+
   std::string result;
   for (const auto& [id, conn_weak] : connections) {
     auto conn = conn_weak.lock();
     if (conn && conn->IsConnected()) {
       std::string addr = conn->GetRemoteAddress();
-      
+
       // Parse address to get IP and port
       std::string ip = "unknown";
       uint16_t port = 0;
@@ -45,30 +49,32 @@ CommandResult HandleClientList(const protocol::Command& command, CommandContext*
           port = 0;
         }
       }
-      
+
       // Build client info string (simplified format)
       result += absl::StrCat("id=", id, " ");
       result += "addr=" + absl::StrCat(ip, ":", port) + " ";
       result += "name=" + conn->GetClientName() + " ";
-      result += "age=0 ";  // Age not tracked for now
+      result += "age=0 ";   // Age not tracked for now
       result += "idle=0 ";  // Idle time not tracked for now
       result += "\n";
     }
   }
-  
+
   protocol::RespValue resp;
   resp.SetString(result, protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
 // CLIENT SETNAME - Set a name for the current connection
-CommandResult HandleClientSetName(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClientSetName(const protocol::Command& command,
+                                  CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'client setname' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'client setname' command");
   }
 
   const std::string& name = command[0].AsString();
-  
+
   // Get connection from context
   auto conn_ptr = context->GetConnection();
   if (!conn_ptr) {
@@ -86,9 +92,11 @@ CommandResult HandleClientSetName(const protocol::Command& command, CommandConte
 }
 
 // CLIENT GETNAME - Get the name of the current connection
-CommandResult HandleClientGetName(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClientGetName(const protocol::Command& command,
+                                  CommandContext* context) {
   // CLIENT GETNAME takes no arguments beyond the subcommand
-  // The subcommand is already handled by the router, so we accept 0 additional args
+  // The subcommand is already handled by the router, so we accept 0 additional
+  // args
 
   // Get connection from context
   auto conn_ptr = context->GetConnection();
@@ -111,9 +119,11 @@ CommandResult HandleClientGetName(const protocol::Command& command, CommandConte
 }
 
 // CLIENT - Main client command router
-CommandResult HandleClient(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClient(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'client' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'client' command");
   }
 
   const auto& subcommand = command[0];
@@ -141,7 +151,8 @@ CommandResult HandleClient(const protocol::Command& command, CommandContext* con
     }
     protocol::Command new_command;
     new_command.name = "SETNAME";
-    new_command.args = absl::InlinedVector<RespValue, 4>(new_args.begin(), new_args.end());
+    new_command.args =
+        absl::InlinedVector<RespValue, 4>(new_args.begin(), new_args.end());
     return HandleClientSetName(new_command, context);
   } else if (sub == "GETNAME") {
     return HandleClientGetName(command, context);
@@ -150,11 +161,12 @@ CommandResult HandleClient(const protocol::Command& command, CommandContext* con
   }
 }
 
-
 // CLIENT INFO - Get information about the current client connection
-CommandResult HandleClientInfo(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClientInfo(const protocol::Command& command,
+                               CommandContext* context) {
   // CLIENT INFO takes no arguments beyond the subcommand
-  // The subcommand is already handled by the router, so we accept 0 additional args
+  // The subcommand is already handled by the router, so we accept 0 additional
+  // args
 
   // Get connection from context
   auto conn_ptr = context->GetConnection();
@@ -166,7 +178,7 @@ CommandResult HandleClientInfo(const protocol::Command& command, CommandContext*
 
   std::string addr = conn->GetRemoteAddress();
   uint64_t id = conn->GetId();
-  
+
   // Parse address to get IP and port
   std::string ip = "unknown";
   uint16_t port = 0;
@@ -179,7 +191,7 @@ CommandResult HandleClientInfo(const protocol::Command& command, CommandContext*
       port = 0;
     }
   }
-  
+
   // Build client info string (simplified format)
   std::ostringstream info;
   info << "# Client\n";
@@ -187,33 +199,36 @@ CommandResult HandleClientInfo(const protocol::Command& command, CommandContext*
   info << "name=" << conn->GetClientName() << "\n";
   info << "addr=" << ip << ":" << port << "\n";
   info << "laddr=127.0.0.1:6379\n";  // Local address
-  info << "sock=-1\n";  // Socket fd
-  info << "age=0\n";  // Age not tracked
-  info << "idle=0\n";  // Idle time not tracked
-  info << "db=0\n";  // Current database
-  info << "sub=0\n";  // Number of subscriptions
-  info << "psub=0\n";  // Number of pattern subscriptions
-  info << "multi=-1\n";  // Multi flag
-  info << "qbuf=0\n";  // Query buffer size
-  info << "qbuf-free=0\n";  // Query buffer free space
-  info << "obl=0\n";  // Output buffer size
-  info << "oll=0\n";  // Output list length
-  info << "omem=0\n";  // Output memory
-  info << "events=r\n";  // Events
-  info << "cmd=client\n";  // Last command
-  info << "user=default\n";  // User name
-  info << "redir=-1\n";  // Redirect
-  info << "resp=" << conn->GetProtocolVersion() << "\n";  // RESP version from connection
-  
+  info << "sock=-1\n";               // Socket fd
+  info << "age=0\n";                 // Age not tracked
+  info << "idle=0\n";                // Idle time not tracked
+  info << "db=0\n";                  // Current database
+  info << "sub=0\n";                 // Number of subscriptions
+  info << "psub=0\n";                // Number of pattern subscriptions
+  info << "multi=-1\n";              // Multi flag
+  info << "qbuf=0\n";                // Query buffer size
+  info << "qbuf-free=0\n";           // Query buffer free space
+  info << "obl=0\n";                 // Output buffer size
+  info << "oll=0\n";                 // Output list length
+  info << "omem=0\n";                // Output memory
+  info << "events=r\n";              // Events
+  info << "cmd=client\n";            // Last command
+  info << "user=default\n";          // User name
+  info << "redir=-1\n";              // Redirect
+  info << "resp=" << conn->GetProtocolVersion()
+       << "\n";  // RESP version from connection
+
   protocol::RespValue resp;
   resp.SetString(info.str(), protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
 // CLIENT KILL [ip:port] [ID client-id] [TYPE normal|master|slave|pubsub]
-CommandResult HandleClientKill(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleClientKill(const protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'client kill' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'client kill' command");
   }
 
   // Get server from context
@@ -228,11 +243,11 @@ CommandResult HandleClientKill(const protocol::Command& command, CommandContext*
   std::string target_addr;
   uint64_t target_id = 0;
   bool has_id = false;
-  
+
   size_t i = 0;
   while (i < command.ArgCount()) {
     const std::string& arg = command[i].AsString();
-    
+
     if (arg == "ID") {
       if (i + 1 >= command.ArgCount()) {
         return CommandResult(false, "ERR ID option requires a client ID");
@@ -256,29 +271,29 @@ CommandResult HandleClientKill(const protocol::Command& command, CommandContext*
       i++;
     }
   }
-  
+
   // Get connections
   auto connections = server->GetConnections();
   uint64_t killed = 0;
-  
+
   for (const auto& [id, conn_weak] : connections) {
     auto conn = conn_weak.lock();
     if (!conn || !conn->IsConnected()) {
       continue;
     }
-    
+
     // Skip self (can't kill own connection)
     if (id == context->GetConnection()->GetId()) {
       continue;
     }
-    
+
     bool match = true;
-    
+
     // Check ID match
     if (has_id && id != target_id) {
       match = false;
     }
-    
+
     // Check address match
     if (!target_addr.empty()) {
       std::string addr = conn->GetRemoteAddress();
@@ -286,12 +301,12 @@ CommandResult HandleClientKill(const protocol::Command& command, CommandContext*
         match = false;
       }
     }
-    
+
     // Check type match (simplified - all connections are "normal" for now)
     if (!target_type.empty() && target_type != "normal") {
       match = false;
     }
-    
+
     // Kill matching connection
     if (match) {
       // Skip self (can't kill own connection)
@@ -302,16 +317,20 @@ CommandResult HandleClientKill(const protocol::Command& command, CommandContext*
       killed++;
     }
   }
-  
+
   protocol::RespValue resp;
   resp.SetInteger(killed);
   return CommandResult(resp);
 }
 
 // Auto-register all client commands
-ASTRADB_REGISTER_COMMAND(CLIENT, -2, "readonly", RoutingStrategy::kByFirstKey, HandleClient);
-ASTRADB_REGISTER_COMMAND(CLIENT_LIST, 1, "readonly", RoutingStrategy::kByFirstKey, HandleClientList);
-ASTRADB_REGISTER_COMMAND(CLIENT_INFO, 1, "readonly", RoutingStrategy::kByFirstKey, HandleClientInfo);
-ASTRADB_REGISTER_COMMAND(CLIENT_KILL, -2, "write", RoutingStrategy::kByFirstKey, HandleClientKill);
+ASTRADB_REGISTER_COMMAND(CLIENT, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleClient);
+ASTRADB_REGISTER_COMMAND(CLIENT_LIST, 1, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleClientList);
+ASTRADB_REGISTER_COMMAND(CLIENT_INFO, 1, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleClientInfo);
+ASTRADB_REGISTER_COMMAND(CLIENT_KILL, -2, "write", RoutingStrategy::kByFirstKey,
+                         HandleClientKill);
 
 }  // namespace astra::commands

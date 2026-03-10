@@ -5,23 +5,26 @@
 // ==============================================================================
 
 #include <benchmark/benchmark.h>
-#include "astra/commands/database.hpp"
-#include "astra/commands/string_commands.hpp"
-#include "astra/commands/admin_commands.hpp"
-#include "astra/protocol/resp/resp_types.hpp"
+
 #include <random>
 #include <thread>
 #include <vector>
+
+#include "astra/commands/admin_commands.hpp"
+#include "astra/commands/database.hpp"
+#include "astra/commands/string_commands.hpp"
+#include "astra/protocol/resp/resp_types.hpp"
 
 namespace astra::commands {
 namespace {
 
 // Generate random key (reserved for future use)
 [[maybe_unused]] static std::string RandomKey(size_t length = 16) {
-  static const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  static const char chars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   static std::mt19937 rng(std::random_device{}());
   static std::uniform_int_distribution<size_t> dist(0, sizeof(chars) - 2);
-  
+
   std::string result;
   result.reserve(length);
   for (size_t i = 0; i < length; ++i) {
@@ -32,10 +35,11 @@ namespace {
 
 // Generate random value
 std::string RandomValue(size_t length = 100) {
-  static const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  static const char chars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   static std::mt19937 rng(std::random_device{}());
   static std::uniform_int_distribution<size_t> dist(0, sizeof(chars) - 2);
-  
+
   std::string result;
   result.reserve(length);
   for (size_t i = 0; i < length; ++i) {
@@ -47,7 +51,7 @@ std::string RandomValue(size_t length = 100) {
 // Benchmark: Database switching overhead (SELECT command)
 static void BM_SelectCommand(benchmark::State& state) {
   DatabaseManager db_manager(16);
-  
+
   for (auto _ : state) {
     for (int i = 0; i < 16; ++i) {
       auto* db = db_manager.GetDatabase(i);
@@ -62,17 +66,17 @@ static void BM_MultiDBWrites(benchmark::State& state) {
   DatabaseManager db_manager(16);
   const int num_dbs = static_cast<int>(state.range(0));
   const int keys_per_db = static_cast<int>(state.range(1));
-  
+
   std::vector<std::string> keys;
   std::vector<std::string> values;
   keys.reserve(keys_per_db);
   values.reserve(keys_per_db);
-  
+
   for (int i = 0; i < keys_per_db; ++i) {
     keys.push_back("key_" + std::to_string(i));
     values.push_back(RandomValue(100));
   }
-  
+
   for (auto _ : state) {
     for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
       auto* db = db_manager.GetDatabase(db_idx);
@@ -81,7 +85,7 @@ static void BM_MultiDBWrites(benchmark::State& state) {
       }
     }
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_dbs * keys_per_db);
 }
 
@@ -90,15 +94,17 @@ static void BM_MultiDBReads(benchmark::State& state) {
   DatabaseManager db_manager(16);
   const int num_dbs = static_cast<int>(state.range(0));
   const int keys_per_db = static_cast<int>(state.range(1));
-  
+
   // Pre-populate databases
   for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
     auto* db = db_manager.GetDatabase(db_idx);
     for (int i = 0; i < keys_per_db; ++i) {
-      db->Set("key_" + std::to_string(i), StringValue("value_" + std::to_string(db_idx) + "_" + std::to_string(i)));
+      db->Set("key_" + std::to_string(i),
+              StringValue("value_" + std::to_string(db_idx) + "_" +
+                          std::to_string(i)));
     }
   }
-  
+
   for (auto _ : state) {
     for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
       auto* db = db_manager.GetDatabase(db_idx);
@@ -108,29 +114,29 @@ static void BM_MultiDBReads(benchmark::State& state) {
       }
     }
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_dbs * keys_per_db);
 }
 
 // Benchmark: FLUSHDB command (single database)
 static void BM_FlushDBCommand(benchmark::State& state) {
   const int num_keys = static_cast<int>(state.range(0));
-  
+
   for (auto _ : state) {
     state.PauseTiming();
     DatabaseManager db_manager(16);
     auto* db = db_manager.GetDatabase(0);
-    
+
     // Populate database
     for (int i = 0; i < num_keys; ++i) {
       db->Set("key_" + std::to_string(i), StringValue(RandomValue(100)));
     }
     state.ResumeTiming();
-    
+
     // Clear database
     db->Clear();
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_keys);
 }
 
@@ -138,11 +144,11 @@ static void BM_FlushDBCommand(benchmark::State& state) {
 static void BM_FlushAllCommand(benchmark::State& state) {
   const int num_dbs = 16;
   const int keys_per_db = static_cast<int>(state.range(0));
-  
+
   for (auto _ : state) {
     state.PauseTiming();
     DatabaseManager db_manager(16);
-    
+
     // Populate all databases
     for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
       auto* db = db_manager.GetDatabase(db_idx);
@@ -151,14 +157,14 @@ static void BM_FlushAllCommand(benchmark::State& state) {
       }
     }
     state.ResumeTiming();
-    
+
     // Clear all databases
     for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
       auto* db = db_manager.GetDatabase(db_idx);
       db->Clear();
     }
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_dbs * keys_per_db);
 }
 
@@ -167,7 +173,7 @@ static void BM_DBSizeCommand(benchmark::State& state) {
   DatabaseManager db_manager(16);
   const int num_dbs = static_cast<int>(state.range(0));
   const int keys_per_db = static_cast<int>(state.range(1));
-  
+
   // Pre-populate databases
   for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
     auto* db = db_manager.GetDatabase(db_idx);
@@ -175,7 +181,7 @@ static void BM_DBSizeCommand(benchmark::State& state) {
       db->Set("key_" + std::to_string(i), StringValue(RandomValue(100)));
     }
   }
-  
+
   for (auto _ : state) {
     for (int db_idx = 0; db_idx < num_dbs; ++db_idx) {
       auto* db = db_manager.GetDatabase(db_idx);
@@ -183,7 +189,7 @@ static void BM_DBSizeCommand(benchmark::State& state) {
       benchmark::DoNotOptimize(size);
     }
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_dbs);
 }
 
@@ -191,37 +197,37 @@ static void BM_DBSizeCommand(benchmark::State& state) {
 static void BM_MixedOperations(benchmark::State& state) {
   DatabaseManager db_manager(16);
   const int num_ops = static_cast<int>(state.range(0));
-  
+
   std::mt19937 rng(std::random_device{}());
   std::uniform_int_distribution<int> db_dist(0, 15);
-  
+
   std::vector<std::string> keys;
   for (int i = 0; i < 1000; ++i) {
     keys.push_back("key_" + std::to_string(i));
   }
-  
+
   for (auto _ : state) {
     int db_idx = db_dist(rng);
     auto* db = db_manager.GetDatabase(db_idx);
     int op_type = rng() % 4;
     int key_idx = rng() % keys.size();
-    
+
     switch (op_type) {
-      case 0: // SET
+      case 0:  // SET
         db->Set(keys[key_idx], StringValue(RandomValue(100)));
         break;
-      case 1: // GET
+      case 1:  // GET
         db->Get(keys[key_idx]);
         break;
-      case 2: // DEL
+      case 2:  // DEL
         db->Del(keys[key_idx]);
         break;
-      case 3: // DBSIZE
+      case 3:  // DBSIZE
         db->DbSize();
         break;
     }
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_ops);
 }
 
@@ -230,39 +236,41 @@ static void BM_ConcurrentMultiDBAccess(benchmark::State& state) {
   DatabaseManager db_manager(16);
   const int num_threads = static_cast<int>(state.range(0));
   const int ops_per_thread = 1000;
-  
+
   std::vector<std::thread> threads;
   std::atomic<int> barrier{0};
-  
+
   for (auto _ : state) {
     threads.clear();
     barrier.store(0);
-    
+
     for (int t = 0; t < num_threads; ++t) {
       threads.emplace_back([&, t]() {
         // Wait for all threads to start
         barrier.fetch_add(1);
-        while (barrier.load() < num_threads) {}
-        
+        while (barrier.load() < num_threads) {
+        }
+
         std::mt19937 rng(t);
         std::uniform_int_distribution<int> db_dist(0, 15);
-        
+
         for (int i = 0; i < ops_per_thread; ++i) {
           int db_idx = db_dist(rng);
           auto* db = db_manager.GetDatabase(db_idx);
-          db->Set("thread_" + std::to_string(t) + "_key_" + std::to_string(i), 
-                 StringValue("value_" + std::to_string(i)));
+          db->Set("thread_" + std::to_string(t) + "_key_" + std::to_string(i),
+                  StringValue("value_" + std::to_string(i)));
           db->Get("thread_" + std::to_string(t) + "_key_" + std::to_string(i));
         }
       });
     }
-    
+
     for (auto& thread : threads) {
       thread.join();
     }
   }
-  
-  state.SetItemsProcessed(state.iterations() * num_threads * ops_per_thread * 2);
+
+  state.SetItemsProcessed(state.iterations() * num_threads * ops_per_thread *
+                          2);
 }
 
 // Register benchmarks

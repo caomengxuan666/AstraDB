@@ -5,28 +5,31 @@
 // ==============================================================================
 
 #include <benchmark/benchmark.h>
-#include "astra/persistence/leveldb_adapter.hpp"
-#include "astra/cluster/shard_manager.hpp"
+
 #include <filesystem>
 #include <random>
 #include <thread>
+
+#include "astra/cluster/shard_manager.hpp"
+#include "astra/persistence/leveldb_adapter.hpp"
 
 namespace astra::persistence {
 namespace {
 
 // Import cluster types for benchmarks
-using astra::cluster::ShardManager;
 using astra::cluster::HashSlotCalculator;
+using astra::cluster::kHashSlotCount;
 using astra::cluster::NodeId;
 using astra::cluster::ShardId;
-using astra::cluster::kHashSlotCount;
+using astra::cluster::ShardManager;
 
 // Generate random string of given length
 std::string RandomString(size_t length) {
-  static const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  static const char chars[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   static std::mt19937 rng(std::random_device{}());
   static std::uniform_int_distribution<size_t> dist(0, sizeof(chars) - 2);
-  
+
   std::string result;
   result.reserve(length);
   for (size_t i = 0; i < length; ++i) {
@@ -39,25 +42,26 @@ std::string RandomString(size_t length) {
 class LevelDBBenchmark : public benchmark::Fixture {
  public:
   void SetUp(const ::benchmark::State& state) override {
-    test_dir_ = "/tmp/astradb_bench_leveldb_" + std::to_string(std::time(nullptr));
+    test_dir_ =
+        "/tmp/astradb_bench_leveldb_" + std::to_string(std::time(nullptr));
     std::filesystem::create_directories(test_dir_);
-    
+
     LevelDBOptions options;
     options.db_path = test_dir_;
     options.create_if_missing = true;
     options.error_if_exists = false;
-    options.cache_size = 256 * 1024 * 1024;  // 256MB cache
+    options.cache_size = 256 * 1024 * 1024;        // 256MB cache
     options.write_buffer_size = 64 * 1024 * 1024;  // 64MB write buffer
-    
+
     adapter_.Open(options);
   }
-  
+
   void TearDown(const ::benchmark::State& state) override {
     adapter_.Close();
     std::error_code ec;
     std::filesystem::remove_all(test_dir_, ec);
   }
-  
+
   LevelDBAdapter adapter_;
   std::string test_dir_;
 };
@@ -67,45 +71,45 @@ class LevelDBBenchmark : public benchmark::Fixture {
 BENCHMARK_DEFINE_F(LevelDBBenchmark, Put)(benchmark::State& state) {
   const size_t key_size = state.range(0);
   const size_t value_size = state.range(1);
-  
+
   size_t i = 0;
   for (auto _ : state) {
     std::string key = "key_" + std::to_string(i);
     std::string value = RandomString(value_size);
-    
+
     adapter_.Put(key, value);
     ++i;
   }
-  
+
   state.SetItemsProcessed(state.iterations());
   state.SetBytesProcessed(state.iterations() * (key_size + value_size));
 }
 
 BENCHMARK_REGISTER_F(LevelDBBenchmark, Put)
-    ->Args({16, 64})      // Small key, small value
-    ->Args({16, 1024})    // Small key, 1KB value
-    ->Args({16, 65536})   // Small key, 64KB value
-    ->Args({64, 64})      // Medium key, small value
-    ->Args({64, 1024});   // Medium key, 1KB value
+    ->Args({16, 64})     // Small key, small value
+    ->Args({16, 1024})   // Small key, 1KB value
+    ->Args({16, 65536})  // Small key, 64KB value
+    ->Args({64, 64})     // Medium key, small value
+    ->Args({64, 1024});  // Medium key, 1KB value
 
 // ========== Get Benchmarks ==========
 
 BENCHMARK_DEFINE_F(LevelDBBenchmark, Get)(benchmark::State& state) {
   const size_t value_size = state.range(0);
   const size_t num_keys = 10000;
-  
+
   // Pre-populate
   for (size_t i = 0; i < num_keys; ++i) {
     adapter_.Put("key_" + std::to_string(i), RandomString(value_size));
   }
-  
+
   size_t i = 0;
   for (auto _ : state) {
     std::string key = "key_" + std::to_string(i % num_keys);
     adapter_.Get(key);
     ++i;
   }
-  
+
   state.SetItemsProcessed(state.iterations());
 }
 
@@ -119,18 +123,19 @@ BENCHMARK_REGISTER_F(LevelDBBenchmark, Get)
 BENCHMARK_DEFINE_F(LevelDBBenchmark, WriteBatch)(benchmark::State& state) {
   const size_t batch_size = state.range(0);
   const size_t value_size = state.range(1);
-  
+
   size_t batch_count = 0;
   for (auto _ : state) {
     LevelDBAdapter::WriteBatch batch;
     for (size_t i = 0; i < batch_size; ++i) {
-      batch.Put("batch_" + std::to_string(batch_count) + "_" + std::to_string(i),
-                RandomString(value_size));
+      batch.Put(
+          "batch_" + std::to_string(batch_count) + "_" + std::to_string(i),
+          RandomString(value_size));
     }
     adapter_.Write(batch);
     ++batch_count;
   }
-  
+
   state.SetItemsProcessed(state.iterations() * batch_size);
   state.SetBytesProcessed(state.iterations() * batch_size * value_size);
 }
@@ -146,22 +151,22 @@ BENCHMARK_REGISTER_F(LevelDBBenchmark, WriteBatch)
 BENCHMARK_DEFINE_F(LevelDBBenchmark, MixedReadWrite)(benchmark::State& state) {
   const size_t read_percent = state.range(0);
   const size_t num_keys = 10000;
-  
+
   // Pre-populate
   for (size_t i = 0; i < num_keys; ++i) {
     adapter_.Put("key_" + std::to_string(i), RandomString(256));
   }
-  
+
   static std::mt19937 rng(std::random_device{}());
   static std::uniform_int_distribution<size_t> key_dist(0, num_keys - 1);
   static std::uniform_int_distribution<size_t> op_dist(0, 99);
-  
+
   size_t reads = 0, writes = 0;
   for (auto _ : state) {
     size_t op = op_dist(rng);
     size_t key_idx = key_dist(rng);
     std::string key = "key_" + std::to_string(key_idx);
-    
+
     if (op < read_percent) {
       adapter_.Get(key);
       ++reads;
@@ -170,7 +175,7 @@ BENCHMARK_DEFINE_F(LevelDBBenchmark, MixedReadWrite)(benchmark::State& state) {
       ++writes;
     }
   }
-  
+
   state.counters["reads"] = reads;
   state.counters["writes"] = writes;
   state.SetItemsProcessed(state.iterations());
@@ -185,27 +190,28 @@ BENCHMARK_REGISTER_F(LevelDBBenchmark, MixedReadWrite)
 
 BENCHMARK_DEFINE_F(LevelDBBenchmark, ConcurrentPut)(benchmark::State& state) {
   const size_t num_threads = state.range(0);
-  
+
   std::vector<std::thread> threads;
   threads.reserve(num_threads);
-  
+
   auto worker = [this, &state](int thread_id) {
     size_t i = 0;
     while (state.KeepRunning()) {
-      std::string key = "t" + std::to_string(thread_id) + "_key_" + std::to_string(i);
+      std::string key =
+          "t" + std::to_string(thread_id) + "_key_" + std::to_string(i);
       adapter_.Put(key, RandomString(256));
       ++i;
     }
   };
-  
+
   for (size_t t = 0; t < num_threads; ++t) {
     threads.emplace_back(worker, t);
   }
-  
+
   for (auto& t : threads) {
     t.join();
   }
-  
+
   state.SetItemsProcessed(state.iterations() * num_threads);
 }
 
@@ -265,7 +271,7 @@ void BM_GetShardForKey(benchmark::State& state) {
   NodeId self_id{};
   std::fill(self_id.begin(), self_id.end(), 0x01);
   manager.Init(16, self_id);
-  
+
   std::string key = "benchmark_shard_key";
   for (auto _ : state) {
     ShardId shard = manager.GetShardForKey(key);

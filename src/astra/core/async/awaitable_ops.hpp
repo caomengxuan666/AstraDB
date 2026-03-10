@@ -6,13 +6,14 @@
 
 #pragma once
 
+#include <absl/functional/function_ref.h>
+
 #include <asio/awaitable.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/steady_timer.hpp>
 #include <asio/strand.hpp>
 #include <asio/use_awaitable.hpp>
-#include <absl/functional/function_ref.h>
 #include <chrono>
 #include <coroutine>
 #include <optional>
@@ -51,4 +52,4 @@ class AwaitableGuard {
   T value_;
 };
 
-} // namespace astra::core::async
+}  // namespace astra::core::async

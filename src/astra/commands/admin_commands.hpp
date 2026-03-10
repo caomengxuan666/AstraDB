@@ -8,58 +8,76 @@
 namespace astra::commands {
 
 // PING
-CommandResult HandlePing(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandlePing(const astra::protocol::Command& command,
+                         CommandContext* context);
 
 // INFO
-CommandResult HandleInfo(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleInfo(const astra::protocol::Command& command,
+                         CommandContext* context);
 
 // COMMAND - Redis command introspection
-CommandResult HandleCommand(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleCommand(const astra::protocol::Command& command,
+                            CommandContext* context);
 
 // DEBUG - Debug commands
-CommandResult HandleDebug(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleDebug(const astra::protocol::Command& command,
+                          CommandContext* context);
 
 // CLUSTER - Cluster management commands
-CommandResult HandleCluster(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleCluster(const astra::protocol::Command& command,
+                            CommandContext* context);
 
 // MIGRATE - Migrate key to another node
-CommandResult HandleMigrate(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleMigrate(const astra::protocol::Command& command,
+                            CommandContext* context);
 
 // MODULE - Module management commands
-CommandResult HandleModule(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleModule(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // CONFIG - Configuration management commands
-CommandResult HandleConfig(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleConfig(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // SCAN - Incrementally iterate the keyspace
-CommandResult HandleScan(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleScan(const astra::protocol::Command& command,
+                         CommandContext* context);
 
 // MEMORY - Memory introspection commands
-CommandResult HandleMemory(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleMemory(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // ASKING - Indicate client is asking for a key during migration
-CommandResult HandleAsking(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleAsking(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // BGSAVE - Background save (persistence)
-CommandResult HandleBgSave(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleBgSave(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // LASTSAVE - Last save timestamp
-CommandResult HandleLastSave(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleLastSave(const astra::protocol::Command& command,
+                             CommandContext* context);
 
 // SAVE - Synchronous save (persistence)
-CommandResult HandleSave(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleSave(const astra::protocol::Command& command,
+                         CommandContext* context);
 
 // DBSIZE - Return number of keys in current database
-CommandResult HandleDbSize(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleDbSize(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // FLUSHDB - Clear current database
-CommandResult HandleFlushDb(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleFlushDb(const astra::protocol::Command& command,
+                            CommandContext* context);
 
 // FLUSHALL - Clear all databases
-CommandResult HandleFlushAll(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleFlushAll(const astra::protocol::Command& command,
+                             CommandContext* context);
 
 // SELECT - Select database by index
-CommandResult HandleSelect(const astra::protocol::Command& command, CommandContext* context);
+CommandResult HandleSelect(const astra::protocol::Command& command,
+                           CommandContext* context);
 
 // Admin commands are auto-registered via ASTRADB_REGISTER_COMMAND macro
 

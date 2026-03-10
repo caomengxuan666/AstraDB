@@ -1,13 +1,14 @@
 #include <gtest/gtest.h>
-#include "astra/protocol/resp/resp_parser.hpp"
+
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::protocol {
 
 TEST(RespParserTest, ParseSimpleString) {
   std::string_view data = "+OK\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsSimpleString());
   EXPECT_EQ(value->AsString(), "OK");
@@ -16,7 +17,7 @@ TEST(RespParserTest, ParseSimpleString) {
 TEST(RespParserTest, ParseError) {
   std::string_view data = "-Error message\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsError());
   EXPECT_EQ(value->AsString(), "Error message");
@@ -25,7 +26,7 @@ TEST(RespParserTest, ParseError) {
 TEST(RespParserTest, ParseInteger) {
   std::string_view data = ":1000\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsInteger());
   EXPECT_EQ(value->AsInteger(), 1000);
@@ -34,7 +35,7 @@ TEST(RespParserTest, ParseInteger) {
 TEST(RespParserTest, ParseNegativeInteger) {
   std::string_view data = ":-42\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsInteger());
   EXPECT_EQ(value->AsInteger(), -42);
@@ -43,7 +44,7 @@ TEST(RespParserTest, ParseNegativeInteger) {
 TEST(RespParserTest, ParseBulkString) {
   std::string_view data = "$6\r\nfoobar\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsBulkString());
   EXPECT_EQ(value->AsString(), "foobar");
@@ -52,7 +53,7 @@ TEST(RespParserTest, ParseBulkString) {
 TEST(RespParserTest, ParseNullBulkString) {
   std::string_view data = "$-1\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsNull());
 }
@@ -60,7 +61,7 @@ TEST(RespParserTest, ParseNullBulkString) {
 TEST(RespParserTest, ParseEmptyBulkString) {
   std::string_view data = "$0\r\n\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsBulkString());
   EXPECT_TRUE(value->AsString().empty());
@@ -69,11 +70,11 @@ TEST(RespParserTest, ParseEmptyBulkString) {
 TEST(RespParserTest, ParseArray) {
   std::string_view data = "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsArray());
   EXPECT_EQ(value->ArraySize(), 2);
-  
+
   const auto& arr = value->AsArray();
   EXPECT_EQ(arr[0].AsString(), "foo");
   EXPECT_EQ(arr[1].AsString(), "bar");
@@ -82,7 +83,7 @@ TEST(RespParserTest, ParseArray) {
 TEST(RespParserTest, ParseEmptyArray) {
   std::string_view data = "*0\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsArray());
   EXPECT_EQ(value->ArraySize(), 0);
@@ -91,7 +92,7 @@ TEST(RespParserTest, ParseEmptyArray) {
 TEST(RespParserTest, ParseNullArray) {
   std::string_view data = "*-1\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsNull());
 }
@@ -99,11 +100,11 @@ TEST(RespParserTest, ParseNullArray) {
 TEST(RespParserTest, ParseNestedArray) {
   std::string_view data = "*2\r\n*1\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsArray());
   EXPECT_EQ(value->ArraySize(), 2);
-  
+
   const auto& arr = value->AsArray();
   EXPECT_TRUE(arr[0].IsArray());
   EXPECT_EQ(arr[0].ArraySize(), 1);
@@ -114,9 +115,9 @@ TEST(RespParserTest, ParseNestedArray) {
 TEST(RespParserTest, ParseCommand) {
   std::string_view data = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
-  
+
   auto cmd = RespParser::ParseCommand(*value);
   ASSERT_TRUE(cmd.has_value());
   EXPECT_EQ(cmd->name, "SET");
@@ -128,7 +129,7 @@ TEST(RespParserTest, ParseCommand) {
 TEST(RespParserTest, ParseBoolean) {
   std::string_view data = "#t\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->AsBoolean());
 }
@@ -136,7 +137,7 @@ TEST(RespParserTest, ParseBoolean) {
 TEST(RespParserTest, ParseBooleanFalse) {
   std::string_view data = "#f\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_FALSE(value->AsBoolean());
 }
@@ -144,7 +145,7 @@ TEST(RespParserTest, ParseBooleanFalse) {
 TEST(RespParserTest, ParseNull) {
   std::string_view data = "_\r\n";
   auto value = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(value.has_value());
   EXPECT_TRUE(value->IsNull());
 }
@@ -207,7 +208,7 @@ TEST(RespBuilderTest, BuildPong) {
 TEST(RespBuilderTest, BuildBoolean) {
   auto out = RespBuilder::BuildBoolean(true);
   EXPECT_EQ(out, "#t\r\n");
-  
+
   out = RespBuilder::BuildBoolean(false);
   EXPECT_EQ(out, "#f\r\n");
 }
@@ -220,11 +221,11 @@ TEST(RespBuilderTest, BuildNull) {
 TEST(RespBuilderTest, RoundTripSimpleString) {
   RespValue original(RespType::kSimpleString);
   original.SetString("hello");
-  
+
   auto out = RespBuilder::Build(original);
   std::string_view data(out);
   auto parsed = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(parsed.has_value());
   EXPECT_EQ(parsed->AsString(), "hello");
 }
@@ -247,11 +248,11 @@ TEST(RespBuilderTest, RoundTripArray) {
   arr.emplace_back(static_cast<int64_t>(42));
 
   RespValue original(std::move(arr));
-  
+
   auto out = RespBuilder::Build(original);
   std::string_view data(out);
   auto parsed = RespParser::Parse(data);
-  
+
   ASSERT_TRUE(parsed.has_value());
   EXPECT_TRUE(parsed->IsArray());
   EXPECT_EQ(parsed->ArraySize(), 3);

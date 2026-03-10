@@ -6,10 +6,12 @@
 
 #pragma once
 
+#include <absl/functional/any_invocable.h>
+
+#include <functional>
 #include <memory>
 #include <string>
-#include <functional>
-#include <absl/functional/any_invocable.h>
+
 #include "astra/base/constexpr_map.hpp"
 
 namespace astra::commands {
@@ -40,17 +42,15 @@ class IContainer {
 };
 
 // Type-erased container factory
-using ContainerFactory = absl::AnyInvocable<std::unique_ptr<IContainer>() const>;
+using ContainerFactory =
+    absl::AnyInvocable<std::unique_ptr<IContainer>() const>;
 
 // Compile-time data type registration
 template <DataType... Types>
 class DataTypeRegistry {
  public:
-  using FactoryMap = astra::base::ConstexprMap<
-      DataType,
-      ContainerFactory,
-      sizeof...(Types)
-  >;
+  using FactoryMap =
+      astra::base::ConstexprMap<DataType, ContainerFactory, sizeof...(Types)>;
 
   // Singleton instance
   static DataTypeRegistry& Instance() {
@@ -87,7 +87,8 @@ class DataTypeRegistry {
 // Helper to build factory map at compile time
 template <DataType... Types>
 constexpr auto make_factory_map(
-    std::array<std::pair<DataType, ContainerFactory>, sizeof...(Types)> factories) {
+    std::array<std::pair<DataType, ContainerFactory>, sizeof...(Types)>
+        factories) {
   return astra::base::make_constexpr_map(factories);
 }
 
@@ -121,11 +122,11 @@ struct RuntimeDataTypeRegistry {
 };
 
 // Macro for automatic registration (compile-time if possible)
-#define ASTRADB_REGISTER_DATA_TYPE(Type, FactoryClass) \
-  namespace { \
-    DataTypeRegistrar g_##Type##_registrar(DataType::k##Type, []() { \
-      return std::make_unique<FactoryClass>(); \
-    }); \
+#define ASTRADB_REGISTER_DATA_TYPE(Type, FactoryClass)             \
+  namespace {                                                      \
+  DataTypeRegistrar g_##Type##_registrar(DataType::k##Type, []() { \
+    return std::make_unique<FactoryClass>();                       \
+  });                                                              \
   }
 
 }  // namespace astra::commands

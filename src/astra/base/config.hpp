@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include <string>
 #include <memory>
-#include <vector>
+#include <string>
 #include <toml++/toml.hpp>
+#include <vector>
 
 namespace astra::base {
 
@@ -18,7 +18,7 @@ struct PersistenceConfig {
   bool enabled = false;
   std::string data_dir = "./data/astradb";
   size_t write_buffer_size = 4 * 1024 * 1024;  // 4MB
-  size_t cache_size = 256 * 1024 * 1024;        // 256MB
+  size_t cache_size = 256 * 1024 * 1024;       // 256MB
   bool sync_writes = false;
 };
 
@@ -38,27 +38,27 @@ struct ServerConfig {
   uint16_t port = 6379;
   size_t max_connections = 10000;
   size_t thread_count = 0;  // 0 = auto-detect
-  
+
   // Database
   size_t num_databases = 16;
   size_t num_shards = 16;
-  
+
   // Logging
   std::string log_level = "info";
   std::string log_file = "astradb.log";
   bool log_async = true;
   size_t log_queue_size = 8192;
-  
+
   // Performance
   bool enable_pipeline = true;
   bool enable_compression = false;
-  
+
   // Async / Coroutine
   bool use_async_commands = true;
-  
+
   // Persistence (LevelDB)
   PersistenceConfig persistence;
-  
+
   // Cluster
   ClusterConfig cluster;
 
@@ -75,4 +75,4 @@ struct ServerConfig {
   static ServerConfig LoadFromString(const std::string& config_str);
 };
 
-} // namespace astra::base
+}  // namespace astra::base

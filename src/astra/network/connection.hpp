@@ -12,13 +12,21 @@
 #include <atomic>
 #include <functional>
 #include <memory>
-#include <string>
 #include <queue>
+#include <string>
 #include <vector>
 
 #include "astra/core/memory/buffer_pool.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
+
+#ifdef __cpp_lib_hardware_interference_size
+// It works on Gcc
+#define CACHE_ALIGN_SIZE std::hardware_destructive_interference_size
+#else
+// It is for clang
+#define CACHE_ALIGN_SIZE 64
+#endif
 
 namespace astra::network {
 
@@ -32,8 +40,8 @@ class Connection : public std::enable_shared_from_this<Connection> {
   using Executor = asio::io_context;
   using CommandCallback =
       absl::AnyInvocable<void(const protocol::Command&) const>;
-  using BatchCommandCallback =
-      absl::AnyInvocable<void(absl::InlinedVector<protocol::Command, 16>&&) const>;
+  using BatchCommandCallback = absl::AnyInvocable<void(
+      absl::InlinedVector<protocol::Command, 16>&&) const>;
 
   explicit Connection(Socket socket, Executor& io_context,
                       astra::core::memory::BufferPool* buffer_pool = nullptr);
@@ -149,7 +157,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
   astra::core::memory::BufferPtr read_buffer_;
   astra::core::memory::BufferPtr write_buffer_;
-  
+
   // Temporary read buffer (reused across reads to avoid allocations)
   std::array<char, 8192> read_temp_buffer_;
 
@@ -181,12 +189,18 @@ class ConnectionPool {
   ~ConnectionPool();
 
   std::shared_ptr<Connection> Acquire(asio::ip::tcp::socket socket);
-  
+
   void Release(Connection* conn);
 
-  size_t ActiveConnections() const { return counters_.active_connections_.load(std::memory_order_relaxed); }
-  size_t TotalConnections() const { return counters_.total_connections_.load(std::memory_order_relaxed); }
-  size_t IdleConnections() const { return counters_.idle_connections_.load(std::memory_order_relaxed); }
+  size_t ActiveConnections() const {
+    return counters_.active_connections_.load(std::memory_order_relaxed);
+  }
+  size_t TotalConnections() const {
+    return counters_.total_connections_.load(std::memory_order_relaxed);
+  }
+  size_t IdleConnections() const {
+    return counters_.idle_connections_.load(std::memory_order_relaxed);
+  }
 
   void SetMaxConnections(size_t max) { max_connections_ = max; }
 
@@ -197,19 +211,19 @@ class ConnectionPool {
 
  private:
   asio::io_context& io_context_;
-  
+
   // Cache line aligned atomic counters to avoid false sharing
-  struct alignas(std::hardware_destructive_interference_size) Counters {
+  struct alignas(CACHE_ALIGN_SIZE) Counters {
     std::atomic<size_t> active_connections_{0};
     std::atomic<size_t> total_connections_{0};
     std::atomic<size_t> idle_connections_{0};
   } counters_;
-  
+
   size_t max_connections_;
   astra::core::memory::BufferPool* buffer_pool_;
-  
+
   // Connection pooling (mutex and queue on separate cache lines)
-  alignas(std::hardware_destructive_interference_size) std::mutex pool_mutex_;
+  alignas(CACHE_ALIGN_SIZE) std::mutex pool_mutex_;
   std::queue<Connection*> free_connections_;
   std::vector<std::unique_ptr<Connection>> all_connections_;
 };

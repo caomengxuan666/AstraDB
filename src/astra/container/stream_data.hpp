@@ -3,13 +3,14 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
+#include <absl/container/flat_hash_map.h>
+#include <absl/time/clock.h>
+#include <absl/time/time.h>
+
 #include <deque>
 #include <map>
-#include <absl/time/time.h>
-#include <absl/time/clock.h>
-#include <absl/container/flat_hash_map.h>
+#include <string>
+#include <vector>
 
 namespace astra::commands {
 
@@ -48,8 +49,10 @@ struct PendingEntry {
 struct StreamConsumerGroup {
   std::string name;
   StreamId last_delivered_id;  // Last ID delivered to this group
-  absl::flat_hash_map<std::string, StreamId> consumers;  // consumer name -> last seen
-  std::map<StreamId, PendingEntry> pending_entries;  // PEL: pending entries list
+  absl::flat_hash_map<std::string, StreamId>
+      consumers;  // consumer name -> last seen
+  std::map<StreamId, PendingEntry>
+      pending_entries;  // PEL: pending entries list
 };
 
 // Stream data structure
@@ -62,8 +65,9 @@ struct StreamData {
   size_t max_len = 0;  // MAXLEN, 0 = unlimited
 
   // Add entry, returns the generated ID
-  StreamId AddEntry(const std::vector<std::pair<std::string, std::string>>& fields,
-                    const std::string& id_spec, uint64_t max_len_val) {
+  StreamId AddEntry(
+      const std::vector<std::pair<std::string, std::string>>& fields,
+      const std::string& id_spec, uint64_t max_len_val) {
     StreamId id;
 
     if (id_spec == "*") {
@@ -114,7 +118,8 @@ struct StreamData {
   }
 
   // Read entries from a given ID
-  std::vector<StreamEntry> Read(const StreamId& start, size_t count, bool exclusive = true) const {
+  std::vector<StreamEntry> Read(const StreamId& start, size_t count,
+                                bool exclusive = true) const {
     std::vector<StreamEntry> result;
     for (const auto& entry : entries) {
       if (exclusive) {
@@ -155,7 +160,7 @@ struct StreamData {
     for (const auto& entry : entries) {
       if (entry.id <= group.last_delivered_id) continue;
       result.push_back(entry);
-      
+
       // Create pending entry
       PendingEntry pending;
       pending.entry = entry;
@@ -163,7 +168,7 @@ struct StreamData {
       pending.delivery_count = 1;
       pending.last_delivered = absl::Now();
       group.pending_entries[entry.id] = pending;
-      
+
       if (result.size() >= count) break;
     }
 

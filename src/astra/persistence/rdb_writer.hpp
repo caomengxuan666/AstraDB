@@ -11,20 +11,20 @@
 
 #pragma once
 
-#include <absl/strings/string_view.h>
-#include <absl/strings/str_cat.h>
-#include <absl/synchronization/mutex.h>
 #include <absl/crc/crc32c.h>
+#include <absl/functional/any_invocable.h>
+#include <absl/strings/str_cat.h>
+#include <absl/strings/string_view.h>
+#include <absl/synchronization/mutex.h>
 #include <absl/time/time.h>
 
+#include <atomic>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
-#include <atomic>
-#include <fstream>
-#include <filesystem>
 #include <vector>
 
-#include <absl/functional/any_invocable.h>
 #include "astra/base/logging.hpp"
 
 namespace astra::persistence {
@@ -76,7 +76,7 @@ class RdbWriter {
   // Initialize RDB writer
   bool Init(const RdbOptions& options) noexcept {
     options_ = options;
-    
+
     // Create directory if not exists
     std::filesystem::path p(options_.save_path);
     std::error_code ec;
@@ -85,15 +85,13 @@ class RdbWriter {
       ASTRADB_LOG_ERROR("Failed to create RDB directory: {}", ec.message());
       return false;
     }
-    
+
     initialized_.store(true, std::memory_order_release);
     return true;
   }
 
   // Stop RDB writer
-  void Stop() noexcept {
-    current_file_.reset();
-  }
+  void Stop() noexcept { current_file_.reset(); }
 
   // Save snapshot to RDB file
   bool Save(absl::AnyInvocable<void(RdbWriter&)> save_callback) noexcept {
@@ -103,7 +101,8 @@ class RdbWriter {
 
     // Create temporary file
     std::string temp_path = options_.save_path + ".tmp";
-    current_file_ = std::make_unique<std::ofstream>(temp_path, std::ios::binary);
+    current_file_ =
+        std::make_unique<std::ofstream>(temp_path, std::ios::binary);
     if (!current_file_->is_open()) {
       ASTRADB_LOG_ERROR("Failed to create temporary RDB file: {}", temp_path);
       current_file_.reset();
@@ -170,16 +169,17 @@ class RdbWriter {
   }
 
   // Write key-value pair
-  void WriteKv(uint8_t type, const std::string& key, const std::string& value, int64_t expire_ms = -1) noexcept {
+  void WriteKv(uint8_t type, const std::string& key, const std::string& value,
+               int64_t expire_ms = -1) noexcept {
     if (!current_file_ || !current_file_->is_open()) return;
-    
+
     if (expire_ms >= 0) {
       uint8_t opcode = RDB_OPCODE_EXPIRETIME_MS;
       Write(&opcode, 1);
       uint64_t exp = static_cast<uint64_t>(expire_ms);
       Write(reinterpret_cast<const char*>(&exp), 8);
     }
-    
+
     Write(&type, 1);
     WriteString(key);
     WriteString(value);
@@ -189,10 +189,11 @@ class RdbWriter {
   // Write data to file with CRC32C update (streaming)
   void Write(const void* data, size_t len) noexcept {
     if (!current_file_ || !current_file_->is_open()) return;
-    
+
     // Update CRC32C in streaming fashion
-    crc_value_ = absl::ExtendCrc32c(crc_value_, absl::string_view(static_cast<const char*>(data), len));
-    
+    crc_value_ = absl::ExtendCrc32c(
+        crc_value_, absl::string_view(static_cast<const char*>(data), len));
+
     // Write to file
     current_file_->write(static_cast<const char*>(data), len);
   }

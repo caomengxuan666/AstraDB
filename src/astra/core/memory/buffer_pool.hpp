@@ -10,6 +10,7 @@
 #include <absl/base/thread_annotations.h>
 #include <absl/container/fixed_array.h>
 #include <absl/synchronization/mutex.h>
+
 #include <atomic>
 #include <cstddef>
 #include <memory>
@@ -26,10 +27,10 @@ namespace astra::core::memory {
 class Buffer final {
  public:
   // Buffer size classes
-  static constexpr size_t kSmallBufferSize = 64;      // 64 bytes
-  static constexpr size_t kMediumBufferSize = 4096;    // 4KB
-  static constexpr size_t kLargeBufferSize = 65536;    // 64KB
-  static constexpr size_t kXLargeBufferSize = 1048576; // 1MB
+  static constexpr size_t kSmallBufferSize = 64;        // 64 bytes
+  static constexpr size_t kMediumBufferSize = 4096;     // 4KB
+  static constexpr size_t kLargeBufferSize = 65536;     // 64KB
+  static constexpr size_t kXLargeBufferSize = 1048576;  // 1MB
 
   // Constructor
   explicit Buffer(size_t size);
@@ -130,7 +131,7 @@ class BufferPool final {
  public:
   // Constructor
   explicit BufferPool(size_t max_buffer_size = Buffer::kXLargeBufferSize);
-  
+
   // Destructor
   ~BufferPool();
 
@@ -165,7 +166,8 @@ class BufferPool final {
   mutable absl::Mutex mutex_;
   static constexpr size_t kNumBuckets = 4;
   std::unique_ptr<BufferBucket[]> buckets_;
-  [[maybe_unused]] size_t max_buffer_size_;  // Reserved for future size limit enforcement
+  [[maybe_unused]] size_t
+      max_buffer_size_;  // Reserved for future size limit enforcement
 };
 
 // ==============================================================================
@@ -173,23 +175,15 @@ class BufferPool final {
 // ==============================================================================
 
 inline Buffer::Buffer(size_t size)
-    : data_(std::make_unique<char[]>(size)),
-      size_(0),
-      capacity_(size) {
-}
+    : data_(std::make_unique<char[]>(size)), size_(0), capacity_(size) {}
 
 inline Buffer::Buffer(const void* data, size_t size)
-    : data_(std::make_unique<char[]>(size)),
-      size_(size),
-      capacity_(size) {
+    : data_(std::make_unique<char[]>(size)), size_(size), capacity_(size) {
   std::memcpy(data_.get(), data, size);
 }
 
 inline Buffer::Buffer(size_t size, std::unique_ptr<char[]> data)
-    : data_(std::move(data)),
-      size_(size),
-      capacity_(size) {
-}
+    : data_(std::move(data)), size_(size), capacity_(size) {}
 
 inline Buffer::~Buffer() = default;
 
@@ -233,7 +227,7 @@ inline void Buffer::Reserve(size_t new_capacity) {
   if (new_capacity <= capacity_) {
     return;
   }
-  
+
   auto new_data = std::make_unique<char[]>(new_capacity);
   std::memcpy(new_data.get(), data_.get(), size_);
   data_ = std::move(new_data);
@@ -260,9 +254,7 @@ inline BufferPtr::BufferPtr(Buffer* buffer) : buffer_(buffer) {
   }
 }
 
-inline BufferPtr::~BufferPtr() {
-  Reset();
-}
+inline BufferPtr::~BufferPtr() { Reset(); }
 
 inline BufferPtr::BufferPtr(BufferPtr&& other) noexcept
     : buffer_(other.buffer_) {
@@ -402,4 +394,4 @@ inline size_t BufferPool::GetUsedBuffers() const {
   return used;
 }
 
-} // namespace astra::core::memory
+}  // namespace astra::core::memory

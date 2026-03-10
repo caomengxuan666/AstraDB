@@ -8,9 +8,9 @@
 
 #include <cstdint>
 #include <deque>
-#include <vector>
-#include <string>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace astra::container {
 
@@ -205,7 +205,7 @@ class LinkedList {
   std::vector<T> Range(int64_t start, int64_t stop) const {
     std::vector<T> result;
     int64_t size = Size();
-    
+
     if (size == 0) {
       return result;
     }
@@ -241,12 +241,10 @@ class LinkedList {
 
     // Copy elements
     if (use_vector_) {
-      result.insert(result.end(),
-                    vector_.begin() + start,
+      result.insert(result.end(), vector_.begin() + start,
                     vector_.begin() + stop + 1);
     } else {
-      result.insert(result.end(),
-                    deque_.begin() + start,
+      result.insert(result.end(), deque_.begin() + start,
                     deque_.begin() + stop + 1);
     }
 
@@ -256,7 +254,7 @@ class LinkedList {
   // Trim list to keep only elements in [start, stop]
   void Trim(int64_t start, int64_t stop) {
     int64_t size = Size();
-    
+
     if (size == 0) {
       return;
     }
@@ -304,7 +302,7 @@ class LinkedList {
   // Remove first count occurrences of value
   size_t Remove(const T& value, int64_t count = 0) {
     size_t removed = 0;
-    
+
     if (use_vector_) {
       auto it = vector_.begin();
       while (it != vector_.end()) {
@@ -332,7 +330,7 @@ class LinkedList {
         }
       }
     }
-    
+
     return removed;
   }
 
@@ -341,7 +339,7 @@ class LinkedList {
   // Insert value before/after pivot
   bool Insert(int64_t pivot_index, const T& value, bool before = true) {
     int64_t size = Size();
-    
+
     if (size == 0) {
       return false;
     }
@@ -373,7 +371,7 @@ class LinkedList {
         deque_.insert(deque_.begin() + pivot_index + 1, value);
       }
     }
-    
+
     return true;
   }
 

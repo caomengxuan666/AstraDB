@@ -13,5 +13,5 @@
 #undef BLOCK_SIZE
 #endif
 
-#include <concurrentqueue.h>
 #include <blockingconcurrentqueue.h>
+#include <concurrentqueue.h>

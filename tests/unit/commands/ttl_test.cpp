@@ -5,18 +5,18 @@
 // ==============================================================================
 
 #include <gtest/gtest.h>
-#include "astra/commands/ttl_commands.hpp"
-#include "astra/commands/database.hpp"
-#include <thread>
+
 #include <chrono>
+#include <thread>
+
+#include "astra/commands/database.hpp"
+#include "astra/commands/ttl_commands.hpp"
 
 namespace astra::commands {
 
 class TTLCommandsTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    db_ = std::make_unique<Database>();
-  }
+  void SetUp() override { db_ = std::make_unique<Database>(); }
 
   std::unique_ptr<Database> db_;
 };
@@ -24,11 +24,11 @@ class TTLCommandsTest : public ::testing::Test {
 TEST_F(TTLCommandsTest, SetAndGetTTL) {
   // Set a key
   db_->Set("test_key", "test_value");
-  
+
   // Set expiration
   bool result = db_->SetExpireSeconds("test_key", 10);
   EXPECT_TRUE(result);
-  
+
   // Check TTL
   int64_t ttl = db_->GetTtlSeconds("test_key");
   EXPECT_GT(ttl, 0);
@@ -38,11 +38,11 @@ TEST_F(TTLCommandsTest, SetAndGetTTL) {
 TEST_F(TTLCommandsTest, ExpireCommand) {
   // Set a key without expiration
   db_->Set("test_key", "test_value");
-  
+
   // Set expiration
   bool result = db_->SetExpireSeconds("test_key", 5);
   EXPECT_TRUE(result);
-  
+
   // Check TTL
   int64_t ttl = db_->GetTtlSeconds("test_key");
   EXPECT_GT(ttl, 0);
@@ -53,11 +53,11 @@ TEST_F(TTLCommandsTest, PersistCommand) {
   // Set a key with expiration
   db_->Set("test_key", "test_value");
   db_->SetExpireSeconds("test_key", 10);
-  
+
   // Remove expiration
   bool result = db_->Persist("test_key");
   EXPECT_TRUE(result);
-  
+
   // Check TTL should be -1 (no expiration)
   int64_t ttl = db_->GetTtlSeconds("test_key");
   EXPECT_EQ(ttl, -1);
@@ -85,7 +85,7 @@ TEST_F(TTLCommandsTest, SetWithTTL) {
   // Set key then set TTL
   db_->Set("test_key", "test_value");
   db_->SetExpireSeconds("test_key", 10);
-  
+
   // Verify key exists and has value
   auto value = db_->Get("test_key");
   ASSERT_TRUE(value.has_value());
@@ -95,12 +95,13 @@ TEST_F(TTLCommandsTest, SetWithTTL) {
 TEST_F(TTLCommandsTest, MillisecondTTL) {
   // Set key
   db_->Set("test_key", "test_value");
-  
+
   // Set expiration in milliseconds (absolute timestamp)
-  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + 5000;
+  int64_t expire_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() + 5000;
   bool result = db_->SetExpireMs("test_key", expire_time_ms);
   EXPECT_TRUE(result);
-  
+
   // Check TTL in milliseconds
   int64_t ttl_ms = db_->GetTtlMs("test_key");
   EXPECT_GT(ttl_ms, 0);
@@ -110,7 +111,7 @@ TEST_F(TTLCommandsTest, MillisecondTTL) {
 TEST_F(TTLCommandsTest, NoExpirationTTL) {
   // Set a key without expiration
   db_->Set("test_key", "test_value");
-  
+
   // Check TTL should be -1 (no expiration)
   int64_t ttl = db_->GetTtlSeconds("test_key");
   EXPECT_EQ(ttl, -1);
@@ -119,9 +120,10 @@ TEST_F(TTLCommandsTest, NoExpirationTTL) {
 TEST_F(TTLCommandsTest, KeyStillAccessibleBeforeExpiration) {
   // Set key with short TTL
   db_->Set("test_key", "test_value");
-  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + 1000;
+  int64_t expire_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() + 1000;
   db_->SetExpireMs("test_key", expire_time_ms);  // 1 second
-  
+
   // Key should be accessible immediately
   auto value = db_->Get("test_key");
   ASSERT_TRUE(value.has_value());
@@ -132,10 +134,10 @@ TEST_F(TTLCommandsTest, MultipleSetExpire) {
   // Set key with TTL
   db_->Set("test_key", "test_value");
   db_->SetExpireSeconds("test_key", 10);
-  
+
   // Change TTL
   db_->SetExpireSeconds("test_key", 5);
-  
+
   // Check TTL should be <= 5
   int64_t ttl = db_->GetTtlSeconds("test_key");
   EXPECT_GT(ttl, 0);

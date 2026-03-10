@@ -12,35 +12,33 @@
 
 #pragma once
 
-#include <leveldb/db.h>
-#include <leveldb/write_batch.h>
-#include <leveldb/cache.h>
-#include <leveldb/filter_policy.h>
-
 #include <absl/container/flat_hash_map.h>
-#include <absl/strings/string_view.h>
-#include <absl/strings/str_cat.h>
-#include <absl/types/span.h>
 #include <absl/functional/function_ref.h>
+#include <absl/strings/str_cat.h>
+#include <absl/strings/string_view.h>
+#include <absl/synchronization/mutex.h>
+#include <absl/types/span.h>
+#include <leveldb/cache.h>
+#include <leveldb/db.h>
+#include <leveldb/filter_policy.h>
+#include <leveldb/write_batch.h>
 
-#include <memory>
-#include <string>
-#include <mutex>
 #include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
 
-#include <absl/synchronization/mutex.h>
-#include "astra/base/macros.hpp"
-#include <absl/synchronization/mutex.h>
 #include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
 
 namespace astra::persistence {
 
 // LevelDB configuration options
 struct LevelDBOptions {
   std::string db_path = "./data/astradb";
-  size_t cache_size = 64 * 1024 * 1024;  // 64MB LRU cache
+  size_t cache_size = 64 * 1024 * 1024;        // 64MB LRU cache
   size_t write_buffer_size = 4 * 1024 * 1024;  // 4MB write buffer
-  size_t bloom_filter_bits = 10;  // Bloom filter bits per key
+  size_t bloom_filter_bits = 10;               // Bloom filter bits per key
   bool create_if_missing = true;
   bool error_if_exists = false;
   bool compress = true;
@@ -69,43 +67,43 @@ enum class KeyPrefix : char {
 };
 
 // Result type for operations that may fail
-template<typename T>
+template <typename T>
 class Result {
  public:
   constexpr Result() noexcept : has_value_(false), value_{} {}
   constexpr Result(T val) noexcept : has_value_(true), value_(std::move(val)) {}
-  
+
   constexpr bool ok() const noexcept { return has_value_; }
   constexpr bool has_value() const noexcept { return has_value_; }
   constexpr explicit operator bool() const noexcept { return has_value_; }
-  
+
   constexpr const T& value() const noexcept { return value_; }
   constexpr T& value() noexcept { return value_; }
-  
+
   constexpr const T& operator*() const noexcept { return value_; }
   constexpr T& operator*() noexcept { return value_; }
-  
+
   constexpr const T* operator->() const noexcept { return &value_; }
   constexpr T* operator->() noexcept { return &value_; }
-  
+
   static constexpr Result NotFound() noexcept { return Result{}; }
-  
+
  private:
   bool has_value_;
   T value_;
 };
 
 // Specialization for void
-template<>
+template <>
 class Result<void> {
  public:
   constexpr Result(bool success) noexcept : success_(success) {}
   constexpr bool ok() const noexcept { return success_; }
   constexpr explicit operator bool() const noexcept { return success_; }
-  
+
   static constexpr Result Ok() noexcept { return Result{true}; }
   static constexpr Result Error() noexcept { return Result{false}; }
-  
+
  private:
   bool success_;
 };
@@ -113,15 +111,13 @@ class Result<void> {
 // LevelDB adapter - wraps LevelDB operations with noexcept guarantees
 class LevelDBAdapter {
  public:
-  LevelDBAdapter() noexcept 
-      : db_(nullptr), 
-        cache_(nullptr), 
+  LevelDBAdapter() noexcept
+      : db_(nullptr),
+        cache_(nullptr),
         filter_policy_(nullptr),
         is_open_(false) {}
-  
-  ~LevelDBAdapter() noexcept { 
-    Close(); 
-  }
+
+  ~LevelDBAdapter() noexcept { Close(); }
 
   // Disable copy
   LevelDBAdapter(const LevelDBAdapter&) = delete;
@@ -147,7 +143,8 @@ class LevelDBAdapter {
       cache_ = other.cache_;
       filter_policy_ = other.filter_policy_;
       options_ = std::move(other.options_);
-      is_open_.store(other.is_open_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      is_open_.store(other.is_open_.load(std::memory_order_relaxed),
+                     std::memory_order_relaxed);
       other.db_ = nullptr;
       other.cache_ = nullptr;
       other.filter_policy_ = nullptr;
@@ -159,7 +156,7 @@ class LevelDBAdapter {
   // Open database with options - returns true on success
   bool Open(const LevelDBOptions& options) noexcept {
     absl::MutexLock lock(&mutex_);
-    
+
     if (is_open_.load(std::memory_order_acquire)) {
       return true;  // Already open
     }
@@ -171,7 +168,7 @@ class LevelDBAdapter {
     ldb_options.create_if_missing = options.create_if_missing;
     ldb_options.error_if_exists = options.error_if_exists;
     ldb_options.write_buffer_size = options.write_buffer_size;
-    
+
     // Enable compression
     if (options.compress) {
       ldb_options.compression = leveldb::kSnappyCompression;
@@ -186,10 +183,12 @@ class LevelDBAdapter {
     ldb_options.filter_policy = filter_policy_;
 
     // Open database
-    leveldb::Status status = leveldb::DB::Open(ldb_options, options.db_path, &db_);
-    
+    leveldb::Status status =
+        leveldb::DB::Open(ldb_options, options.db_path, &db_);
+
     if (!status.ok()) {
-      ASTRADB_LOG_ERROR("Failed to open LevelDB at {}: {}", options.db_path, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to open LevelDB at {}: {}", options.db_path,
+                        status.ToString());
       return false;
     }
 
@@ -201,47 +200,47 @@ class LevelDBAdapter {
   // Close database
   void Close() noexcept {
     absl::MutexLock lock(&mutex_);
-    
+
     if (!is_open_.load(std::memory_order_acquire)) {
       return;
     }
-    
+
     if (db_) {
       delete db_;
       db_ = nullptr;
     }
-    
+
     if (filter_policy_) {
       delete filter_policy_;
       filter_policy_ = nullptr;
     }
-    
+
     if (cache_) {
       delete cache_;
       cache_ = nullptr;
     }
-    
+
     is_open_.store(false, std::memory_order_release);
   }
 
   // Check if database is open
-  bool IsOpen() const noexcept { 
-    return is_open_.load(std::memory_order_acquire); 
+  bool IsOpen() const noexcept {
+    return is_open_.load(std::memory_order_acquire);
   }
 
   // ========== Basic Key-Value Operations ==========
 
   // Put a key-value pair - noexcept
-  bool Put(absl::string_view key, absl::string_view value, 
+  bool Put(absl::string_view key, absl::string_view value,
            const WriteOptions& options = {}) noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return false;
-    
+
     leveldb::WriteOptions write_options;
     write_options.sync = options.sync;
-    
+
     leveldb::Slice key_slice(key.data(), key.size());
     leveldb::Slice value_slice(value.data(), value.size());
-    
+
     leveldb::Status status = db_->Put(write_options, key_slice, value_slice);
     if (ASTRADB_UNLIKELY(!status.ok())) {
       ASTRADB_LOG_ERROR("Failed to put key '{}': {}", key, status.ToString());
@@ -251,51 +250,51 @@ class LevelDBAdapter {
   }
 
   // Get a value by key - returns Result<std::string>
-  Result<std::string> Get(absl::string_view key, 
+  Result<std::string> Get(absl::string_view key,
                           const ReadOptions& options = {}) noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return Result<std::string>::NotFound();
-    
+
     leveldb::ReadOptions read_options;
     read_options.verify_checksums = options.verify_checksums;
     read_options.fill_cache = options.fill_cache;
-    
+
     leveldb::Slice key_slice(key.data(), key.size());
     std::string value;
     leveldb::Status status = db_->Get(read_options, key_slice, &value);
-    
+
     if (status.IsNotFound()) {
       return Result<std::string>::NotFound();
     }
-    
+
     if (ASTRADB_UNLIKELY(!status.ok())) {
       ASTRADB_LOG_ERROR("Failed to get key '{}': {}", key, status.ToString());
       return Result<std::string>::NotFound();
     }
-    
+
     return Result<std::string>(std::move(value));
   }
 
   // Delete a key - noexcept
-  bool Delete(absl::string_view key, const WriteOptions& options = {}) noexcept {
+  bool Delete(absl::string_view key,
+              const WriteOptions& options = {}) noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return false;
-    
+
     leveldb::WriteOptions write_options;
     write_options.sync = options.sync;
-    
+
     leveldb::Slice key_slice(key.data(), key.size());
     leveldb::Status status = db_->Delete(write_options, key_slice);
-    
+
     if (ASTRADB_UNLIKELY(!status.ok())) {
-      ASTRADB_LOG_ERROR("Failed to delete key '{}': {}", key, status.ToString());
+      ASTRADB_LOG_ERROR("Failed to delete key '{}': {}", key,
+                        status.ToString());
       return false;
     }
     return true;
   }
 
   // Check if key exists - noexcept
-  bool Exists(absl::string_view key) noexcept {
-    return Get(key).ok();
-  }
+  bool Exists(absl::string_view key) noexcept { return Get(key).ok(); }
 
   // ========== Batch Operations ==========
 
@@ -303,25 +302,21 @@ class LevelDBAdapter {
   class WriteBatch {
    public:
     WriteBatch() noexcept = default;
-    
+
     void Put(absl::string_view key, absl::string_view value) noexcept {
       leveldb::Slice key_slice(key.data(), key.size());
       leveldb::Slice value_slice(value.data(), value.size());
       batch_.Put(key_slice, value_slice);
     }
-    
+
     void Delete(absl::string_view key) noexcept {
       leveldb::Slice key_slice(key.data(), key.size());
       batch_.Delete(key_slice);
     }
-    
-    void Clear() noexcept {
-      batch_.Clear();
-    }
-    
-    size_t ApproximateSize() const noexcept {
-      return batch_.ApproximateSize();
-    }
+
+    void Clear() noexcept { batch_.Clear(); }
+
+    size_t ApproximateSize() const noexcept { return batch_.ApproximateSize(); }
 
    private:
     friend class LevelDBAdapter;
@@ -331,10 +326,10 @@ class LevelDBAdapter {
   // Execute a write batch atomically
   bool Write(WriteBatch& batch, const WriteOptions& options = {}) noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return false;
-    
+
     leveldb::WriteOptions write_options;
     write_options.sync = options.sync;
-    
+
     leveldb::Status status = db_->Write(write_options, &batch.batch_);
     if (ASTRADB_UNLIKELY(!status.ok())) {
       ASTRADB_LOG_ERROR("Failed to write batch: {}", status.ToString());
@@ -347,38 +342,39 @@ class LevelDBAdapter {
 
   // Iterate over all keys with optional prefix using callback
   // Callback returns false to stop iteration
-  void Scan(absl::string_view prefix,
-            absl::FunctionRef<bool(absl::string_view, absl::string_view)> callback,
-            const ReadOptions& options = {}) noexcept {
+  void Scan(
+      absl::string_view prefix,
+      absl::FunctionRef<bool(absl::string_view, absl::string_view)> callback,
+      const ReadOptions& options = {}) noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return;
-    
+
     leveldb::ReadOptions read_options;
     read_options.verify_checksums = options.verify_checksums;
     read_options.fill_cache = options.fill_cache;
-    
+
     std::unique_ptr<leveldb::Iterator> it(db_->NewIterator(read_options));
-    
+
     if (!prefix.empty()) {
       leveldb::Slice prefix_slice(prefix.data(), prefix.size());
       it->Seek(prefix_slice);
     } else {
       it->SeekToFirst();
     }
-    
+
     for (; it->Valid(); it->Next()) {
       absl::string_view key(it->key().data(), it->key().size());
-      
+
       // Check if key still matches prefix
       if (!prefix.empty() && !key.starts_with(prefix)) {
         break;
       }
-      
+
       absl::string_view value(it->value().data(), it->value().size());
       if (!callback(key, value)) {
         break;
       }
     }
-    
+
     if (ASTRADB_UNLIKELY(!it->status().ok())) {
       ASTRADB_LOG_ERROR("Iterator error: {}", it->status().ToString());
     }
@@ -388,12 +384,12 @@ class LevelDBAdapter {
   std::vector<std::string> GetKeys(absl::string_view prefix = "") noexcept {
     std::vector<std::string> keys;
     keys.reserve(1024);  // Pre-allocate for performance
-    
+
     Scan(prefix, [&keys](absl::string_view key, absl::string_view) {
       keys.emplace_back(key);
       return true;
     });
-    
+
     return keys;
   }
 
@@ -402,19 +398,20 @@ class LevelDBAdapter {
       absl::string_view prefix = "") noexcept {
     absl::flat_hash_map<std::string, std::string> items;
     items.reserve(1024);
-    
+
     Scan(prefix, [&items](absl::string_view key, absl::string_view value) {
       items.emplace(key, value);
       return true;
     });
-    
+
     return items;
   }
 
   // ========== Key Encoding Helpers ==========
 
   // Encode key with type prefix - constexpr for compile-time optimization
-  static std::string EncodeKey(KeyPrefix prefix, absl::string_view key) noexcept {
+  static std::string EncodeKey(KeyPrefix prefix,
+                               absl::string_view key) noexcept {
     std::string result;
     result.reserve(2 + key.size());
     result.push_back(static_cast<char>(prefix));
@@ -424,7 +421,7 @@ class LevelDBAdapter {
   }
 
   // Encode hash field key
-  static std::string EncodeHashKey(absl::string_view key, 
+  static std::string EncodeHashKey(absl::string_view key,
                                    absl::string_view field) noexcept {
     std::string result;
     result.reserve(2 + key.size() + 1 + field.size());
@@ -437,7 +434,7 @@ class LevelDBAdapter {
   }
 
   // Encode set member key
-  static std::string EncodeSetKey(absl::string_view key, 
+  static std::string EncodeSetKey(absl::string_view key,
                                   absl::string_view member) noexcept {
     std::string result;
     result.reserve(2 + key.size() + 1 + member.size());
@@ -450,7 +447,7 @@ class LevelDBAdapter {
   }
 
   // Encode zset member key (score stored in value)
-  static std::string EncodeZSetKey(absl::string_view key, 
+  static std::string EncodeZSetKey(absl::string_view key,
                                    absl::string_view member) noexcept {
     std::string result;
     result.reserve(2 + key.size() + 1 + member.size());
@@ -463,7 +460,8 @@ class LevelDBAdapter {
   }
 
   // Encode list index key
-  static std::string EncodeListKey(absl::string_view key, int64_t index) noexcept {
+  static std::string EncodeListKey(absl::string_view key,
+                                   int64_t index) noexcept {
     std::string result;
     result.reserve(2 + key.size() + 1 + 21);  // 21 for max int64_t string
     result.push_back(static_cast<char>(KeyPrefix::kList));
@@ -475,7 +473,7 @@ class LevelDBAdapter {
   }
 
   // Encode TTL index key (for expiration scanning)
-  static std::string EncodeTTLKey(int64_t expire_time_ms, 
+  static std::string EncodeTTLKey(int64_t expire_time_ms,
                                   absl::string_view key) noexcept {
     std::string result;
     result.reserve(2 + 21 + 1 + key.size());  // 21 for max int64_t string
@@ -492,10 +490,10 @@ class LevelDBAdapter {
   // Get approximate number of keys
   uint64_t GetApproximateKeys() const noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return 0;
-    
+
     std::string keys_str;
     db_->GetProperty("leveldb.approximate-keys", &keys_str);
-    
+
     try {
       return std::stoull(keys_str);
     } catch (...) {
@@ -506,10 +504,10 @@ class LevelDBAdapter {
   // Get database size on disk
   uint64_t GetDiskSize() const noexcept {
     if (ASTRADB_UNLIKELY(!db_)) return 0;
-    
+
     std::string size_str;
     db_->GetProperty("leveldb.approximate-size", &size_str);
-    
+
     try {
       return std::stoull(size_str);
     } catch (...) {

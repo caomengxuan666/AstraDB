@@ -3,23 +3,20 @@
 
 #pragma once
 
-#include <string>
-#include <unordered_map>
-#include <functional>
-#include <mutex>
-
 #include <absl/container/flat_hash_map.h>
 #include <absl/synchronization/mutex.h>
+
+#include <functional>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
 #include "astra/base/logging.hpp"
 
 namespace astra::security {
 
 // User ACL permissions
-enum class AclPermission {
-  kRead = 1 << 0,
-  kWrite = 1 << 1,
- kAdmin = 1 << 2
-};
+enum class AclPermission { kRead = 1 << 0, kWrite = 1 << 1, kAdmin = 1 << 2 };
 
 // User info
 struct AclUser {
@@ -27,7 +24,7 @@ struct AclUser {
   std::string password;  // Hashed password
   bool enabled = true;
   uint32_t permissions = 0;
-  
+
   // Password categories (key patterns with specific permissions)
   struct PasswordCategory {
     std::string pattern;
@@ -41,67 +38,69 @@ class AclManager {
  public:
   AclManager() noexcept = default;
   ~AclManager() noexcept = default;
-  
+
   // Non-copyable, non-movable
   AclManager(const AclManager&) = delete;
   AclManager& operator=(const AclManager&) = delete;
   AclManager(bool) = delete;
   AclManager& operator=(bool) = delete;
-  
+
   // Initialize ACL
   bool Init() noexcept {
     // Create default user with all permissions
     AclUser default_user;
     default_user.username = "default";
     default_user.password = "";
-    default_user.permissions = static_cast<uint32_t>(AclPermission::kRead) | 
-                              static_cast<uint32_t>(AclPermission::kWrite) | 
-                              static_cast<uint32_t>(AclPermission::kAdmin);
-    
+    default_user.permissions = static_cast<uint32_t>(AclPermission::kRead) |
+                               static_cast<uint32_t>(AclPermission::kWrite) |
+                               static_cast<uint32_t>(AclPermission::kAdmin);
+
     users_["default"] = default_user;
     initialized_.store(true, std::memory_order_release);
     return true;
   }
-  
+
   // Authenticate user
-  bool Authenticate(const std::string& username, const std::string& password) noexcept {
+  bool Authenticate(const std::string& username,
+                    const std::string& password) noexcept {
     absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
       return false;
     }
-    
+
     if (!it->second.enabled) {
       return false;
     }
-    
+
     // In production, use proper password hashing
     // For now, simple comparison
     return it->second.password == password;
   }
-  
+
   // Create user
-  bool CreateUser(const std::string& username, const std::string& password, 
+  bool CreateUser(const std::string& username, const std::string& password,
                   uint32_t permissions = 0, bool enabled = true) noexcept {
     absl::MutexLock lock(&mutex_);
-    
+
     if (users_.find(username) != users_.end()) {
       return false;
     }
-    
+
     AclUser user;
     user.username = username;
     user.password = password;
     user.permissions = permissions;
     user.enabled = enabled;
-    
+
     users_[username] = user;
     ASTRADB_LOG_INFO("Created user: {}", username);
     return true;
   }
-  
+
   // Check user permission
-  bool CheckPermission(const std::string& username, AclPermission perm) const noexcept {
+  bool CheckPermission(const std::string& username,
+                       AclPermission perm) const noexcept {
     absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
@@ -109,7 +108,7 @@ class AclManager {
     }
     return (it->second.permissions & static_cast<uint32_t>(perm)) != 0;
   }
-  
+
   // Delete user
   bool DeleteUser(const std::string& username) noexcept {
     absl::MutexLock lock(&mutex_);
@@ -124,7 +123,7 @@ class AclManager {
     ASTRADB_LOG_INFO("Deleted user: {}", username);
     return true;
   }
-  
+
   // Get user info
   const AclUser* GetUserInfo(const std::string& username) const noexcept {
     absl::MutexLock lock(&mutex_);
@@ -134,9 +133,10 @@ class AclManager {
     }
     return &it->second;
   }
-  
+
   // Set user password
-  bool SetPassword(const std::string& username, const std::string& password) noexcept {
+  bool SetPassword(const std::string& username,
+                   const std::string& password) noexcept {
     absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
@@ -146,7 +146,7 @@ class AclManager {
     ASTRADB_LOG_INFO("Updated password for user: {}", username);
     return true;
   }
-  
+
   // Get user info
   std::vector<std::string> GetUsers() const noexcept {
     absl::MutexLock lock(&mutex_);
@@ -156,7 +156,7 @@ class AclManager {
     }
     return users;
   }
-  
+
  private:
   mutable absl::Mutex mutex_;
   absl::flat_hash_map<std::string, AclUser> users_;

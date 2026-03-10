@@ -2,26 +2,29 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "stream_commands.hpp"
-#include "command_auto_register.hpp"
-#include "database.hpp"
-#include "astra/container/stream_data.hpp"
-#include "astra/base/logging.hpp"
-#include <absl/time/time.h>
+
 #include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
+#include <absl/time/time.h>
+
+#include "astra/base/logging.hpp"
+#include "astra/container/stream_data.hpp"
+#include "command_auto_register.hpp"
+#include "database.hpp"
 
 namespace astra::commands {
 
 // Helper function to convert stream entry to RESP value
-protocol::RespValue StreamEntryToResp(const StreamId& id, 
-                                      const std::vector<std::pair<std::string, std::string>>& fields) {
+protocol::RespValue StreamEntryToResp(
+    const StreamId& id,
+    const std::vector<std::pair<std::string, std::string>>& fields) {
   std::vector<protocol::RespValue> entry_array;
-  
+
   // Add ID
   protocol::RespValue id_val;
   id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
   entry_array.push_back(id_val);
-  
+
   // Add fields
   std::vector<protocol::RespValue> fields_array;
   for (const auto& [field, value] : fields) {
@@ -34,7 +37,7 @@ protocol::RespValue StreamEntryToResp(const StreamId& id,
   protocol::RespValue fields_val;
   fields_val.SetArray(std::move(fields_array));
   entry_array.push_back(fields_val);
-  
+
   protocol::RespValue entry_val;
   entry_val.SetArray(std::move(entry_array));
   return entry_val;
@@ -60,9 +63,7 @@ StreamId::StreamId(const std::string& str) {
   }
 }
 
-std::string StreamId::ToString() const {
-  return absl::StrCat(ms, "-", seq);
-}
+std::string StreamId::ToString() const { return absl::StrCat(ms, "-", seq); }
 
 bool StreamId::operator<(const StreamId& other) const {
   if (ms != other.ms) return ms < other.ms;
@@ -79,10 +80,12 @@ bool StreamId::operator==(const StreamId& other) const {
 
 // ============== Command Handlers ==============
 
-CommandResult HandleXAdd(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXAdd(const protocol::Command& command,
+                         CommandContext* context) {
   // XADD key [MAXLEN ~ count] ID field value [field value ...]
   if (command.ArgCount() < 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xadd' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xadd' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -90,7 +93,8 @@ CommandResult HandleXAdd(const protocol::Command& command, CommandContext* conte
   uint64_t max_len = 0;
 
   // Parse MAXLEN option
-  if (command.ArgCount() > arg_idx + 2 && command[arg_idx].AsString() == "MAXLEN") {
+  if (command.ArgCount() > arg_idx + 2 &&
+      command[arg_idx].AsString() == "MAXLEN") {
     arg_idx++;  // Skip MAXLEN
     if (command[arg_idx].AsString() == "~") {
       arg_idx++;  // Skip ~ (approximate)
@@ -106,7 +110,8 @@ CommandResult HandleXAdd(const protocol::Command& command, CommandContext* conte
   // Parse field-value pairs
   std::vector<std::pair<std::string, std::string>> fields;
   while (arg_idx + 1 < command.ArgCount()) {
-    fields.emplace_back(command[arg_idx].AsString(), command[arg_idx + 1].AsString());
+    fields.emplace_back(command[arg_idx].AsString(),
+                        command[arg_idx + 1].AsString());
     arg_idx += 2;
   }
 
@@ -123,7 +128,9 @@ CommandResult HandleXAdd(const protocol::Command& command, CommandContext* conte
 
   StreamId id = stream->AddEntry(fields, id_spec, max_len);
   if (id.ms == 0 && id.seq == 0 && id_spec != "*") {
-    return CommandResult(false, "ERR The ID specified in XADD is equal or smaller than the target stream top item");
+    return CommandResult(false,
+                         "ERR The ID specified in XADD is equal or smaller "
+                         "than the target stream top item");
   }
 
   protocol::RespValue response;
@@ -131,17 +138,20 @@ CommandResult HandleXAdd(const protocol::Command& command, CommandContext* conte
   return CommandResult(response);
 }
 
-CommandResult HandleXRead(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXRead(const protocol::Command& command,
+                          CommandContext* context) {
   // XREAD [COUNT count] STREAMS key ID [key ID ...]
   size_t arg_idx = 0;
   size_t count = 1;
 
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xread' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xread' command");
   }
 
   // Parse options
-  while (arg_idx < command.ArgCount() && command[arg_idx].AsString() == "COUNT") {
+  while (arg_idx < command.ArgCount() &&
+         command[arg_idx].AsString() == "COUNT") {
     arg_idx++;
     count = std::stoull(command[arg_idx].AsString());
     arg_idx++;
@@ -158,7 +168,9 @@ CommandResult HandleXRead(const protocol::Command& command, CommandContext* cont
 
   size_t remaining = command.ArgCount() - arg_idx;
   if (remaining % 2 != 0) {
-    return CommandResult(false, "ERR Unbalanced XREAD list of streams: for each stream key an ID or '$' must be specified");
+    return CommandResult(false,
+                         "ERR Unbalanced XREAD list of streams: for each "
+                         "stream key an ID or '$' must be specified");
   }
 
   size_t num_streams = remaining / 2;
@@ -168,7 +180,8 @@ CommandResult HandleXRead(const protocol::Command& command, CommandContext* cont
   arg_idx += num_streams;
   for (size_t i = 0; i < num_streams; ++i) {
     std::string id_str = command[arg_idx + i].AsString();
-    ids.push_back(StreamId(id_str == "$" ? "18446744073709551615-18446744073709551615" : id_str));
+    ids.push_back(StreamId(
+        id_str == "$" ? "18446744073709551615-18446744073709551615" : id_str));
   }
 
   auto* db = context->GetDatabase();
@@ -233,10 +246,12 @@ CommandResult HandleXRead(const protocol::Command& command, CommandContext* cont
   return CommandResult(response);
 }
 
-CommandResult HandleXRange(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXRange(const protocol::Command& command,
+                           CommandContext* context) {
   // XRANGE key start end [COUNT count]
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xrange' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xrange' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -296,7 +311,7 @@ CommandResult HandleXRange(const protocol::Command& command, CommandContext* con
       fields_array.push_back(f);
       fields_array.push_back(v);
     }
-    
+
     protocol::RespValue fields_val;
     fields_val.SetArray(std::move(fields_array));
     entry_array.push_back(fields_val);
@@ -312,9 +327,11 @@ CommandResult HandleXRange(const protocol::Command& command, CommandContext* con
   return CommandResult(response);
 }
 
-CommandResult HandleXLen(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXLen(const protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xlen' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xlen' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -331,9 +348,11 @@ CommandResult HandleXLen(const protocol::Command& command, CommandContext* conte
   return CommandResult(response);
 }
 
-CommandResult HandleXDel(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXDel(const protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xdel' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xdel' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -365,10 +384,12 @@ CommandResult HandleXDel(const protocol::Command& command, CommandContext* conte
   return CommandResult(response);
 }
 
-CommandResult HandleXTrim(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXTrim(const protocol::Command& command,
+                          CommandContext* context) {
   // XTRIM key MAXLEN [~] count
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xtrim' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xtrim' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -406,12 +427,14 @@ CommandResult HandleXTrim(const protocol::Command& command, CommandContext* cont
   return CommandResult(response);
 }
 
-CommandResult HandleXGroup(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXGroup(const protocol::Command& command,
+                           CommandContext* context) {
   // XGROUP CREATE key groupname id [MKSTREAM]
   // XGROUP DESTROY key groupname
   // XGROUP SETID key groupname id
   if (command.ArgCount() < 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xgroup' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xgroup' command");
   }
 
   const std::string& subcmd = command[0].AsString();
@@ -425,7 +448,8 @@ CommandResult HandleXGroup(const protocol::Command& command, CommandContext* con
 
   if (absl::AsciiStrToLower(subcmd) == "create") {
     StreamId start_id(command[3].AsString());
-    bool mkstream = command.ArgCount() > 4 && command[4].AsString() == "MKSTREAM";
+    bool mkstream =
+        command.ArgCount() > 4 && command[4].AsString() == "MKSTREAM";
 
     StreamData* stream = db->GetStream(key);
     if (!stream && !mkstream) {
@@ -437,7 +461,8 @@ CommandResult HandleXGroup(const protocol::Command& command, CommandContext* con
     }
 
     if (!stream->CreateGroup(group_name, start_id)) {
-      return CommandResult(false, "ERR BUSYGROUP Consumer Group name already exists");
+      return CommandResult(false,
+                           "ERR BUSYGROUP Consumer Group name already exists");
     }
 
     protocol::RespValue response;
@@ -459,10 +484,12 @@ CommandResult HandleXGroup(const protocol::Command& command, CommandContext* con
   return CommandResult(false, "ERR unknown subcommand");
 }
 
-CommandResult HandleXReadGroup(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXReadGroup(const protocol::Command& command,
+                               CommandContext* context) {
   // XREADGROUP GROUP group consumer [COUNT count] STREAMS key ID [key ID ...]
   if (command.ArgCount() < 6 || command[0].AsString() != "GROUP") {
-    return CommandResult(false, "ERR wrong number of arguments for 'xreadgroup' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'xreadgroup' command");
   }
 
   const std::string& group_name = command[1].AsString();
@@ -470,7 +497,8 @@ CommandResult HandleXReadGroup(const protocol::Command& command, CommandContext*
   size_t arg_idx = 3;
   size_t count = 1;
 
-  while (arg_idx < command.ArgCount() && command[arg_idx].AsString() == "COUNT") {
+  while (arg_idx < command.ArgCount() &&
+         command[arg_idx].AsString() == "COUNT") {
     arg_idx++;
     count = std::stoull(command[arg_idx].AsString());
     arg_idx++;
@@ -551,10 +579,12 @@ CommandResult HandleXReadGroup(const protocol::Command& command, CommandContext*
   return CommandResult(response);
 }
 
-CommandResult HandleXAck(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXAck(const protocol::Command& command,
+                         CommandContext* context) {
   // XACK key group ID [ID ...]
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xack' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xack' command");
   }
 
   const std::string& key = command[0].AsString();
@@ -592,10 +622,12 @@ CommandResult HandleXAck(const protocol::Command& command, CommandContext* conte
   return CommandResult(response);
 }
 
-CommandResult HandleXInfo(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXInfo(const protocol::Command& command,
+                          CommandContext* context) {
   // XINFO STREAM key
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'xinfo' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'xinfo' command");
   }
 
   const std::string& subcmd = command[0].AsString();
@@ -636,11 +668,14 @@ CommandResult HandleXInfo(const protocol::Command& command, CommandContext* cont
   return CommandResult(false, "ERR unknown subcommand");
 }
 
-// XCLAIM key group consumer min-idle-time ID [ID ...] [IDLE ms] [TIME ms-unix-time] [RETRYCOUNT count] [FORCE] [JUSTID]
-// Transfer ownership of pending stream entries to a different consumer
-CommandResult HandleXClaim(const protocol::Command& command, CommandContext* context) {
+// XCLAIM key group consumer min-idle-time ID [ID ...] [IDLE ms] [TIME
+// ms-unix-time] [RETRYCOUNT count] [FORCE] [JUSTID] Transfer ownership of
+// pending stream entries to a different consumer
+CommandResult HandleXClaim(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 5) {
-    return CommandResult(false, "ERR wrong number of arguments for 'XCLAIM' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'XCLAIM' command");
   }
 
   auto* db = context->GetDatabase();
@@ -652,7 +687,7 @@ CommandResult HandleXClaim(const protocol::Command& command, CommandContext* con
   const std::string& group = command[1].AsString();
   const std::string& consumer = command[2].AsString();
   int64_t min_idle_time;
-  
+
   if (!absl::SimpleAtoi(command[3].AsString(), &min_idle_time)) {
     return CommandResult(false, "ERR invalid min-idle-time");
   }
@@ -671,10 +706,10 @@ CommandResult HandleXClaim(const protocol::Command& command, CommandContext* con
   std::vector<StreamId> ids;
   bool just_id = false;
   int64_t idle_time_override = -1;
-  
+
   for (size_t i = 4; i < command.ArgCount(); ++i) {
     std::string arg = command[i].AsString();
-    
+
     if (absl::AsciiStrToUpper(arg) == "JUSTID") {
       just_id = true;
     } else if (absl::AsciiStrToUpper(arg) == "IDLE") {
@@ -692,27 +727,28 @@ CommandResult HandleXClaim(const protocol::Command& command, CommandContext* con
 
   std::vector<protocol::RespValue> result;
   absl::Time now = absl::Now();
-  
+
   for (const auto& id : ids) {
     auto entry_it = group_it->second.pending_entries.find(id);
     if (entry_it != group_it->second.pending_entries.end()) {
       // Check idle time
       auto idle_duration = now - entry_it->second.last_delivered;
       int64_t idle_ms = absl::ToInt64Milliseconds(idle_duration);
-      
+
       if (idle_ms >= min_idle_time || min_idle_time == 0) {
         // Transfer to new consumer
         entry_it->second.consumer = consumer;
         entry_it->second.delivery_count++;
         entry_it->second.last_delivered = now;
-        
+
         if (just_id) {
           protocol::RespValue id_val;
           id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
           result.push_back(id_val);
         } else {
           // Return full entry
-          protocol::RespValue entry_val = StreamEntryToResp(id, entry_it->second.entry.fields);
+          protocol::RespValue entry_val =
+              StreamEntryToResp(id, entry_it->second.entry.fields);
           result.push_back(entry_val);
         }
       }
@@ -726,9 +762,11 @@ CommandResult HandleXClaim(const protocol::Command& command, CommandContext* con
 
 // XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
 // Automatically claim entries from a consumer that is idle
-CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXAutoClaim(const protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 5) {
-    return CommandResult(false, "ERR wrong number of arguments for 'XAUTOCLAIM' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'XAUTOCLAIM' command");
   }
 
   auto* db = context->GetDatabase();
@@ -740,25 +778,26 @@ CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext*
   const std::string& group = command[1].AsString();
   const std::string& consumer = command[2].AsString();
   int64_t min_idle_time;
-  
+
   if (!absl::SimpleAtoi(command[3].AsString(), &min_idle_time)) {
     return CommandResult(false, "ERR invalid min-idle-time");
   }
 
   StreamId start_id(command[4].AsString());
-  
+
   // Parse options
   size_t count = 100;
   bool just_id = false;
-  
+
   for (size_t i = 5; i < command.ArgCount(); ++i) {
     std::string arg = command[i].AsString();
-    
+
     if (absl::AsciiStrToUpper(arg) == "COUNT") {
       if (i + 1 >= command.ArgCount()) {
         return CommandResult(false, "ERR syntax error");
       }
-      if (!absl::SimpleAtoi(command[++i].AsString(), reinterpret_cast<int64_t*>(&count))) {
+      if (!absl::SimpleAtoi(command[++i].AsString(),
+                            reinterpret_cast<int64_t*>(&count))) {
         return CommandResult(false, "ERR invalid count");
       }
     } else if (absl::AsciiStrToUpper(arg) == "JUSTID") {
@@ -773,10 +812,10 @@ CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext*
     protocol::RespValue next_id;
     next_id.SetString(start_id.ToString(), protocol::RespType::kBulkString);
     result.push_back(next_id);
-    
+
     protocol::RespValue empty_arr;
     result.push_back(empty_arr);
-    
+
     protocol::RespValue response;
     response.SetArray(std::move(result));
     return CommandResult(response);
@@ -790,31 +829,32 @@ CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext*
   std::vector<protocol::RespValue> claimed;
   StreamId next_id = start_id;
   absl::Time now = absl::Now();
-  
+
   for (auto& [id, pending] : group_it->second.pending_entries) {
     if (claimed.size() >= count) {
       next_id = id;
       break;
     }
-    
+
     if (id <= start_id) {
       continue;
     }
-    
+
     auto idle_duration = now - pending.last_delivered;
     int64_t idle_ms = absl::ToInt64Milliseconds(idle_duration);
-    
+
     if (idle_ms >= min_idle_time) {
       pending.consumer = consumer;
       pending.delivery_count++;
       pending.last_delivered = now;
-      
+
       if (just_id) {
         protocol::RespValue id_val;
         id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
         claimed.push_back(id_val);
       } else {
-        protocol::RespValue entry_val = StreamEntryToResp(id, pending.entry.fields);
+        protocol::RespValue entry_val =
+            StreamEntryToResp(id, pending.entry.fields);
         claimed.push_back(entry_val);
       }
     }
@@ -824,11 +864,11 @@ CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext*
   protocol::RespValue next_id_val;
   next_id_val.SetString(next_id.ToString(), protocol::RespType::kBulkString);
   result.push_back(next_id_val);
-  
+
   protocol::RespValue claimed_arr;
   claimed_arr.SetArray(std::move(claimed));
   result.push_back(claimed_arr);
-  
+
   protocol::RespValue response;
   response.SetArray(std::move(result));
   return CommandResult(response);
@@ -836,9 +876,11 @@ CommandResult HandleXAutoClaim(const protocol::Command& command, CommandContext*
 
 // XPENDING key group [start end count] [consumer]
 // Return information about pending entries in a stream group
-CommandResult HandleXPending(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXPending(const protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'XPENDING' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'XPENDING' command");
   }
 
   auto* db = context->GetDatabase();
@@ -862,7 +904,8 @@ CommandResult HandleXPending(const protocol::Command& command, CommandContext* c
   // Simple case: just return count
   if (command.ArgCount() == 2) {
     protocol::RespValue response;
-    response.SetInteger(static_cast<int64_t>(group_it->second.pending_entries.size()));
+    response.SetInteger(
+        static_cast<int64_t>(group_it->second.pending_entries.size()));
     return CommandResult(response);
   }
 
@@ -879,7 +922,8 @@ CommandResult HandleXPending(const protocol::Command& command, CommandContext* c
     end_id = StreamId(command[3].AsString());
   }
   if (command.ArgCount() >= 5) {
-    if (!absl::SimpleAtoi(command[4].AsString(), reinterpret_cast<int64_t*>(&count))) {
+    if (!absl::SimpleAtoi(command[4].AsString(),
+                          reinterpret_cast<int64_t*>(&count))) {
       return CommandResult(false, "ERR invalid count");
     }
   }
@@ -889,42 +933,42 @@ CommandResult HandleXPending(const protocol::Command& command, CommandContext* c
 
   std::vector<protocol::RespValue> result;
   size_t processed = 0;
-  
+
   for (const auto& [id, pending] : group_it->second.pending_entries) {
     if (processed >= count) break;
-    
+
     if (id < start_id || id > end_id) {
       continue;
     }
-    
+
     if (!consumer_filter.empty() && pending.consumer != consumer_filter) {
       continue;
     }
-    
+
     // Return [id, consumer, idle_time, delivery_count]
     std::vector<protocol::RespValue> entry_info;
-    
+
     protocol::RespValue id_val;
     id_val.SetString(id.ToString(), protocol::RespType::kBulkString);
     entry_info.push_back(id_val);
-    
+
     protocol::RespValue consumer_val;
     consumer_val.SetString(pending.consumer, protocol::RespType::kBulkString);
     entry_info.push_back(consumer_val);
-    
+
     auto idle_duration = absl::Now() - pending.last_delivered;
     protocol::RespValue idle_val;
     idle_val.SetInteger(absl::ToInt64Milliseconds(idle_duration));
     entry_info.push_back(idle_val);
-    
+
     protocol::RespValue delivery_val;
     delivery_val.SetInteger(pending.delivery_count);
     entry_info.push_back(delivery_val);
-    
+
     protocol::RespValue entry_arr;
     entry_arr.SetArray(std::move(entry_info));
     result.push_back(entry_arr);
-    
+
     processed++;
   }
 
@@ -935,9 +979,11 @@ CommandResult HandleXPending(const protocol::Command& command, CommandContext* c
 
 // XREVRANGE key end start [COUNT count]
 // Return a range of entries in reverse order
-CommandResult HandleXRevRange(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXRevRange(const protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() < 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'XREVRANGE' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'XREVRANGE' command");
   }
 
   auto* db = context->GetDatabase();
@@ -956,7 +1002,8 @@ CommandResult HandleXRevRange(const protocol::Command& command, CommandContext* 
       if (i + 1 >= command.ArgCount()) {
         return CommandResult(false, "ERR syntax error");
       }
-      if (!absl::SimpleAtoi(command[++i].AsString(), reinterpret_cast<int64_t*>(&count))) {
+      if (!absl::SimpleAtoi(command[++i].AsString(),
+                            reinterpret_cast<int64_t*>(&count))) {
         return CommandResult(false, "ERR invalid count");
       }
     }
@@ -971,15 +1018,15 @@ CommandResult HandleXRevRange(const protocol::Command& command, CommandContext* 
 
   std::vector<protocol::RespValue> result;
   size_t processed = 0;
-  
+
   // Iterate in reverse order
   for (auto it = stream->entries.rbegin(); it != stream->entries.rend(); ++it) {
     if (processed >= count) break;
-    
+
     if (it->id < start_id || it->id > end_id) {
       continue;
     }
-    
+
     result.push_back(StreamEntryToResp(it->id, it->fields));
     processed++;
   }
@@ -991,9 +1038,11 @@ CommandResult HandleXRevRange(const protocol::Command& command, CommandContext* 
 
 // XSETID key last-id
 // Set the last generated ID for a stream
-CommandResult HandleXSetId(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleXSetId(const protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'XSETID' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'XSETID' command");
   }
 
   auto* db = context->GetDatabase();
@@ -1018,20 +1067,35 @@ CommandResult HandleXSetId(const protocol::Command& command, CommandContext* con
 }
 
 // Register Stream commands
-ASTRADB_REGISTER_COMMAND(XADD, -5, "write", RoutingStrategy::kByFirstKey, HandleXAdd);
-ASTRADB_REGISTER_COMMAND(XREAD, -4, "readonly", RoutingStrategy::kNone, HandleXRead);
-ASTRADB_REGISTER_COMMAND(XRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleXRange);
-ASTRADB_REGISTER_COMMAND(XLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleXLen);
-ASTRADB_REGISTER_COMMAND(XDEL, -3, "write", RoutingStrategy::kByFirstKey, HandleXDel);
-ASTRADB_REGISTER_COMMAND(XTRIM, -4, "write", RoutingStrategy::kByFirstKey, HandleXTrim);
-ASTRADB_REGISTER_COMMAND(XGROUP, -4, "write", RoutingStrategy::kByFirstKey, HandleXGroup);
-ASTRADB_REGISTER_COMMAND(XREADGROUP, -7, "write", RoutingStrategy::kNone, HandleXReadGroup);
-ASTRADB_REGISTER_COMMAND(XACK, -4, "write", RoutingStrategy::kByFirstKey, HandleXAck);
-ASTRADB_REGISTER_COMMAND(XINFO, -2, "readonly", RoutingStrategy::kByFirstKey, HandleXInfo);
-ASTRADB_REGISTER_COMMAND(XCLAIM, -5, "write", RoutingStrategy::kByFirstKey, HandleXClaim);
-ASTRADB_REGISTER_COMMAND(XAUTOCLAIM, -5, "write", RoutingStrategy::kByFirstKey, HandleXAutoClaim);
-ASTRADB_REGISTER_COMMAND(XPENDING, -2, "readonly", RoutingStrategy::kByFirstKey, HandleXPending);
-ASTRADB_REGISTER_COMMAND(XREVRANGE, -4, "readonly", RoutingStrategy::kByFirstKey, HandleXRevRange);
-ASTRADB_REGISTER_COMMAND(XSETID, 3, "write", RoutingStrategy::kByFirstKey, HandleXSetId);
+ASTRADB_REGISTER_COMMAND(XADD, -5, "write", RoutingStrategy::kByFirstKey,
+                         HandleXAdd);
+ASTRADB_REGISTER_COMMAND(XREAD, -4, "readonly", RoutingStrategy::kNone,
+                         HandleXRead);
+ASTRADB_REGISTER_COMMAND(XRANGE, -4, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleXRange);
+ASTRADB_REGISTER_COMMAND(XLEN, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleXLen);
+ASTRADB_REGISTER_COMMAND(XDEL, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleXDel);
+ASTRADB_REGISTER_COMMAND(XTRIM, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleXTrim);
+ASTRADB_REGISTER_COMMAND(XGROUP, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleXGroup);
+ASTRADB_REGISTER_COMMAND(XREADGROUP, -7, "write", RoutingStrategy::kNone,
+                         HandleXReadGroup);
+ASTRADB_REGISTER_COMMAND(XACK, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleXAck);
+ASTRADB_REGISTER_COMMAND(XINFO, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleXInfo);
+ASTRADB_REGISTER_COMMAND(XCLAIM, -5, "write", RoutingStrategy::kByFirstKey,
+                         HandleXClaim);
+ASTRADB_REGISTER_COMMAND(XAUTOCLAIM, -5, "write", RoutingStrategy::kByFirstKey,
+                         HandleXAutoClaim);
+ASTRADB_REGISTER_COMMAND(XPENDING, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleXPending);
+ASTRADB_REGISTER_COMMAND(XREVRANGE, -4, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleXRevRange);
+ASTRADB_REGISTER_COMMAND(XSETID, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleXSetId);
 
 }  // namespace astra::commands

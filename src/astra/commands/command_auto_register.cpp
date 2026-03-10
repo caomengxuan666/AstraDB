@@ -4,8 +4,9 @@
 // License: Apache 2.0
 // ==============================================================================
 
-#include <absl/synchronization/mutex.h>
 #include "command_auto_register.hpp"
+
+#include <absl/synchronization/mutex.h>
 
 namespace astra::commands {
 
@@ -39,20 +40,20 @@ static std::vector<std::string> ParseFlagsString(std::string_view flags_str) {
   return result;
 }
 
-void RuntimeCommandRegistry::RegisterCommand(
-    std::string_view name,
-    int arity,
-    std::string_view flags,
-    RoutingStrategy routing,
-    CommandHandler handler) {
+void RuntimeCommandRegistry::RegisterCommand(std::string_view name, int arity,
+                                             std::string_view flags,
+                                             RoutingStrategy routing,
+                                             CommandHandler handler) {
   absl::MutexLock lock(&mutex_);
 
   // Parse flags from comma-separated string to vector<string>
   auto flags_array = ParseFlagsString(flags);
-  bool is_write = std::find(flags_array.begin(), flags_array.end(), "write") != flags_array.end();
+  bool is_write = std::find(flags_array.begin(), flags_array.end(), "write") !=
+                  flags_array.end();
 
   // Store the parsed flags array directly (not the original string)
-  commands_[std::string(name)] = {name, arity, flags_array, routing, std::move(handler), is_write};
+  commands_[std::string(name)] = {
+      name, arity, flags_array, routing, std::move(handler), is_write};
 }
 
 // Apply all registered commands to a registry
@@ -60,9 +61,9 @@ void RuntimeCommandRegistry::ApplyToRegistry(CommandRegistry& registry) {
   absl::MutexLock lock(&mutex_);
   for (auto& [name, cmd] : commands_) {
     // Use the pre-parsed flags array directly
-    registry.Register(
-        CommandInfo(std::string(cmd.name), cmd.arity, cmd.flags, cmd.routing, cmd.is_write),
-        std::move(cmd.handler));
+    registry.Register(CommandInfo(std::string(cmd.name), cmd.arity, cmd.flags,
+                                  cmd.routing, cmd.is_write),
+                      std::move(cmd.handler));
   }
 }
 

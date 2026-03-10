@@ -5,9 +5,10 @@
 // ==============================================================================
 
 #include <gtest/gtest.h>
+
+#include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/command_auto_register.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::commands {
@@ -646,7 +647,8 @@ TEST_F(CommandHandlerTest, ZCount) {
 
   auto result = registry_->Execute(count_cmd, context_.get());
   ASSERT_TRUE(result.success);
-  EXPECT_EQ(result.response.AsInteger(), 2);  // member2 (20.0) and member3 (30.0)
+  EXPECT_EQ(result.response.AsInteger(),
+            2);  // member2 (20.0) and member3 (30.0)
 }
 
 TEST_F(CommandHandlerTest, ZRangeWithScores) {
@@ -693,43 +695,44 @@ TEST_F(CommandHandlerTest, CommandInfoGet) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& cmd_info = result.response.AsArray();
   ASSERT_FALSE(cmd_info.empty());
-  
+
   // Verify COMMAND INFO GET returns 10 elements
   const auto& get_info = cmd_info[0].AsArray();
   ASSERT_EQ(get_info.size(), 10);
-  
+
   // 1. name
   EXPECT_EQ(get_info[0].AsString(), "get");
-  
+
   // 2. arity
   EXPECT_EQ(get_info[1].AsInteger(), 2);
-  
+
   // 3. flags (array)
   ASSERT_TRUE(get_info[2].IsArray());
   const auto& flags = get_info[2].AsArray();
   ASSERT_GE(flags.size(), 1);
   EXPECT_EQ(flags[0].AsString(), "readonly");
-  
+
   // 4-6. first_key, last_key, step
   EXPECT_EQ(get_info[3].AsInteger(), 1);
   EXPECT_EQ(get_info[4].AsInteger(), 1);
   EXPECT_EQ(get_info[5].AsInteger(), 1);
-  
+
   // 7. categories (array)
   ASSERT_TRUE(get_info[6].IsArray());
   const auto& categories = get_info[6].AsArray();
   ASSERT_GE(categories.size(), 1);
-  EXPECT_TRUE(categories[0].AsString() == "@read" || categories[0].AsString() == "@string");
-  
+  EXPECT_TRUE(categories[0].AsString() == "@read" ||
+              categories[0].AsString() == "@string");
+
   // 8. tips (array)
   ASSERT_TRUE(get_info[7].IsArray());
-  
+
   // 9. key specs (array)
   ASSERT_TRUE(get_info[8].IsArray());
-  
+
   // 10. subcommands (array)
   ASSERT_TRUE(get_info[9].IsArray());
 }
@@ -744,17 +747,17 @@ TEST_F(CommandHandlerTest, CommandInfoSet) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& cmd_info = result.response.AsArray();
   ASSERT_FALSE(cmd_info.empty());
-  
+
   const auto& set_info = cmd_info[0].AsArray();
   ASSERT_EQ(set_info.size(), 10);
-  
+
   // Verify SET command info
   EXPECT_EQ(set_info[0].AsString(), "set");
   EXPECT_EQ(set_info[1].AsInteger(), -3);  // SET key value [options]
-  
+
   // flags should include "write"
   const auto& flags = set_info[2].AsArray();
   bool has_write = false;
@@ -765,7 +768,7 @@ TEST_F(CommandHandlerTest, CommandInfoSet) {
     }
   }
   EXPECT_TRUE(has_write);
-  
+
   // categories should include @write
   const auto& categories = set_info[6].AsArray();
   bool has_write_cat = false;
@@ -788,17 +791,18 @@ TEST_F(CommandHandlerTest, CommandInfoScan) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& cmd_info = result.response.AsArray();
   ASSERT_FALSE(cmd_info.empty());
-  
+
   const auto& scan_info = cmd_info[0].AsArray();
   ASSERT_EQ(scan_info.size(), 10);
-  
+
   // Verify SCAN command info
   EXPECT_EQ(scan_info[0].AsString(), "scan");
-  EXPECT_EQ(scan_info[1].AsInteger(), -2);  // SCAN cursor [MATCH pattern] [COUNT count]
-  
+  EXPECT_EQ(scan_info[1].AsInteger(),
+            -2);  // SCAN cursor [MATCH pattern] [COUNT count]
+
   // tips should include nondeterministic_output
   const auto& tips = scan_info[7].AsArray();
   bool has_nondet = false;
@@ -820,10 +824,10 @@ TEST_F(CommandHandlerTest, CommandList) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& cmd_list = result.response.AsArray();
   ASSERT_GT(cmd_list.size(), 0);  // Should have at least some commands
-  
+
   // Verify all elements are strings
   for (const auto& cmd_name : cmd_list) {
     EXPECT_TRUE(cmd_name.IsBulkString() || cmd_name.IsSimpleString());
@@ -839,7 +843,8 @@ TEST_F(CommandHandlerTest, CommandCount) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   EXPECT_TRUE(result.response.IsInteger());
-  EXPECT_GT(result.response.AsInteger(), 0);  // Should have at least some commands
+  EXPECT_GT(result.response.AsInteger(),
+            0);  // Should have at least some commands
 }
 
 TEST_F(CommandHandlerTest, CommandNoArgs) {
@@ -850,16 +855,16 @@ TEST_F(CommandHandlerTest, CommandNoArgs) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& all_commands = result.response.AsArray();
   ASSERT_GT(all_commands.size(), 0);
-  
+
   // Each command should be an array with 10 elements
   for (const auto& cmd_info : all_commands) {
     ASSERT_TRUE(cmd_info.IsArray());
     const auto& info = cmd_info.AsArray();
     ASSERT_EQ(info.size(), 10);
-    
+
     // Verify structure
     EXPECT_TRUE(info[0].IsBulkString());  // name
     EXPECT_TRUE(info[1].IsInteger());     // arity
@@ -884,26 +889,27 @@ TEST_F(CommandHandlerTest, CommandKeySpecs) {
   auto result = registry_->Execute(cmd, context_.get());
   ASSERT_TRUE(result.success);
   ASSERT_TRUE(result.response.IsArray());
-  
+
   const auto& cmd_info = result.response.AsArray()[0].AsArray();
   const auto& key_specs = cmd_info[8].AsArray();
-  
+
   // GET should have at least one key spec
   ASSERT_GT(key_specs.size(), 0);
-  
+
   // Verify key spec structure
   const auto& spec = key_specs[0].AsArray();
   ASSERT_EQ(spec.size(), 3);  // flags, begin_search, find_keys
-  
+
   // flags should be an array
   ASSERT_TRUE(spec[0].IsArray());
   const auto& spec_flags = spec[0].AsArray();
   ASSERT_GT(spec_flags.size(), 0);
-  EXPECT_TRUE(spec_flags[0].AsString() == "RO" || spec_flags[0].AsString() == "RW");
-  
+  EXPECT_TRUE(spec_flags[0].AsString() == "RO" ||
+              spec_flags[0].AsString() == "RW");
+
   // begin_search should be an array with type and spec
   ASSERT_TRUE(spec[1].IsArray());
-  
+
   // find_keys should be an array with type and spec
   ASSERT_TRUE(spec[2].IsArray());
 }

@@ -12,148 +12,148 @@
 // Platform Detection
 // ==============================================================================
 #if defined(_WIN32) || defined(_WIN64)
-  #define ASTRADB_PLATFORM_WINDOWS
+#define ASTRADB_PLATFORM_WINDOWS
 #elif defined(__APPLE__)
-  #include <TargetConditionals.h>
-  #if TARGET_OS_MAC
-    #define ASTRADB_PLATFORM_MACOS
-  #elif TARGET_OS_IPHONE
-    #define ASTRADB_PLATFORM_IOS
-  #endif
+#include <TargetConditionals.h>
+#if TARGET_OS_MAC
+#define ASTRADB_PLATFORM_MACOS
+#elif TARGET_OS_IPHONE
+#define ASTRADB_PLATFORM_IOS
+#endif
 #elif defined(__linux__)
-  #define ASTRADB_PLATFORM_LINUX
+#define ASTRADB_PLATFORM_LINUX
 #elif defined(__ANDROID__)
-  #define ASTRADB_PLATFORM_ANDROID
+#define ASTRADB_PLATFORM_ANDROID
 #else
-  #define ASTRADB_PLATFORM_UNKNOWN
+#define ASTRADB_PLATFORM_UNKNOWN
 #endif
 
 // ==============================================================================
 // Compiler Detection
 // ==============================================================================
 #if defined(__clang__)
-  #define ASTRADB_COMPILER_CLANG
-  #define ASTRABI_COMPILER_CLANG_VERSION (__clang_major__ * 100 + __clang_minor__)
+#define ASTRADB_COMPILER_CLANG
+#define ASTRABI_COMPILER_CLANG_VERSION (__clang_major__ * 100 + __clang_minor__)
 #elif defined(__GNUC__)
-  #define ASTRADB_COMPILER_GCC
-  #define ASTRABI_COMPILER_GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
+#define ASTRADB_COMPILER_GCC
+#define ASTRABI_COMPILER_GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
 #elif defined(_MSC_VER)
-  #define ASTRADB_COMPILER_MSVC
-  #define ASTRABI_COMPILER_MSVC
-  #define ASTRABI_COMPILER_MSVC_VERSION (_MSC_VER)
+#define ASTRADB_COMPILER_MSVC
+#define ASTRABI_COMPILER_MSVC
+#define ASTRABI_COMPILER_MSVC_VERSION (_MSC_VER)
 #else
-  #define ASTRADB_COMPILER_UNKNOWN
+#define ASTRADB_COMPILER_UNKNOWN
 #endif
 
 // ==============================================================================
 // Architecture Detection
 // ==============================================================================
 #if defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
-  #define ASTRADB_ARCH_X64
+#define ASTRADB_ARCH_X64
 #elif defined(__aarch64__) || defined(_M_ARM64)
-  #define ASTRADB_ARCH_ARM64
+#define ASTRADB_ARCH_ARM64
 #elif defined(__i386) || defined(_M_IX86)
-  #define ASTRADB_ARCH_X86
+#define ASTRADB_ARCH_X86
 #elif defined(__arm__) || defined(_M_ARM)
-  #define ASTRADB_ARCH_ARM32
+#define ASTRADB_ARCH_ARM32
 #else
-  #define ASTRADB_ARCH_UNKNOWN
+#define ASTRADB_ARCH_UNKNOWN
 #endif
 
 // ==============================================================================
 // Branch Prediction Hints
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_LIKELY(x) (x)
-  #define ASTRABI_UNLIKELY(x) (x)
+#define ASTRABI_LIKELY(x) (x)
+#define ASTRABI_UNLIKELY(x) (x)
 #else
-  #define ASTRABI_LIKELY(x) __builtin_expect(!!(x), 1)
-  #define ASTRABI_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define ASTRABI_LIKELY(x) __builtin_expect(!!(x), 1)
+#define ASTRABI_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #endif
 
 // ==============================================================================
 // Function Attributes
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_FORCE_INLINE __forceinline
-  #define ASTRABI_NEVER_INLINE __declspec(noinline)
-  #define ASTRABI_INLINE inline
+#define ASTRABI_FORCE_INLINE __forceinline
+#define ASTRABI_NEVER_INLINE __declspec(noinline)
+#define ASTRABI_INLINE inline
 #else
-  #define ASTRABI_FORCE_INLINE __attribute__((always_inline)) inline
-  #define ASTRABI_NEVER_INLINE __attribute__((noinline))
-  #define ASTRABI_INLINE inline
+#define ASTRABI_FORCE_INLINE __attribute__((always_inline)) inline
+#define ASTRABI_NEVER_INLINE __attribute__((noinline))
+#define ASTRABI_INLINE inline
 #endif
 
 // ==============================================================================
 // Structure Packing
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_PACKED_PUSH __pragma(pack(push, 1))
-  #define ASTRABI_PACKED_POP __pragma(pack(pop))
-  #define ASTRABI_PACKED
+#define ASTRABI_PACKED_PUSH __pragma(pack(push, 1))
+#define ASTRABI_PACKED_POP __pragma(pack(pop))
+#define ASTRABI_PACKED
 #else
-  #define ASTRABI_PACKED_PUSH
-  #define ASTRABI_PACKED_POP
-  #define ASTRABI_PACKED __attribute__((packed))
+#define ASTRABI_PACKED_PUSH
+#define ASTRABI_PACKED_POP
+#define ASTRABI_PACKED __attribute__((packed))
 #endif
 
 // ==============================================================================
 // Deprecated Attribute
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_DEPRECATED __declspec(deprecated)
-  #define ASTRABI_DEPRECATED_MSG(msg) __declspec(deprecated(msg))
+#define ASTRABI_DEPRECATED __declspec(deprecated)
+#define ASTRABI_DEPRECATED_MSG(msg) __declspec(deprecated(msg))
 #else
-  #define ASTRABI_DEPRECATED __attribute__((deprecated))
-  #define ASTRABI_DEPRECATED_MSG(msg) __attribute__((deprecated(msg)))
+#define ASTRABI_DEPRECATED __attribute__((deprecated))
+#define ASTRABI_DEPRECATED_MSG(msg) __attribute__((deprecated(msg)))
 #endif
 
 // ==============================================================================
 // Warn Unused Result
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_WARN_UNUSED_RESULT _Check_return_
+#define ASTRABI_WARN_UNUSED_RESULT _Check_return_
 #else
-  #define ASTRABI_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+#define ASTRABI_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #endif
 
 // ==============================================================================
 // Noreturn Attribute
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_NORETURN __declspec(noreturn)
+#define ASTRABI_NORETURN __declspec(noreturn)
 #else
-  #define ASTRABI_NORETURN __attribute__((noreturn))
+#define ASTRABI_NORETURN __attribute__((noreturn))
 #endif
 
 // ==============================================================================
 // Unused Attribute
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_UNUSED
+#define ASTRABI_UNUSED
 #else
-  #define ASTRABI_UNUSED __attribute__((unused))
+#define ASTRABI_UNUSED __attribute__((unused))
 #endif
 
 // ==============================================================================
 // Visibility Attributes
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_EXPORT __declspec(dllexport)
-  #define ASTRABI_IMPORT __declspec(dllimport)
+#define ASTRABI_EXPORT __declspec(dllexport)
+#define ASTRABI_IMPORT __declspec(dllimport)
 #else
-  #define ASTRABI_EXPORT __attribute__((visibility("default")))
-  #define ASTRABI_IMPORT
+#define ASTRABI_EXPORT __attribute__((visibility("default")))
+#define ASTRABI_IMPORT
 #endif
 
 #if defined(ASTRADB_PLATFORM_WINDOWS)
-  #ifdef ASTRABI_BUILD_SHARED
-    #define ASTRABI_PUBLIC ASTRABI_EXPORT
-  #else
-    #define ASTRABI_PUBLIC ASTRABI_IMPORT
-  #endif
+#ifdef ASTRABI_BUILD_SHARED
+#define ASTRABI_PUBLIC ASTRABI_EXPORT
 #else
-  #define ASTRABI_PUBLIC __attribute__((visibility("default")))
+#define ASTRABI_PUBLIC ASTRABI_IMPORT
+#endif
+#else
+#define ASTRABI_PUBLIC __attribute__((visibility("default")))
 #endif
 
 // ==============================================================================
@@ -172,9 +172,9 @@
 // Unique Variable Name Generation
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_UNIQUE_NAME(prefix) ASTRABI_CONCAT(prefix, __COUNTER__)
+#define ASTRABI_UNIQUE_NAME(prefix) ASTRABI_CONCAT(prefix, __COUNTER__)
 #else
-  #define ASTRABI_UNIQUE_NAME(prefix) ASTRABI_CONCAT(prefix, __COUNTER__)
+#define ASTRABI_UNIQUE_NAME(prefix) ASTRABI_CONCAT(prefix, __COUNTER__)
 #endif
 
 // ==============================================================================
@@ -191,51 +191,51 @@
   ClassName& operator=(const ClassName&) = delete;
 
 #define ASTRABI_DISABLE_MOVE(ClassName) \
-  ClassName(ClassName&&) = delete; \
+  ClassName(ClassName&&) = delete;      \
   ClassName& operator=(ClassName&&) = delete;
 
 #define ASTRABI_DISABLE_COPY_MOVE(ClassName) \
-  ASTRABI_DISABLE_COPY(ClassName) \
+  ASTRABI_DISABLE_COPY(ClassName)            \
   ASTRABI_DISABLE_MOVE(ClassName)
 
 // ==============================================================================
 // Assert Macro
 // ==============================================================================
 #if defined(NDEBUG)
-  #define ASTRABI_ASSERT(x) ((void)0)
+#define ASTRABI_ASSERT(x) ((void)0)
 #else
-  #if defined(ASTRABI_COMPILER_MSVC)
-    #define ASTRABI_ASSERT(x) __assume(x)
-  #else
-    #define ASTRABI_ASSERT(x) ((x) ? (void)0 : __builtin_unreachable())
-  #endif
+#if defined(ASTRABI_COMPILER_MSVC)
+#define ASTRABI_ASSERT(x) __assume(x)
+#else
+#define ASTRABI_ASSERT(x) ((x) ? (void)0 : __builtin_unreachable())
+#endif
 #endif
 
 // ==============================================================================
 // Unreachable Macro
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_UNREACHABLE() __assume(0)
+#define ASTRABI_UNREACHABLE() __assume(0)
 #else
-  #define ASTRABI_UNREACHABLE() __builtin_unreachable()
+#define ASTRABI_UNREACHABLE() __builtin_unreachable()
 #endif
 
 // ==============================================================================
 // Thread Local Storage
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_THREAD_LOCAL __declspec(thread)
+#define ASTRABI_THREAD_LOCAL __declspec(thread)
 #else
-  #define ASTRABI_THREAD_LOCAL thread_local
+#define ASTRABI_THREAD_LOCAL thread_local
 #endif
 
 // ==============================================================================
 // Cache Line Alignment
 // ==============================================================================
 #if defined(ASTRABI_COMPILER_MSVC)
-  #define ASTRABI_CACHE_LINE_ALIGNED __declspec(align(64))
+#define ASTRABI_CACHE_LINE_ALIGNED __declspec(align(64))
 #else
-  #define ASTRABI_CACHE_LINE_ALIGNED __attribute__((aligned(64)))
+#define ASTRABI_CACHE_LINE_ALIGNED __attribute__((aligned(64)))
 #endif
 
 // ==============================================================================

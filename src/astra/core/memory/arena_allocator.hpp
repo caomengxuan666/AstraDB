@@ -9,6 +9,7 @@
 #include <absl/base/log_severity.h>
 #include <absl/base/thread_annotations.h>
 #include <absl/types/span.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -37,7 +38,7 @@ class Arena final {
 
   // Constructor
   explicit Arena(size_t block_size = kDefaultBlockSize);
-  
+
   // Destructor
   ~Arena();
 
@@ -107,8 +108,8 @@ class ArenaAllocator {
   // Allocate
   T* allocate(size_t n) {
     if (arena_) {
-      return static_cast<T*>(arena_->AllocateAligned(
-          n * sizeof(T), alignof(T)));
+      return static_cast<T*>(
+          arena_->AllocateAligned(n * sizeof(T), alignof(T)));
     }
     return static_cast<T*>(::operator new(n * sizeof(T)));
   }
@@ -148,9 +149,7 @@ inline Arena::Arena(size_t block_size)
   AllocateBlock(block_size_);
 }
 
-inline Arena::~Arena() {
-  Reset();
-}
+inline Arena::~Arena() { Reset(); }
 
 inline void* Arena::Allocate(size_t bytes) {
   return AllocateAligned(bytes, kAlignment);
@@ -166,7 +165,7 @@ inline void* Arena::AllocateAligned(size_t bytes, size_t alignment) {
   if (current_block_index_ < blocks_.size()) {
     Block& block = blocks_[current_block_index_];
     size_t aligned_offset = (block.used + alignment - 1) & ~(alignment - 1);
-    
+
     if (aligned_offset + aligned_bytes <= block.size) {
       void* ptr = block.ptr + aligned_offset;
       block.used = aligned_offset + aligned_bytes;
@@ -177,23 +176,23 @@ inline void* Arena::AllocateAligned(size_t bytes, size_t alignment) {
 
   // Allocate new block
   AllocateBlock(std::max(aligned_bytes, block_size_));
-  
+
   // Retry allocation
   return AllocateAligned(bytes, alignment);
 }
 
 inline void Arena::AllocateBlock(size_t min_size) {
   size_t block_size = std::max(min_size, block_size_);
-  
+
   char* ptr = static_cast<char*>(::operator new(block_size));
   Block block = {ptr, block_size, 0};
-  
+
   if (current_block_index_ < blocks_.size()) {
     blocks_[current_block_index_] = block;
   } else {
     blocks_.push_back(block);
   }
-  
+
   current_block_index_ = blocks_.size() - 1;
 }
 
@@ -206,4 +205,4 @@ inline void Arena::Reset() {
   current_block_index_ = 0;
 }
 
-} // namespace astra::core::memory
+}  // namespace astra::core::memory

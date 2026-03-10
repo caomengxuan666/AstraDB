@@ -5,16 +5,19 @@
 // ==============================================================================
 
 #include "hash_commands.hpp"
-#include "command_auto_register.hpp"
-#include "astra/protocol/resp/resp_builder.hpp"
-#include <absl/strings/ascii.h>
+
 #include <absl/container/flat_hash_map.h>
+#include <absl/strings/ascii.h>
+
+#include "astra/protocol/resp/resp_builder.hpp"
+#include "command_auto_register.hpp"
 
 namespace astra::commands {
 
 // Global map to store hash field expiration times
 // Format: key -> field -> expire_time_ms
-using HashFieldExpireMap = absl::flat_hash_map<std::string, absl::flat_hash_map<std::string, int64_t>>;
+using HashFieldExpireMap =
+    absl::flat_hash_map<std::string, absl::flat_hash_map<std::string, int64_t>>;
 static HashFieldExpireMap g_hash_field_expires;
 
 // Helper function to check if a hash field is expired
@@ -23,12 +26,12 @@ bool IsHashFieldExpired(const std::string& key, const std::string& field) {
   if (key_it == g_hash_field_expires.end()) {
     return false;  // No expiration set
   }
-  
+
   auto field_it = key_it->second.find(field);
   if (field_it == key_it->second.end()) {
     return false;  // No expiration set
   }
-  
+
   return field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs();
 }
 
@@ -38,16 +41,16 @@ void CleanupExpiredHashFields(Database* db, const std::string& key) {
   if (key_it == g_hash_field_expires.end()) {
     return;
   }
-  
+
   int64_t now = astra::storage::KeyMetadata::GetCurrentTimeMs();
   std::vector<std::string> expired_fields;
-  
+
   for (const auto& [field, expire_time] : key_it->second) {
     if (expire_time <= now) {
       expired_fields.push_back(field);
     }
   }
-  
+
   // Delete expired fields
   for (const auto& field : expired_fields) {
     db->HDel(key, field);
@@ -61,25 +64,28 @@ int64_t GetHashFieldTtlMs(const std::string& key, const std::string& field) {
   if (key_it == g_hash_field_expires.end()) {
     return -1;  // No expiration set
   }
-  
+
   auto field_it = key_it->second.find(field);
   if (field_it == key_it->second.end()) {
     return -1;  // No expiration set
   }
-  
-  int64_t ttl_ms = field_it->second - astra::storage::KeyMetadata::GetCurrentTimeMs();
+
+  int64_t ttl_ms =
+      field_it->second - astra::storage::KeyMetadata::GetCurrentTimeMs();
   if (ttl_ms <= 0) {
     return -2;  // Field is expired
   }
-  
+
   return ttl_ms;
 }
 
 // HSET key field value [field value ...]
-CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHSet(const astra::protocol::Command& command,
+                         CommandContext* context) {
   // Need at least: key field value (3 args), plus pairs of field-value
   if (command.ArgCount() < 3 || (command.ArgCount() - 1) % 2 != 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HSET' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HSET' command");
   }
 
   Database* db = context->GetDatabase();
@@ -116,9 +122,11 @@ CommandResult HandleHSet(const astra::protocol::Command& command, CommandContext
 }
 
 // HGET key field
-CommandResult HandleHGet(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHGet(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HGET' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HGET' command");
   }
 
   Database* db = context->GetDatabase();
@@ -145,9 +153,11 @@ CommandResult HandleHGet(const astra::protocol::Command& command, CommandContext
 }
 
 // HDEL key field [field ...]
-CommandResult HandleHDel(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHDel(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HDEL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HDEL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -177,9 +187,11 @@ CommandResult HandleHDel(const astra::protocol::Command& command, CommandContext
 }
 
 // HEXISTS key field
-CommandResult HandleHExists(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHExists(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HEXISTS' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HEXISTS' command");
   }
 
   Database* db = context->GetDatabase();
@@ -202,9 +214,11 @@ CommandResult HandleHExists(const astra::protocol::Command& command, CommandCont
 }
 
 // HINCRBYFLOAT key field increment
-CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHIncrByFloat(const astra::protocol::Command& command,
+                                 CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HINCRBYFLOAT' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HINCRBYFLOAT' command");
   }
 
   Database* db = context->GetDatabase();
@@ -216,14 +230,15 @@ CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, Comman
   const auto& field_arg = command[1];
   const auto& incr_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !incr_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !incr_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
   std::string key = key_arg.AsString();
   std::string field = field_arg.AsString();
   double increment;
-  
+
   try {
     if (!absl::SimpleAtod(incr_arg.AsString(), &increment)) {
       return CommandResult(false, "ERR value is not a valid float");
@@ -233,19 +248,21 @@ CommandResult HandleHIncrByFloat(const astra::protocol::Command& command, Comman
   }
 
   double new_value = db->HIncrByFloat(key, field, increment);
-  
+
   // Log to AOF
   std::string incr_str = incr_arg.AsString();
   std::array<absl::string_view, 3> aof_args = {key, field, incr_str};
   context->LogToAof("HINCRBYFLOAT", aof_args);
-  
+
   return CommandResult(RespValue(new_value));
 }
 
 // HGETALL key
-CommandResult HandleHGetAll(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHGetAll(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HGETALL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HGETALL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -268,13 +285,16 @@ CommandResult HandleHGetAll(const astra::protocol::Command& command, CommandCont
     array.emplace_back(RespValue(std::string(value)));
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HLEN key
-CommandResult HandleHLen(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHLen(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HLEN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HLEN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -293,9 +313,11 @@ CommandResult HandleHLen(const astra::protocol::Command& command, CommandContext
 }
 
 // HKEYS key - Get all field names in a hash
-CommandResult HandleHKeys(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHKeys(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HKEYS' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HKEYS' command");
   }
 
   Database* db = context->GetDatabase();
@@ -317,13 +339,16 @@ CommandResult HandleHKeys(const astra::protocol::Command& command, CommandContex
     array.emplace_back(RespValue(std::string(field)));
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HVALS key - Get all values in a hash
-CommandResult HandleHVals(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHVals(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 1) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HVALS' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HVALS' command");
   }
 
   Database* db = context->GetDatabase();
@@ -345,13 +370,16 @@ CommandResult HandleHVals(const astra::protocol::Command& command, CommandContex
     array.emplace_back(RespValue(std::string(value)));
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
 // HINCRBY key field increment
-CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHIncrBy(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HINCRBY' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HINCRBY' command");
   }
 
   Database* db = context->GetDatabase();
@@ -363,7 +391,8 @@ CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandCont
   const auto& field_arg = command[1];
   const auto& incr_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !incr_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !incr_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -373,7 +402,8 @@ CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandCont
 
   try {
     if (!absl::SimpleAtoi(incr_arg.AsString(), &increment)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   } catch (...) {
     return CommandResult(false, "ERR value is not an integer or out of range");
@@ -384,9 +414,11 @@ CommandResult HandleHIncrBy(const astra::protocol::Command& command, CommandCont
 }
 
 // HSETNX key field value
-CommandResult HandleHSetNx(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHSetNx(const astra::protocol::Command& command,
+                           CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HSETNX' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HSETNX' command");
   }
 
   Database* db = context->GetDatabase();
@@ -398,7 +430,8 @@ CommandResult HandleHSetNx(const astra::protocol::Command& command, CommandConte
   const auto& field_arg = command[1];
   const auto& value_arg = command[2];
 
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !value_arg.IsBulkString()) {
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !value_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
   }
 
@@ -411,9 +444,11 @@ CommandResult HandleHSetNx(const astra::protocol::Command& command, CommandConte
 }
 
 // HMGET key field [field ...]
-CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHMGet(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HMGET' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HMGET' command");
   }
 
   Database* db = context->GetDatabase();
@@ -447,13 +482,17 @@ CommandResult HandleHMGet(const astra::protocol::Command& command, CommandContex
     }
   }
 
-  return CommandResult(RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  return CommandResult(
+      RespValue(std::vector<RespValue>(array.begin(), array.end())));
 }
 
-// HSTRLEN key field - Get the length of the value associated with field in the hash
-CommandResult HandleHStrLen(const astra::protocol::Command& command, CommandContext* context) {
+// HSTRLEN key field - Get the length of the value associated with field in the
+// hash
+CommandResult HandleHStrLen(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HSTRLEN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HSTRLEN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -479,10 +518,13 @@ CommandResult HandleHStrLen(const astra::protocol::Command& command, CommandCont
   return CommandResult(RespValue(static_cast<int64_t>(value.value().length())));
 }
 
-// HRANDFIELD key [count [WITHVALUES]] - Get one or more random fields from a hash
-CommandResult HandleHRandField(const astra::protocol::Command& command, CommandContext* context) {
+// HRANDFIELD key [count [WITHVALUES]] - Get one or more random fields from a
+// hash
+CommandResult HandleHRandField(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 1 || command.ArgCount() > 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HRANDFIELD' command");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HRANDFIELD' command");
   }
 
   Database* db = context->GetDatabase();
@@ -518,7 +560,8 @@ CommandResult HandleHRandField(const astra::protocol::Command& command, CommandC
       return CommandResult(false, "ERR wrong type of count argument");
     }
     if (!absl::SimpleAtoi(count_arg.AsString(), &count)) {
-      return CommandResult(false, "ERR value is not an integer or out of range");
+      return CommandResult(false,
+                           "ERR value is not an integer or out of range");
     }
   }
 
@@ -536,11 +579,13 @@ CommandResult HandleHRandField(const astra::protocol::Command& command, CommandC
   std::vector<std::string> random_fields;
   if (count > 0) {
     // Get unique random fields (when count is positive)
-    size_t actual_count = static_cast<size_t>(std::min(count, static_cast<int64_t>(all_fields.size())));
+    size_t actual_count = static_cast<size_t>(
+        std::min(count, static_cast<int64_t>(all_fields.size())));
     std::vector<size_t> indices(all_fields.size());
     std::iota(indices.begin(), indices.end(), 0);
-    std::shuffle(indices.begin(), indices.end(), std::mt19937(std::random_device()()));
-    
+    std::shuffle(indices.begin(), indices.end(),
+                 std::mt19937(std::random_device()()));
+
     for (size_t i = 0; i < actual_count; ++i) {
       random_fields.push_back(all_fields[indices[i]]);
     }
@@ -575,10 +620,13 @@ CommandResult HandleHRandField(const astra::protocol::Command& command, CommandC
   return CommandResult(RespValue(std::move(result)));
 }
 
-// HMSET key field value [field value ...] - Set multiple hash fields (deprecated in Redis 4+, but we support it)
-CommandResult HandleHMSet(const astra::protocol::Command& command, CommandContext* context) {
+// HMSET key field value [field value ...] - Set multiple hash fields
+// (deprecated in Redis 4+, but we support it)
+CommandResult HandleHMSet(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 3 || command.ArgCount() % 2 == 0) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HMSET' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HMSET' command");
   }
 
   Database* db = context->GetDatabase();
@@ -610,9 +658,11 @@ CommandResult HandleHMSet(const astra::protocol::Command& command, CommandContex
 }
 
 // HTTL key field [field ...] - Get TTL of hash fields
-CommandResult HandleHTTL(const astra::protocol::Command& command, CommandContext* context) {
+CommandResult HandleHTTL(const astra::protocol::Command& command,
+                         CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HTTL' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HTTL' command");
   }
 
   Database* db = context->GetDatabase();
@@ -629,8 +679,10 @@ CommandResult HandleHTTL(const astra::protocol::Command& command, CommandContext
 
   // Check if key exists and is a hash
   auto key_type = db->GetType(key);
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-    std::vector<RespValue> result(command.ArgCount() - 1, RespValue(static_cast<int64_t>(-2)));
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
+    std::vector<RespValue> result(command.ArgCount() - 1,
+                                  RespValue(static_cast<int64_t>(-2)));
     return CommandResult(RespValue(std::move(result)));
   }
 
@@ -649,10 +701,13 @@ CommandResult HandleHTTL(const astra::protocol::Command& command, CommandContext
   return CommandResult(RespValue(std::move(result)));
 }
 
-// HSCAN key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash fields
-CommandResult HandleHScan(const astra::protocol::Command& command, CommandContext* context) {
+// HSCAN key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash
+// fields
+CommandResult HandleHScan(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() < 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'HSCAN' command");
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HSCAN' command");
   }
 
   Database* db = context->GetDatabase();
@@ -677,13 +732,13 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
 
   // Get all fields from hash
   auto all_data = db->HGetAll(key);
-  
+
   // Extract field names
   std::vector<std::string> all_fields;
   for (const auto& [field, value] : all_data) {
     all_fields.push_back(field);
   }
-  
+
   // Parse options
   std::string pattern = "*";
   size_t count = 10;
@@ -699,7 +754,8 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
       pattern = command[++i].AsString();
     } else if (opt == "COUNT" && i + 1 < command.ArgCount()) {
       if (!absl::SimpleAtoi(command[++i].AsString(), &count)) {
-        return CommandResult(false, "ERR value is not an integer or out of range");
+        return CommandResult(false,
+                             "ERR value is not an integer or out of range");
       }
     }
   }
@@ -710,18 +766,21 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
     bool matches = false;
     if (pattern == "*") {
       matches = true;
-    } else if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
+    } else if (pattern[0] == '*' && pattern.back() == '*' &&
+               pattern.size() > 1) {
       // *middle* - contains
       std::string middle = pattern.substr(1, pattern.size() - 2);
       matches = (field.find(middle) != std::string::npos);
     } else if (pattern[0] == '*' && pattern.size() > 1) {
       // *suffix - ends with
       std::string suffix = pattern.substr(1);
-      matches = (field.size() >= suffix.size() && field.substr(field.size() - suffix.size()) == suffix);
+      matches = (field.size() >= suffix.size() &&
+                 field.substr(field.size() - suffix.size()) == suffix);
     } else if (pattern.back() == '*' && pattern.size() > 1) {
       // prefix* - starts with
       std::string prefix = pattern.substr(0, pattern.size() - 1);
-      matches = (field.size() >= prefix.size() && field.substr(0, prefix.size()) == prefix);
+      matches = (field.size() >= prefix.size() &&
+                 field.substr(0, prefix.size()) == prefix);
     } else {
       // exact match
       matches = (field == pattern);
@@ -736,11 +795,11 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
   std::vector<RespValue> result_array;
   size_t start = static_cast<size_t>(cursor);
   size_t end = std::min(start + count, matched_fields.size());
-  
+
   for (size_t i = start; i < end; ++i) {
     const auto& field = matched_fields[i];
     result_array.emplace_back(RespValue(field));
-    
+
     auto value = db->HGet(key, field);
     if (value.has_value()) {
       result_array.emplace_back(RespValue(value.value()));
@@ -751,13 +810,13 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
 
   // Build response
   std::vector<RespValue> response;
-  
+
   // New cursor
   uint64_t new_cursor = (end >= matched_fields.size()) ? 0 : end;
   RespValue cursor_val;
   cursor_val.SetString(std::to_string(new_cursor), RespType::kBulkString);
   response.emplace_back(cursor_val);
-  
+
   // Results
   response.emplace_back(RespValue(std::move(result_array)));
 
@@ -766,67 +825,73 @@ CommandResult HandleHScan(const astra::protocol::Command& command, CommandContex
 
 // Auto-register all hash commands
 
-ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHSet);
+ASTRADB_REGISTER_COMMAND(HSET, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleHSet);
 
-ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHGet);
+ASTRADB_REGISTER_COMMAND(HGET, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHGet);
 
-ASTRADB_REGISTER_COMMAND(HDEL, -3, "write", RoutingStrategy::kByFirstKey, HandleHDel);
+ASTRADB_REGISTER_COMMAND(HDEL, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHDel);
 
-ASTRADB_REGISTER_COMMAND(HEXISTS, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExists);
+ASTRADB_REGISTER_COMMAND(HEXISTS, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHExists);
 
-ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHGetAll);
+ASTRADB_REGISTER_COMMAND(HGETALL, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHGetAll);
 
-ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHLen);
+ASTRADB_REGISTER_COMMAND(HLEN, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHLen);
 
-ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHKeys);
+ASTRADB_REGISTER_COMMAND(HKEYS, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHKeys);
 
-ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey, HandleHVals);
+ASTRADB_REGISTER_COMMAND(HVALS, 2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHVals);
 
-ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrBy);
+ASTRADB_REGISTER_COMMAND(HINCRBY, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleHIncrBy);
 
-ASTRADB_REGISTER_COMMAND(HINCRBYFLOAT, 4, "write", RoutingStrategy::kByFirstKey, HandleHIncrByFloat);
+ASTRADB_REGISTER_COMMAND(HINCRBYFLOAT, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleHIncrByFloat);
 
-ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey, HandleHSetNx);
+ASTRADB_REGISTER_COMMAND(HSETNX, 4, "write", RoutingStrategy::kByFirstKey,
+                         HandleHSetNx);
 
-ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHMGet);
+ASTRADB_REGISTER_COMMAND(HMGET, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHMGet);
 
-ASTRADB_REGISTER_COMMAND(HSTRLEN, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHStrLen);
+ASTRADB_REGISTER_COMMAND(HSTRLEN, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHStrLen);
 
-ASTRADB_REGISTER_COMMAND(HRANDFIELD, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHRandField);
+ASTRADB_REGISTER_COMMAND(HRANDFIELD, -2, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleHRandField);
 
-ASTRADB_REGISTER_COMMAND(HMSET, -4, "write", RoutingStrategy::kByFirstKey, HandleHMSet);
+ASTRADB_REGISTER_COMMAND(HMSET, -4, "write", RoutingStrategy::kByFirstKey,
+                         HandleHMSet);
 
-ASTRADB_REGISTER_COMMAND(HTTL, -2, "readonly", RoutingStrategy::kByFirstKey, HandleHTTL);
+ASTRADB_REGISTER_COMMAND(HTTL, -2, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHTTL);
 
-ASTRADB_REGISTER_COMMAND(HSCAN, -3, "readonly", RoutingStrategy::kByFirstKey, HandleHScan);
-
-
+ASTRADB_REGISTER_COMMAND(HSCAN, -3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHScan);
 
 // ========== Hash Field TTL Commands ==========
 
-
-
 // HEXPIRE key field seconds [NX|XX|GT|LT]
 
-CommandResult HandleHExpire(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHExpire(const astra::protocol::Command& command,
+                            CommandContext* context) {
   if (command.ArgCount() < 3) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIRE' command");
-
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HEXPIRE' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
@@ -834,15 +899,10 @@ CommandResult HandleHExpire(const astra::protocol::Command& command, CommandCont
 
   const auto& seconds_arg = command[2];
 
-
-
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !seconds_arg.IsBulkString()) {
-
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !seconds_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
@@ -850,41 +910,28 @@ CommandResult HandleHExpire(const astra::protocol::Command& command, CommandCont
 
   std::string seconds_str = seconds_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Parse seconds
 
   int64_t seconds;
 
   if (!absl::SimpleAtoi(seconds_str, &seconds) || seconds <= 0) {
-
     return CommandResult(false, "ERR value is not an integer or out of range");
-
   }
-
-
 
   // Parse options
 
@@ -896,79 +943,67 @@ CommandResult HandleHExpire(const astra::protocol::Command& command, CommandCont
 
   bool lt = false;  // Only set if new TTL < current TTL
 
-
-
   for (size_t i = 3; i < command.ArgCount(); ++i) {
-
     std::string option = absl::AsciiStrToUpper(command[i].AsString());
 
-    if (option == "NX") nx = true;
+    if (option == "NX")
+      nx = true;
 
-    else if (option == "XX") xx = true;
+    else if (option == "XX")
+      xx = true;
 
-    else if (option == "GT") gt = true;
+    else if (option == "GT")
+      gt = true;
 
-    else if (option == "LT") lt = true;
+    else if (option == "LT")
+      lt = true;
 
-    else return CommandResult(false, "ERR syntax error");
-
+    else
+      return CommandResult(false, "ERR syntax error");
   }
-
-
 
   // Check current TTL
 
   int64_t current_ttl = GetHashFieldTtlMs(key, field);
 
-
-
   // Apply conditions
 
-  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (nx && current_ttl != -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (xx && current_ttl == -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (gt && (current_ttl == -1 || current_ttl >= seconds * 1000)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (gt && (current_ttl == -1 || current_ttl >= seconds * 1000))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (lt && (current_ttl == -1 || current_ttl <= seconds * 1000)) return CommandResult(RespValue(static_cast<int64_t>(0)));
-
-
+  if (lt && (current_ttl == -1 || current_ttl <= seconds * 1000))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
   // Set expiration
 
-  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + seconds * 1000;
+  int64_t expire_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() + seconds * 1000;
 
   g_hash_field_expires[key][field] = expire_time_ms;
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(1)));
-
 }
-
-
 
 // HEXPIREAT key field unix-time-seconds [NX|XX|GT|LT]
 
-CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHExpireAt(const astra::protocol::Command& command,
+                              CommandContext* context) {
   if (command.ArgCount() < 3) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIREAT' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HEXPIREAT' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
@@ -976,15 +1011,10 @@ CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandCo
 
   const auto& timestamp_arg = command[2];
 
-
-
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !timestamp_arg.IsBulkString()) {
-
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !timestamp_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
@@ -992,41 +1022,28 @@ CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandCo
 
   std::string timestamp_str = timestamp_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Parse timestamp
 
   int64_t timestamp;
 
   if (!absl::SimpleAtoi(timestamp_str, &timestamp) || timestamp <= 0) {
-
     return CommandResult(false, "ERR value is not an integer or out of range");
-
   }
-
-
 
   // Parse options
 
@@ -1038,25 +1055,24 @@ CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandCo
 
   bool lt = false;
 
-
-
   for (size_t i = 3; i < command.ArgCount(); ++i) {
-
     std::string option = absl::AsciiStrToUpper(command[i].AsString());
 
-    if (option == "NX") nx = true;
+    if (option == "NX")
+      nx = true;
 
-    else if (option == "XX") xx = true;
+    else if (option == "XX")
+      xx = true;
 
-    else if (option == "GT") gt = true;
+    else if (option == "GT")
+      gt = true;
 
-    else if (option == "LT") lt = true;
+    else if (option == "LT")
+      lt = true;
 
-    else return CommandResult(false, "ERR syntax error");
-
+    else
+      return CommandResult(false, "ERR syntax error");
   }
-
-
 
   // Check current TTL
 
@@ -1064,245 +1080,172 @@ CommandResult HandleHExpireAt(const astra::protocol::Command& command, CommandCo
 
   int64_t new_expire_time_ms = timestamp * 1000;
 
-
-
   // Apply conditions
 
-  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (nx && current_ttl != -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (xx && current_ttl == -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (gt && (current_ttl == -1 || new_expire_time_ms <= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (gt &&
+      (current_ttl == -1 ||
+       new_expire_time_ms <=
+           (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl)))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (lt && (current_ttl == -1 || new_expire_time_ms >= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
-
-
+  if (lt &&
+      (current_ttl == -1 ||
+       new_expire_time_ms >=
+           (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl)))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
   // Set expiration
 
   g_hash_field_expires[key][field] = new_expire_time_ms;
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(1)));
-
 }
-
-
 
 // HEXPIRETIME key field
 
-CommandResult HandleHExpireTime(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHExpireTime(const astra::protocol::Command& command,
+                                CommandContext* context) {
   if (command.ArgCount() != 2) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HEXPIRETIME' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HEXPIRETIME' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
   const auto& field_arg = command[1];
 
-
-
   if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
-
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
   std::string field = field_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Get expire time
 
   auto key_it = g_hash_field_expires.find(key);
 
   if (key_it == g_hash_field_expires.end()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
-
-
 
   auto field_it = key_it->second.find(field);
 
   if (field_it == key_it->second.end()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
-
-
 
   // Check if expired
 
   if (field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
 
-
-
-  return CommandResult(RespValue(static_cast<int64_t>(field_it->second / 1000)));
-
+  return CommandResult(
+      RespValue(static_cast<int64_t>(field_it->second / 1000)));
 }
-
-
 
 // HPERSIST key field
 
-CommandResult HandleHPersist(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHPersist(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() != 2) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HPERSIST' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HPERSIST' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
   const auto& field_arg = command[1];
 
-
-
   if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
-
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
   std::string field = field_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Remove expiration
 
   auto key_it = g_hash_field_expires.find(key);
 
   if (key_it != g_hash_field_expires.end()) {
-
     key_it->second.erase(field);
 
     if (key_it->second.empty()) {
-
       g_hash_field_expires.erase(key_it);
-
     }
 
     return CommandResult(RespValue(static_cast<int64_t>(1)));
-
   }
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(0)));
-
 }
-
-
 
 // HPEXPIRE key field milliseconds [NX|XX|GT|LT]
 
-CommandResult HandleHPExpire(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHPExpire(const astra::protocol::Command& command,
+                             CommandContext* context) {
   if (command.ArgCount() < 3) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIRE' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HPEXPIRE' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
@@ -1310,15 +1253,10 @@ CommandResult HandleHPExpire(const astra::protocol::Command& command, CommandCon
 
   const auto& ms_arg = command[2];
 
-
-
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !ms_arg.IsBulkString()) {
-
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !ms_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
@@ -1326,41 +1264,28 @@ CommandResult HandleHPExpire(const astra::protocol::Command& command, CommandCon
 
   std::string ms_str = ms_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Parse milliseconds
 
   int64_t milliseconds;
 
   if (!absl::SimpleAtoi(ms_str, &milliseconds) || milliseconds <= 0) {
-
     return CommandResult(false, "ERR value is not an integer or out of range");
-
   }
-
-
 
   // Parse options
 
@@ -1372,79 +1297,67 @@ CommandResult HandleHPExpire(const astra::protocol::Command& command, CommandCon
 
   bool lt = false;
 
-
-
   for (size_t i = 3; i < command.ArgCount(); ++i) {
-
     std::string option = absl::AsciiStrToUpper(command[i].AsString());
 
-    if (option == "NX") nx = true;
+    if (option == "NX")
+      nx = true;
 
-    else if (option == "XX") xx = true;
+    else if (option == "XX")
+      xx = true;
 
-    else if (option == "GT") gt = true;
+    else if (option == "GT")
+      gt = true;
 
-    else if (option == "LT") lt = true;
+    else if (option == "LT")
+      lt = true;
 
-    else return CommandResult(false, "ERR syntax error");
-
+    else
+      return CommandResult(false, "ERR syntax error");
   }
-
-
 
   // Check current TTL
 
   int64_t current_ttl = GetHashFieldTtlMs(key, field);
 
-
-
   // Apply conditions
 
-  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (nx && current_ttl != -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (xx && current_ttl == -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (gt && (current_ttl == -1 || current_ttl >= milliseconds)) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (gt && (current_ttl == -1 || current_ttl >= milliseconds))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (lt && (current_ttl == -1 || current_ttl <= milliseconds)) return CommandResult(RespValue(static_cast<int64_t>(0)));
-
-
+  if (lt && (current_ttl == -1 || current_ttl <= milliseconds))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
   // Set expiration
 
-  int64_t expire_time_ms = astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds;
+  int64_t expire_time_ms =
+      astra::storage::KeyMetadata::GetCurrentTimeMs() + milliseconds;
 
   g_hash_field_expires[key][field] = expire_time_ms;
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(1)));
-
 }
-
-
 
 // HPEXPIREAT key field unix-time-milliseconds [NX|XX|GT|LT]
 
-CommandResult HandleHPExpireAt(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHPExpireAt(const astra::protocol::Command& command,
+                               CommandContext* context) {
   if (command.ArgCount() < 3) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIREAT' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HPEXPIREAT' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
@@ -1452,15 +1365,10 @@ CommandResult HandleHPExpireAt(const astra::protocol::Command& command, CommandC
 
   const auto& timestamp_arg = command[2];
 
-
-
-  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() || !timestamp_arg.IsBulkString()) {
-
+  if (!key_arg.IsBulkString() || !field_arg.IsBulkString() ||
+      !timestamp_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
@@ -1468,41 +1376,28 @@ CommandResult HandleHPExpireAt(const astra::protocol::Command& command, CommandC
 
   std::string timestamp_str = timestamp_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(0)));
-
   }
-
-
 
   // Parse timestamp
 
   int64_t timestamp;
 
   if (!absl::SimpleAtoi(timestamp_str, &timestamp) || timestamp <= 0) {
-
     return CommandResult(false, "ERR value is not an integer or out of range");
-
   }
-
-
 
   // Parse options
 
@@ -1514,250 +1409,192 @@ CommandResult HandleHPExpireAt(const astra::protocol::Command& command, CommandC
 
   bool lt = false;
 
-
-
   for (size_t i = 3; i < command.ArgCount(); ++i) {
-
     std::string option = absl::AsciiStrToUpper(command[i].AsString());
 
-    if (option == "NX") nx = true;
+    if (option == "NX")
+      nx = true;
 
-    else if (option == "XX") xx = true;
+    else if (option == "XX")
+      xx = true;
 
-    else if (option == "GT") gt = true;
+    else if (option == "GT")
+      gt = true;
 
-    else if (option == "LT") lt = true;
+    else if (option == "LT")
+      lt = true;
 
-    else return CommandResult(false, "ERR syntax error");
-
+    else
+      return CommandResult(false, "ERR syntax error");
   }
-
-
 
   // Check current TTL
 
   int64_t current_ttl = GetHashFieldTtlMs(key, field);
 
-
-
   // Apply conditions
 
-  if (nx && current_ttl != -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (nx && current_ttl != -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (xx && current_ttl == -1) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (xx && current_ttl == -1)
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (gt && (current_ttl == -1 || timestamp <= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
+  if (gt && (current_ttl == -1 ||
+             timestamp <= (astra::storage::KeyMetadata::GetCurrentTimeMs() +
+                           current_ttl)))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
-  if (lt && (current_ttl == -1 || timestamp >= (astra::storage::KeyMetadata::GetCurrentTimeMs() + current_ttl))) return CommandResult(RespValue(static_cast<int64_t>(0)));
-
-
+  if (lt && (current_ttl == -1 ||
+             timestamp >= (astra::storage::KeyMetadata::GetCurrentTimeMs() +
+                           current_ttl)))
+    return CommandResult(RespValue(static_cast<int64_t>(0)));
 
   // Set expiration
 
   g_hash_field_expires[key][field] = timestamp;
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(1)));
-
 }
-
-
 
 // HPEXPIRETIME key field
 
-CommandResult HandleHPExpireTime(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHPExpireTime(const astra::protocol::Command& command,
+                                 CommandContext* context) {
   if (command.ArgCount() != 2) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HPEXPIRETIME' command");
-
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'HPEXPIRETIME' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
   const auto& field_arg = command[1];
 
-
-
   if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
-
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
   std::string field = field_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Get expire time
 
   auto key_it = g_hash_field_expires.find(key);
 
   if (key_it == g_hash_field_expires.end()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
-
-
 
   auto field_it = key_it->second.find(field);
 
   if (field_it == key_it->second.end()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
-
-
 
   // Check if expired
 
   if (field_it->second <= astra::storage::KeyMetadata::GetCurrentTimeMs()) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-1)));
-
   }
 
-
-
   return CommandResult(RespValue(static_cast<int64_t>(field_it->second)));
-
 }
-
-
 
 // HPTTL key field
 
-CommandResult HandleHPTTL(const astra::protocol::Command& command, CommandContext* context) {
-
+CommandResult HandleHPTTL(const astra::protocol::Command& command,
+                          CommandContext* context) {
   if (command.ArgCount() != 2) {
-
-    return CommandResult(false, "ERR wrong number of arguments for 'HPTTL' command");
-
+    return CommandResult(false,
+                         "ERR wrong number of arguments for 'HPTTL' command");
   }
-
-
 
   Database* db = context->GetDatabase();
 
   if (!db) {
-
     return CommandResult(false, "ERR database not initialized");
-
   }
-
-
 
   const auto& key_arg = command[0];
 
   const auto& field_arg = command[1];
 
-
-
   if (!key_arg.IsBulkString() || !field_arg.IsBulkString()) {
-
     return CommandResult(false, "ERR wrong type of argument");
-
   }
-
-
 
   std::string key = key_arg.AsString();
 
   std::string field = field_arg.AsString();
 
-
-
   // Check if hash exists
 
   auto key_type = db->GetType(key);
 
-  if (!key_type.has_value() || key_type.value() != astra::storage::KeyType::kHash) {
-
+  if (!key_type.has_value() ||
+      key_type.value() != astra::storage::KeyType::kHash) {
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Check if field exists
 
   if (!db->HExists(key, field)) {
-
     return CommandResult(RespValue(static_cast<int64_t>(-2)));
-
   }
-
-
 
   // Get TTL
 
   int64_t ttl_ms = GetHashFieldTtlMs(key, field);
 
   return CommandResult(RespValue(static_cast<int64_t>(ttl_ms)));
-
 }
-
-
 
 // Register Hash Field TTL commands
 
-ASTRADB_REGISTER_COMMAND(HEXPIRE, -3, "write", RoutingStrategy::kByFirstKey, HandleHExpire);
+ASTRADB_REGISTER_COMMAND(HEXPIRE, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHExpire);
 
-ASTRADB_REGISTER_COMMAND(HEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey, HandleHExpireAt);
+ASTRADB_REGISTER_COMMAND(HEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHExpireAt);
 
-ASTRADB_REGISTER_COMMAND(HEXPIRETIME, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHExpireTime);
+ASTRADB_REGISTER_COMMAND(HEXPIRETIME, 3, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleHExpireTime);
 
-ASTRADB_REGISTER_COMMAND(HPERSIST, 3, "write", RoutingStrategy::kByFirstKey, HandleHPersist);
+ASTRADB_REGISTER_COMMAND(HPERSIST, 3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHPersist);
 
-ASTRADB_REGISTER_COMMAND(HPEXPIRE, -3, "write", RoutingStrategy::kByFirstKey, HandleHPExpire);
+ASTRADB_REGISTER_COMMAND(HPEXPIRE, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHPExpire);
 
-ASTRADB_REGISTER_COMMAND(HPEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey, HandleHPExpireAt);
+ASTRADB_REGISTER_COMMAND(HPEXPIREAT, -3, "write", RoutingStrategy::kByFirstKey,
+                         HandleHPExpireAt);
 
-ASTRADB_REGISTER_COMMAND(HPEXPIRETIME, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHPExpireTime);
+ASTRADB_REGISTER_COMMAND(HPEXPIRETIME, 3, "readonly",
+                         RoutingStrategy::kByFirstKey, HandleHPExpireTime);
 
-ASTRADB_REGISTER_COMMAND(HPTTL, 3, "readonly", RoutingStrategy::kByFirstKey, HandleHPTTL);
-
-
+ASTRADB_REGISTER_COMMAND(HPTTL, 3, "readonly", RoutingStrategy::kByFirstKey,
+                         HandleHPTTL);
 
 }  // namespace astra::commands
