@@ -178,7 +178,7 @@ Cluster & Security:
 | **Concurrent Queue** | concurrentqueue | 1.0.4 | Lock-free queue |
 | **Cluster** | libgossip | 1.2.0 | Gossip protocol |
 | **Storage** | LevelDB | Latest | Key-value store |
-| **Metrics** | Prometheus Client | 1.2.2 | Metrics collection |
+| **Metrics** | Prometheus Client | 1.2.4 | Metrics collection |
 | **Compression** | zstd | 1.5.6 | Fast compression |
 | **Hashing** | xxHash | Latest | Fast hash function |
 | **JSON** | nlohmann_json | 3.11.2 | JSON parsing |
