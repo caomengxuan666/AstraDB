@@ -62,15 +62,20 @@ endif()
 
 # Link dependencies
 target_link_libraries(astra_persistence INTERFACE
-  astra_container
+ astra_container
   astra_base
   leveldb
-  zstd
+  zstd::zstd
   absl::strings
   absl::time
   absl::flat_hash_map
   spdlog::spdlog
 )
+
+# Add zstd include directory (propagates to all dependent targets)
+if(zstd_SOURCE_DIR)
+  target_include_directories(astra_persistence INTERFACE ${zstd_SOURCE_DIR}/lib)
+endif()
 
 # Platform-specific settings
 if(WIN32)

@@ -23,16 +23,18 @@ constexpr double kEarthRadiusMeters = 6372797.560856;
 constexpr double kEarthRadiusKm = 6372.797560856;
 constexpr double kEarthRadiusFeet = 20909579.7;
 constexpr double kEarthRadiusMiles = 3958.7600;
+constexpr double kPi = 3.14159265358979323846;
 
 // Helper: Convert degrees to radians
 static inline double DegToRad(double deg) {
-  return deg * M_PI / 180.0;
+  return deg * kPi / 180.0;
 }
 
 // Helper: Convert radians to degrees (reserved for future use)
 [[maybe_unused]] static inline double RadToDeg(double rad) {
-  return rad * 180.0 / M_PI;
+  return rad * 180.0 / kPi;
 }
+
 
 // Interleave lower bits of x and y (Redis implementation)
 // x goes to even positions, y goes to odd positions

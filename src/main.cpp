@@ -4,18 +4,17 @@
 // License: Apache 2.0
 // ==============================================================================
 
-#include "astra/server/server.hpp"
-#include "astra/base/logging.hpp"
-#include "astra/base/config.hpp"
-#include "astra/base/macros.hpp"
-
-#include <iostream>
-#include <string>
 #include <csignal>
+#include <cxxopts.hpp>
+#include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
 
-#include <cxxopts.hpp>
+#include "astra/base/config.hpp"
+#include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
+#include "astra/server/server.hpp"
 
 namespace {
 
@@ -31,42 +30,52 @@ void SignalHandler(int signal) {
 void SetupSignalHandlers() {
   std::signal(SIGINT, SignalHandler);
   std::signal(SIGTERM, SignalHandler);
-  
-  // Ignore SIGPIPE
+
+  // Ignore SIGPIPE (Unix/Linux only)
+#if !defined(_WIN32) && !defined(_WIN64)
   std::signal(SIGPIPE, SIG_IGN);
+#endif
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
   // Parse command line arguments using cxxopts
-  cxxopts::Options options("astradb", "AstraDB - High-Performance Redis-Compatible Database");
-  
-  options.add_options()
-    ("c,config", "Configuration file (default: astradb.toml)", cxxopts::value<std::string>()->default_value("astradb.toml"))
-    ("h,host", "Bind address (overrides config)", cxxopts::value<std::string>())
-    ("p,port", "Port number (overrides config)", cxxopts::value<uint16_t>())
-    ("t,threads", "Number of IO threads (overrides config, 0 = auto)", cxxopts::value<size_t>())
-    ("s,shards", "Number of database shards (overrides config)", cxxopts::value<size_t>())
-    ("d,databases", "Number of databases (overrides config)", cxxopts::value<size_t>())
-    ("l,log-level", "Log level (overrides config)", cxxopts::value<std::string>())
-    ("v,verbose", "Enable verbose logging (debug level)", cxxopts::value<bool>()->default_value("false"))
-    ("help", "Show help message", cxxopts::value<bool>()->default_value("false"));
-  
+  cxxopts::Options options(
+      "astradb", "AstraDB - High-Performance Redis-Compatible Database");
+
+  options.add_options()(
+      "c,config", "Configuration file (default: astradb.toml)",
+      cxxopts::value<std::string>()->default_value("astradb.toml"))(
+      "h,host", "Bind address (overrides config)",
+      cxxopts::value<std::string>())("p,port", "Port number (overrides config)",
+                                     cxxopts::value<uint16_t>())(
+      "t,threads", "Number of IO threads (overrides config, 0 = auto)",
+      cxxopts::value<size_t>())("s,shards",
+                                "Number of database shards (overrides config)",
+                                cxxopts::value<size_t>())(
+      "d,databases", "Number of databases (overrides config)",
+      cxxopts::value<size_t>())("l,log-level", "Log level (overrides config)",
+                                cxxopts::value<std::string>())(
+      "v,verbose", "Enable verbose logging (debug level)",
+      cxxopts::value<bool>()->default_value("false"))(
+      "help", "Show help message",
+      cxxopts::value<bool>()->default_value("false"));
+
   auto result = options.parse(argc, argv);
-  
+
   // Show help if requested
   if (result["help"].as<bool>()) {
     std::cout << options.help() << std::endl;
     return 0;
   }
-  
+
   // Get config file path
   std::string config_file = result["config"].as<std::string>();
-  
+
   // Load config from file
   auto config = astra::base::ServerConfig::LoadFromFile(config_file);
-  
+
   // Override config with command line arguments
   if (result.count("host")) {
     config.host = result["host"].as<std::string>();
@@ -89,7 +98,7 @@ int main(int argc, char** argv) {
   if (result["verbose"].as<bool>()) {
     config.log_level = "debug";
   }
-  
+
   // Parse log level
   spdlog::level::level_enum log_level = spdlog::level::info;
   if (config.log_level == "trace") {
@@ -107,53 +116,52 @@ int main(int argc, char** argv) {
   } else if (config.log_level == "off") {
     log_level = spdlog::level::off;
   }
-  
+
   // Initialize logging
-  astra::base::InitLogging(config.log_file, log_level, config.log_async, config.log_queue_size);
-  
+  astra::base::InitLogging(config.log_file, log_level, config.log_async,
+                           config.log_queue_size);
+
   ASTRADB_LOG_INFO("========================================");
   ASTRADB_LOG_INFO("AstraDB - High-Performance Redis-Compatible Database");
   ASTRADB_LOG_INFO("Version: {}", ASTRADB_VERSION_STRING);
   ASTRADB_LOG_INFO("========================================");
-  
+
   // Print build information
   ASTRADB_LOG_INFO("Build Configuration:");
-  ASTRADB_LOG_INFO("  Platform: {}", 
+
+  // Platform detection
+  const char* platform_name = "Unknown";
 #if defined(ASTRADB_PLATFORM_WINDOWS)
-      "Windows"
+  platform_name = "Windows";
 #elif defined(ASTRADB_PLATFORM_MACOS)
-      "macOS"
+  platform_name = "macOS";
 #elif defined(ASTRADB_PLATFORM_LINUX)
-      "Linux"
-#else
-      "Unknown"
+  platform_name = "Linux";
 #endif
-  );
-  
-  ASTRADB_LOG_INFO("  Architecture: {}",
+  ASTRADB_LOG_INFO("  Platform: {}", platform_name);
+
+  // Architecture detection
+  const char* arch_name = "Unknown";
 #if defined(ASTRADB_ARCH_X64)
-      "x86_64"
+  arch_name = "x86_64";
 #elif defined(ASTRADB_ARCH_ARM64)
-      "ARM64"
-#else
-      "Unknown"
+  arch_name = "ARM64";
 #endif
-  );
-  
-  ASTRADB_LOG_INFO("  Compiler: {}",
+  ASTRADB_LOG_INFO("  Architecture: {}", arch_name);
+
+  // Compiler detection
+  const char* compiler_name = "Unknown";
 #if defined(ASTRADB_COMPILER_CLANG)
-      "Clang"
+  compiler_name = "Clang";
 #elif defined(ASTRADB_COMPILER_GCC)
-      "GCC"
+  compiler_name = "GCC";
 #elif defined(ASTRADB_COMPILER_MSVC)
-      "MSVC"
-#else
-      "Unknown"
+  compiler_name = "MSVC";
 #endif
-  );
-  
+  ASTRADB_LOG_INFO("  Compiler: {}", compiler_name);
+
   ASTRADB_LOG_INFO("  C++ Standard: {}", __cplusplus);
-  
+
   // Print features
   ASTRADB_LOG_INFO("\nEnabled Features:");
 #if defined(ASTRADB_ENABLE_TLS)
@@ -168,12 +176,12 @@ int main(int argc, char** argv) {
 #if defined(ASIO_HAS_IO_URING)
   ASTRADB_LOG_INFO("  [+] io_uring Support (Linux 5.1+)");
 #endif
-  
+
   ASTRADB_LOG_INFO("\n========================================");
-  
+
   // Setup signal handlers
   SetupSignalHandlers();
-  
+
   // Create server config from loaded config
   astra::server::ServerConfig server_config;
   server_config.host = config.host;
@@ -183,14 +191,15 @@ int main(int argc, char** argv) {
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
   server_config.use_async_commands = config.use_async_commands;
-  
+
   // Copy persistence config
   server_config.persistence.enabled = config.persistence.enabled;
   server_config.persistence.data_dir = config.persistence.data_dir;
-  server_config.persistence.write_buffer_size = config.persistence.write_buffer_size;
+  server_config.persistence.write_buffer_size =
+      config.persistence.write_buffer_size;
   server_config.persistence.cache_size = config.persistence.cache_size;
   server_config.persistence.sync_writes = config.persistence.sync_writes;
-  
+
   // Copy cluster config
   server_config.cluster.enabled = config.cluster.enabled;
   server_config.cluster.node_id = config.cluster.node_id;
@@ -198,44 +207,47 @@ int main(int argc, char** argv) {
   server_config.cluster.gossip_port = config.cluster.gossip_port;
   server_config.cluster.shard_count = config.cluster.shard_count;
   server_config.cluster.seeds = config.cluster.seeds;
-  
+
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
   ASTRADB_LOG_INFO("  Port: {}", server_config.port);
   ASTRADB_LOG_INFO("  Max Connections: {}", server_config.max_connections);
   ASTRADB_LOG_INFO("  Databases: {}", server_config.num_databases);
-  ASTRADB_LOG_INFO("  Thread Count: {}", server_config.thread_count > 0 ? server_config.thread_count : std::thread::hardware_concurrency());
-  ASTRADB_LOG_INFO("  Logging: {} ({}queue: {})", 
-                  config.log_level, 
-                  config.log_async ? "async, " : "sync, ",
-                  config.log_queue_size);
-  
+  ASTRADB_LOG_INFO("  Thread Count: {}",
+                   server_config.thread_count > 0
+                       ? server_config.thread_count
+                       : std::thread::hardware_concurrency());
+  ASTRADB_LOG_INFO("  Logging: {} ({}queue: {})", config.log_level,
+                   config.log_async ? "async, " : "sync, ",
+                   config.log_queue_size);
+
   if (config.persistence.enabled) {
-    ASTRADB_LOG_INFO("  Persistence: enabled (dir: {})", config.persistence.data_dir);
+    ASTRADB_LOG_INFO("  Persistence: enabled (dir: {})",
+                     config.persistence.data_dir);
   }
-  
+
   if (config.cluster.enabled) {
-    ASTRADB_LOG_INFO("  Cluster: enabled (gossip port: {}, shards: {})", 
-                    config.cluster.gossip_port, config.cluster.shard_count);
+    ASTRADB_LOG_INFO("  Cluster: enabled (gossip port: {}, shards: {})",
+                     config.cluster.gossip_port, config.cluster.shard_count);
   }
-  
+
   ASTRADB_LOG_INFO("========================================");
   ASTRADB_LOG_INFO("Starting AstraDB server...");
   ASTRADB_LOG_INFO("========================================");
-  
+
   // Create and run server
   g_server = std::make_unique<astra::server::Server>(server_config);
-  
+
   try {
     g_server->Run();
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Server error: {}", e.what());
     return 1;
   }
-  
+
   ASTRADB_LOG_INFO("========================================");
   ASTRADB_LOG_INFO("AstraDB stopped successfully!");
   ASTRADB_LOG_INFO("========================================");
-  
+
   return 0;
 }
