@@ -158,18 +158,6 @@ CPMAddPackage(
 
 
 
-# date - Modern date/time library by Howard Hinnant
-# Usage: Timestamp handling, time calculations for TTL
-# Benefits: Better than std::chrono, easier to use, timezone support
-CPMAddPackage(
-        NAME
-        date
-        VERSION
-        3.0.3
-        URL
-        https://github.com/HowardHinnant/date/archive/refs/tags/v3.0.3.tar.gz
-        DOWNLOAD_ONLY
-        YES)
 
 # concurrentqueue - Lock-free MPMC queue
 # Usage: High-performance task queue for thread pool, command batching
@@ -201,19 +189,19 @@ CPMAddPackage(
 # Benefits: Production monitoring, Grafana integration, observability
 # Reference: DragonflyDB uses Prometheus for metrics
 CPMAddPackage(
-        NAME
-        prometheus-cpp
-        VERSION
-        1.2.2
-        GITHUB_REPOSITORY
-        jupp0r/prometheus-cpp
-        GIT_TAG
-        v1.2.2
-        OPTIONS
-        "ENABLE_PULL ON"
-        "ENABLE_PUSH OFF"
-        "ENABLE_COMPRESSION OFF"
-        "BUILD_TESTING OFF")
+  NAME
+  prometheus-cpp
+  VERSION
+  1.2.4
+  GITHUB_REPOSITORY
+  jupp0r/prometheus-cpp
+  GIT_TAG
+  v1.2.4
+  OPTIONS
+  "ENABLE_PULL ON"
+  "ENABLE_PUSH OFF"
+  "ENABLE_COMPRESSION OFF"
+  "BUILD_TESTING OFF")
 
 # Lua - Scripting support (Redis-compatible EVAL, SCRIPT commands)
 # Usage: Server-side scripting, stored procedures, Lua 5.4

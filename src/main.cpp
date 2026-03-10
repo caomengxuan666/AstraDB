@@ -208,6 +208,11 @@ int main(int argc, char** argv) {
   server_config.cluster.shard_count = config.cluster.shard_count;
   server_config.cluster.seeds = config.cluster.seeds;
 
+  // Copy metrics config
+  server_config.metrics.enabled = config.metrics.enabled;
+  server_config.metrics.bind_addr = config.metrics.bind_addr;
+  server_config.metrics.port = config.metrics.port;
+
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
   ASTRADB_LOG_INFO("  Port: {}", server_config.port);
