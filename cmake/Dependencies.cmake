@@ -113,6 +113,26 @@ endif()
 # Usage: High-performance containers (flat_hash_map, btree), string utilities
 # Benefits: Better performance than STL containers, widely used in production
 # Note: Only build what we need
+
+# Set basic build options
+set(ABSL_BUILD_OPTIONS
+    "ABSL_ENABLE_INSTALL OFF"
+    "ABSL_PROPAGATE_CXX_STD OFF"
+    "BUILD_TESTING OFF")
+
+# Disable hardware-accelerated instructions on macOS ARM64 to prevent SSE errors
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  # macOS ARM64 (Apple Silicon) does not support SSE instructions
+  # Disable all hardware-accelerated AES to avoid compilation errors
+  list(APPEND ABSL_BUILD_OPTIONS
+    "ABSL_RANDOM_HWAES_ARM64 OFF"
+    "ABSL_RANDOM_HWAES_MSVC OFF"
+    "ABSL_RANDOM_HWAES_EMSCRIPTEN OFF"
+    "ABSL_RANDOM_HWAES_DETECT_AES_SUPPORTED OFF"
+    "ABSL_USE_ABSL_HASH OFF")  # Disable hash-based optimizations that may use SSE
+  message(STATUS "🍎 Detected macOS ARM64, disabling abseil hardware acceleration")
+endif()
+
 CPMAddPackage(
         NAME
         abseil
@@ -123,9 +143,7 @@ CPMAddPackage(
         GIT_TAG
         20240116.1
         OPTIONS
-        "ABSL_ENABLE_INSTALL OFF"
-        "ABSL_PROPAGATE_CXX_STD OFF"
-        "BUILD_TESTING OFF")
+        ${ABSL_BUILD_OPTIONS})
 
 # cxxopts - Lightweight command line parser
 # Usage: Parse command line arguments for AstraDB server
@@ -188,6 +206,14 @@ CPMAddPackage(
 # Usage: Export QPS, latency, memory usage, connection count
 # Benefits: Production monitoring, Grafana integration, observability
 # Reference: DragonflyDB uses Prometheus for metrics
+
+# Fix for macOS ARM64 atomic operations issue
+# AppleClang on ARM64 has built-in atomic support, prometheus-cpp's CheckAtomic fails
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  set(HAVE_CXX_ATOMICS_WITHOUT_LIB 1 CACHE BOOL "" FORCE)
+  set(HAVE_CXX_ATOMICS64_WITHOUT_LIB 1 CACHE BOOL "" FORCE)
+endif()
+
 CPMAddPackage(
   NAME
   prometheus-cpp
@@ -201,7 +227,8 @@ CPMAddPackage(
   "ENABLE_PULL ON"
   "ENABLE_PUSH OFF"
   "ENABLE_COMPRESSION OFF"
-  "BUILD_TESTING OFF")
+  "BUILD_TESTING OFF"
+  "DISABLE_PULL_DEFAULT_EXPORT OFF")
 
 # Lua - Scripting support (Redis-compatible EVAL, SCRIPT commands)
 # Usage: Server-side scripting, stored procedures, Lua 5.4

@@ -7,57 +7,16 @@ add_library(astra_persistence INTERFACE)
 target_include_directories(astra_persistence INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
-# Include FlatBuffers BuildFlatBuffers module
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake")
-  include(${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake)
-endif()
-
-# Generate FlatBuffers headers for RDB schema
+# FlatBuffers headers are now generated in prebuild.cmake (MUST COMPILE FIRST!)
 if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
-  # Use official FlatBuffers CMake function
-  set(RDB_FBS ${CMAKE_CURRENT_SOURCE_DIR}/rdb.fbs)
-  set(RDB_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  
-  # Ensure generated directory exists
-  file(MAKE_DIRECTORY ${RDB_GENERATED_DIR})
-  
-  build_flatbuffers(
-    "${RDB_FBS}"
-    ""  # No include dirs
-    "rdb_generated"
-    ""  # No additional dependencies
-    "${RDB_GENERATED_DIR}"
-    ""  # No binary schemas
-    ""  # No text schema copy
-  )
-  
-  # Make generated headers available
-  target_include_directories(astra_persistence INTERFACE ${RDB_GENERATED_DIR})
-  add_dependencies(astra_persistence rdb_generated)
-  
-  # Add FlatBuffers include directory
-  target_include_directories(astra_persistence INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
-  
-  message(STATUS "FlatBuffers RDB headers will be generated in ${RDB_GENERATED_DIR}")
-  
-  # Generate FlatBuffers headers for AOF schema
-  set(AOF_FBS ${CMAKE_CURRENT_SOURCE_DIR}/aof.fbs)
-  
-  build_flatbuffers(
-    "${AOF_FBS}"
-    ""  # No include dirs
-    "aof_generated"
-    ""  # No additional dependencies
-    "${RDB_GENERATED_DIR}"
-    ""  # No binary schemas
-    ""  # No text schema copy
-  )
-  
-  add_dependencies(astra_persistence aof_generated)
-  
-  message(STATUS "FlatBuffers AOF headers will be generated in ${RDB_GENERATED_DIR}")
+  # CRITICAL: Force flatbuffers_generated to compile BEFORE ANYTHING ELSE
+  if(TARGET flatbuffers_generated)
+    add_dependencies(astra_persistence flatbuffers_generated)
+    target_include_directories(astra_persistence INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
+  endif()
 endif()
 
 # Link dependencies

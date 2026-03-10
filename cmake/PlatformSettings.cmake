@@ -4,6 +4,11 @@
 # This module configures platform-specific settings and definitions
 # ==============================================================================
 
+# Find threads library first (required for macOS and Linux)
+if(NOT WIN32)
+  find_package(Threads REQUIRED)
+endif()
+
 if(WIN32)
   # Windows-specific settings
   add_definitions(-DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS)
@@ -19,7 +24,7 @@ if(WIN32)
 elseif(APPLE)
   # macOS-specific settings
   # macOS uses pthreads by default
-  set(PLATFORM_LIBRARIES pthread)
+  set(PLATFORM_LIBRARIES Threads::Threads)
   
   message(STATUS "Platform: macOS")
   message(STATUS "Platform libraries: ${PLATFORM_LIBRARIES}")
@@ -27,7 +32,7 @@ elseif(APPLE)
 elseif(UNIX)
   # Linux-specific settings
   # Linux requires pthread for threading support
-  set(PLATFORM_LIBRARIES pthread rt)
+  set(PLATFORM_LIBRARIES Threads::Threads rt)
   
   # Disable io_uring support
   # Note: io_uring has issues with network packet transmission on real Linux systems

@@ -7,35 +7,16 @@ add_library(astra_cluster INTERFACE)
 target_include_directories(astra_cluster INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
-# Include FlatBuffers BuildFlatBuffers module
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake")
-  include(${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake)
-endif()
-
-# Generate FlatBuffers headers for cluster communication
+# FlatBuffers headers are now generated in prebuild.cmake (MUST COMPILE FIRST!)
 if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
-  set(CLUSTER_MESSAGE_FBS ${CMAKE_CURRENT_SOURCE_DIR}/cluster_message.fbs)
-  set(CLUSTER_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  
-  build_flatbuffers(
-    "${CLUSTER_MESSAGE_FBS}"
-    ""  # No include dirs
-    "cluster_message_generated"
-    ""  # No additional dependencies
-    "${CLUSTER_GENERATED_DIR}"
-    ""  # No binary schemas
-    ""  # No text schema copy
-  )
-  
-  target_include_directories(astra_cluster INTERFACE ${CLUSTER_GENERATED_DIR})
-  add_dependencies(astra_cluster cluster_message_generated)
-  
-  # Add FlatBuffers include directory
-  target_include_directories(astra_cluster INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
-  
-  message(STATUS "✅ FlatBuffers cluster headers will be generated in ${CLUSTER_GENERATED_DIR}")
+  # CRITICAL: Force flatbuffers_generated to compile BEFORE ANYTHING ELSE
+  if(TARGET flatbuffers_generated)
+    add_dependencies(astra_cluster flatbuffers_generated)
+    target_include_directories(astra_cluster INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
+  endif()
 endif()
 
 # Link dependencies

@@ -85,9 +85,49 @@
         "ASTRADB_BUILD_BENCHMARKS": "OFF"
       }
     },
-    {"name": "linux-release-clang", "displayName": "Linux Release (Clang)", "description": "Release build with Clang on Linux", "inherits": "base-clang", "binaryDir": "${sourceDir}/build-linux-release-clang", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "ASTRADB_ENABLE_LTO": "ON", "ASTRADB_LINK_MODE": "PARTIAL_STATIC", "ASTRADB_BUILD_TESTS": "OFF", "ASTRADB_BUILD_BENCHMARKS": "OFF"}},
-    {"name": "linux-release-debuginfo-gcc", "displayName": "Linux Release with Debug Info (GCC)", "description": "Release build with debug info (no strip) on Linux with GCC", "inherits": "base-gcc", "binaryDir": "${sourceDir}/build-linux-release-debuginfo-gcc", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "ASTRADB_ENABLE_LTO": "OFF", "ASTRADB_LINK_MODE": "PARTIAL_STATIC", "ASTRADB_STRIP_SYMBOLS": "OFF"}},
-    {"name": "linux-release-debuginfo-clang", "displayName": "Linux Release with Debug Info (Clang)", "description": "Release build with debug info (no strip) on Linux with Clang", "inherits": "base-clang", "binaryDir": "${sourceDir}/build-linux-release-debuginfo-clang", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "ASTRADB_ENABLE_LTO": "OFF", "ASTRADB_LINK_MODE": "PARTIAL_STATIC", "ASTRADB_STRIP_SYMBOLS": "OFF"}},
+    {
+      "name": "linux-release-clang",
+      "displayName": "Linux Release (Clang)",
+      "description": "Release build with Clang on Linux",
+      "inherits": "base-clang",
+      "binaryDir": "${sourceDir}/build-linux-release-clang",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ASTRADB_ENABLE_LTO": "ON",
+        "ASTRADB_LINK_MODE": "PARTIAL_STATIC",
+        "ASTRADB_BUILD_TESTS": "OFF",
+        "ASTRADB_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "linux-release-debuginfo-gcc",
+      "displayName": "Linux Release with Debug Info (GCC)",
+      "description": "Release build with debug info (no strip) on Linux with GCC",
+      "inherits": "base-gcc",
+      "binaryDir": "${sourceDir}/build-linux-release-debuginfo-gcc",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ASTRADB_ENABLE_LTO": "OFF",
+        "ASTRADB_LINK_MODE": "PARTIAL_STATIC",
+        "ASTRADB_STRIP_SYMBOLS": "OFF"
+      }
+    },
+    {
+      "name": "linux-release-debuginfo-clang",
+      "displayName": "Linux Release with Debug Info (Clang)",
+      "description": "Release build with debug info (no strip) on Linux with Clang",
+      "inherits": "base-clang",
+      "binaryDir": "${sourceDir}/build-linux-release-debuginfo-clang",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ASTRADB_ENABLE_LTO": "OFF",
+        "ASTRADB_LINK_MODE": "PARTIAL_STATIC",
+        "ASTRADB_STRIP_SYMBOLS": "OFF"
+      }
+    },
     {
       "name": "macos-debug-clang",
       "displayName": "macOS Debug (Clang)",
@@ -107,7 +147,25 @@
         "rhs": "Darwin"
       }
     },
-    {"name": "macos-release-clang", "displayName": "macOS Release (Clang)", "description": "Release build with Clang on macOS", "inherits": "base-clang", "binaryDir": "${sourceDir}/build-macos-release-clang", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "ASTRADB_ENABLE_LTO": "ON", "ASTRADB_BUILD_TESTS": "OFF", "ASTRADB_BUILD_BENCHMARKS": "OFF"}, "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin"}},
+    {
+      "name": "macos-release-clang",
+      "displayName": "macOS Release (Clang)",
+      "description": "Release build with Clang on macOS",
+      "inherits": "base-clang",
+      "binaryDir": "${sourceDir}/build-macos-release-clang",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ASTRADB_ENABLE_LTO": "ON",
+        "ASTRADB_BUILD_TESTS": "OFF",
+        "ASTRADB_BUILD_BENCHMARKS": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
     {
       "name": "windows-debug-msvc",
       "displayName": "Windows Debug (MSVC)",
@@ -126,7 +184,25 @@
         "rhs": "Windows"
       }
     },
-    {"name": "windows-release-msvc", "displayName": "Windows Release (MSVC)", "description": "Release build with MSVC on Windows", "inherits": "base-msvc", "binaryDir": "${sourceDir}/build-windows-release-msvc", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "ASTRADB_ENABLE_LTO": "ON", "ASTRADB_BUILD_TESTS": "OFF", "ASTRADB_BUILD_BENCHMARKS": "OFF"}, "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}},
+    {
+      "name": "windows-release-msvc",
+      "displayName": "Windows Release (MSVC)",
+      "description": "Release build with MSVC on Windows",
+      "inherits": "base-msvc",
+      "binaryDir": "${sourceDir}/build-windows-release-msvc",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ASTRADB_ENABLE_LTO": "ON",
+        "ASTRADB_BUILD_TESTS": "OFF",
+        "ASTRADB_BUILD_BENCHMARKS": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
     {
       "name": "package-common",
       "hidden": true,
@@ -173,7 +249,8 @@
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Darwin"
-      }
+      },
+      "cacheVariables": {}
     },
     {
       "name": "windows-package-msvc",

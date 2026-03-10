@@ -125,6 +125,14 @@ include(cmake/Dependencies.cmake)
 include(cmake/GeneratedHeaders.cmake)
 
 # ==============================================================================
+# FLATBUFFERS PREBUILD - MUST COMPILE FIRST!
+# ==============================================================================
+# This generates all FlatBuffers headers BEFORE any subproject compilation
+# Nothing can compile until these headers are ready!
+# ==============================================================================
+include(cmake/prebuild.cmake)
+
+# ==============================================================================
 # OpenSSL for TLS support
 # ==============================================================================
 

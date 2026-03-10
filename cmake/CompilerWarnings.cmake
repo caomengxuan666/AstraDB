@@ -4,6 +4,10 @@
 # This module configures compiler warnings for different compilers
 # ==============================================================================
 
+# Suppress C++23 deprecation warnings for compatibility
+add_compile_definitions(_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING)
+add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
+
 if(MSVC)
   # MSVC: Don't treat warnings as errors by default
   # /W4 enables high warning level

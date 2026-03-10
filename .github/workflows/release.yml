@@ -17,17 +17,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            preset: linux-release-clang
+            preset: linux-package-clang
             package_preset: linux-clang-deb
             package_preset2: linux-clang-tgz
           - os: windows-latest
-            preset: windows-release-msvc
+            preset: windows-package-msvc
             package_preset: windows-msvc-zip
             package_preset2: windows-msvc-msi
-          - os: macos-latest
-            preset: macos-release-clang
-            package_preset: macos-clang-tgz
-            package_preset2: null
 
     steps:
       - uses: actions/checkout@v4
@@ -41,16 +37,17 @@ jobs:
           sudo apt-get install -y cmake ninja-build clang clang-format
         timeout-minutes: 5
 
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
           choco install cmake ninja
-        timeout-minutes: 5
-
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja clang-format
+        shell: pwsh
         timeout-minutes: 5
 
       - name: Configure CMake

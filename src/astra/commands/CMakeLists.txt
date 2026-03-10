@@ -12,81 +12,17 @@ target_include_directories(
   astra_commands
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../..
          ${CMAKE_CURRENT_SOURCE_DIR}/../cluster
-         ${CMAKE_CURRENT_SOURCE_DIR}/../persistence)
-
-# Add persistence generated directory for aof_flatbuffers.hpp
-set(PERSISTENCE_GENERATED_DIR
-    "${CMAKE_CURRENT_BINARY_DIR}/../persistence/generated")
-file(MAKE_DIRECTORY ${PERSISTENCE_GENERATED_DIR})
-target_include_directories(astra_commands PUBLIC ${PERSISTENCE_GENERATED_DIR})
-
-# Add core generated directory for metrics_flatbuffers.hpp
-set(CORE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/../core/generated")
-file(MAKE_DIRECTORY ${CORE_GENERATED_DIR})
-target_include_directories(astra_commands PUBLIC ${CORE_GENERATED_DIR})
-
-# Add dependencies on FlatBuffers generated targets to ensure correct build
-# order This prevents header file not found errors due to incorrect build order
-if(TARGET astra_persistence)
-  # Commands module depends on persistence-generated headers
-  # (aof_flatbuffers.hpp, etc.) We need to add explicit dependencies on the
-  # generated targets
-  if(TARGET rdb_generated)
-    add_dependencies(astra_commands rdb_generated)
-  endif()
-  if(TARGET aof_generated)
-    add_dependencies(astra_commands aof_generated)
-  endif()
-  # Also depend on the persistence library itself
-  add_dependencies(astra_commands astra_persistence)
-endif()
-if(TARGET astra_core)
-  # Commands module depends on core-generated headers (metrics_flatbuffers.hpp,
-  # etc.)
-  add_dependencies(astra_commands astra_core)
-endif()
-
-# Include FlatBuffers BuildFlatBuffers module
-if(EXISTS
-   "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake"
+         ${CMAKE_CURRENT_SOURCE_DIR}/../persistence
+         ${CMAKE_CURRENT_BINARY_DIR}/generated
+         ${CMAKE_CURRENT_BINARY_DIR}/../persistence/generated
+         ${CMAKE_CURRENT_BINARY_DIR}/../core/generated
+         ${CMAKE_CURRENT_BINARY_DIR}/../cluster/generated
 )
-  include(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake
-  )
-endif()
 
-# Generate FlatBuffers headers for command cache schema Note: We check for
-# flatbuffers_ADDED which is set by CPM in the root CMakeLists.txt
-if(flatbuffers_ADDED
-   OR TARGET flatbuffers::flatbuffers
-   OR TARGET flatbuffers::flatc)
-  set(COMMAND_CACHE_FBS ${CMAKE_CURRENT_SOURCE_DIR}/command_cache.fbs)
-  set(COMMAND_CACHE_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-
-  build_flatbuffers(
-    "${COMMAND_CACHE_FBS}"
-    "" # No include dirs
-    "command_cache_generated"
-    "" # No additional dependencies
-    "${COMMAND_CACHE_GENERATED_DIR}"
-    "" # No binary schemas
-    "" # No text schema copy
-  )
-
-  target_include_directories(astra_commands
-                             PUBLIC ${COMMAND_CACHE_GENERATED_DIR})
-  add_dependencies(astra_commands command_cache_generated)
-
-  # Add FlatBuffers include directory
-  target_include_directories(
-    astra_commands
-    PUBLIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
-
-  message(
-    STATUS
-      "FlatBuffers command cache headers will be generated in ${COMMAND_CACHE_GENERATED_DIR}"
-  )
+# CRITICAL: Force flatbuffers_generated to compile BEFORE ANYTHING ELSE
+if(TARGET flatbuffers_generated)
+  add_dependencies(astra_commands flatbuffers_generated)
+  target_include_directories(astra_commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../../../.cpm-cache/flatbuffers/2c40/include)
 endif()
 
 # Add vog/sha1 include directory for SHA1 hashing

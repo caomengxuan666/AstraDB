@@ -16,6 +16,7 @@ Makefile
 # Ignore .cmake files in root and build directories, but keep cmake/ directory
 *.cmake
 !cmake/**/*.cmake
+!src/astra/core/prebuild.cmake
 
 # CPM Cache
 .cpm-cache/
