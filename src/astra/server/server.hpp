@@ -203,10 +203,20 @@ class Server {
   // Coroutine-based command handler (async/await)
   asio::awaitable<void> HandleCommandAsync(const protocol::Command& cmd,
                                           std::shared_ptr<network::Connection> conn);
-  
+
+  // Batch command handler for Pipeline optimization
+  asio::awaitable<void> HandleBatchCommandsAsync(
+      absl::InlinedVector<protocol::Command, 16>&& commands,
+      std::shared_ptr<network::Connection> conn);
+
   void SendResponse(std::shared_ptr<network::Connection> conn,
                     const commands::CommandResult& result);
-  
+
+  // Batch response sender for Pipeline optimization
+  asio::awaitable<void> SendBatchResponses(
+      std::shared_ptr<network::Connection> conn,
+      absl::InlinedVector<commands::CommandResult, 16>&& results);
+
   void StartExpirationCleaner();
   void CleanupExpiredKeys();
   

@@ -294,26 +294,30 @@ void Server::OnAccept(asio::error_code ec, asio::ip::tcp::socket socket) {
   
   // Update metrics
   astra::metrics::AstraMetrics::Instance().IncrementConnections();
-  
-  // Set command callback - use async or sync handler based on config
-  conn->SetCommandCallback([this, conn](const protocol::Command& cmd) {
+
+  // Set batch command callback for Pipeline optimization
+  // This processes multiple commands in a single coroutine, reducing overhead
+  conn->SetBatchCommandCallback([this, conn](absl::InlinedVector<protocol::Command, 16>&& commands) {
     if (config_.use_async_commands) {
       // Use coroutine-based async handler with Server's io_context
+      // All commands in the batch are processed in a single coroutine
       asio::co_spawn(
           io_context_,
-          HandleCommandAsync(cmd, conn),
+          HandleBatchCommandsAsync(std::move(commands), conn),
           [](std::exception_ptr e) {
             if (e) {
               try {
                 std::rethrow_exception(e);
               } catch (const std::exception& ex) {
-                ASTRADB_LOG_ERROR("Coroutine error: {}", ex.what());
+                ASTRADB_LOG_ERROR("Batch coroutine error: {}", ex.what());
               }
             }
           });
     } else {
-      // Use synchronous handler (fallback or if async disabled)
-      HandleCommand(cmd, conn);
+      // Fallback to synchronous handler (not recommended for production)
+      for (const auto& cmd : commands) {
+        HandleCommand(cmd, conn);
+      }
     }
   });
 
@@ -1761,6 +1765,107 @@ void Server::ServerPubSubManager::SendUnsubscribeReply(uint64_t conn_id, const s
       conn->Send(reply);
     }
   }
+}
+
+// ============== Batch Command Processing for Pipeline Optimization ==============
+
+asio::awaitable<void> Server::HandleBatchCommandsAsync(
+    absl::InlinedVector<protocol::Command, 16>&& commands,
+    std::shared_ptr<network::Connection> conn) {
+  if (!conn || !conn->IsConnected()) {
+    co_return;
+  }
+
+  // Process all commands in a single coroutine
+  // This reduces overhead compared to creating one coroutine per command
+  absl::InlinedVector<commands::CommandResult, 16> results;
+  results.reserve(commands.size());
+
+  ASTRADB_LOG_DEBUG("HandleBatchCommandsAsync: processing {} commands", commands.size());
+
+  for (const auto& cmd : commands) {
+    total_commands_++;
+
+    auto start_time = absl::Now();
+
+    // Get routing strategy for this command
+    auto routing = registry_.GetRoutingStrategy(cmd.name);
+
+    Shard* shard = nullptr;
+    if (routing == RoutingStrategy::kByFirstKey && cmd.ArgCount() > 0) {
+      const auto& key_arg = cmd[0];
+      if (key_arg.IsBulkString()) {
+        shard = local_shard_manager_.GetShard(key_arg.AsString());
+      }
+    }
+
+    // Default to shard 0 for commands without routing strategy
+    if (!shard) {
+      shard = local_shard_manager_.GetShardByIndex(0);
+    }
+
+    // Execute command
+    commands::CommandResult result;
+    if (shard) {
+      ServerCommandContext ctx(shard->GetDatabase(), 0, this, conn.get());
+      result = registry_.Execute(cmd, &ctx);
+    } else {
+      result = commands::CommandResult(false, "ERR shard not found");
+    }
+
+    // Record metrics
+    auto duration = absl::Now() - start_time;
+    double seconds = absl::ToDoubleSeconds(duration);
+    astra::metrics::AstraMetrics::Instance().RecordCommand(cmd.name, result.success, seconds);
+
+    results.push_back(std::move(result));
+  }
+
+  // Send all responses in a single write operation
+  co_await SendBatchResponses(conn, std::move(results));
+}
+
+asio::awaitable<void> Server::SendBatchResponses(
+    std::shared_ptr<network::Connection> conn,
+    absl::InlinedVector<commands::CommandResult, 16>&& results) {
+  if (!conn || !conn->IsConnected()) {
+    co_return;
+  }
+
+  // Build a single buffer with all responses
+  // This reduces the number of system calls from N to 1
+  std::string combined_response;
+  combined_response.reserve(results.size() * 256);  // Estimate average response size
+
+  for (const auto& result : results) {
+    // Serialize response using the same logic as SendResponse
+    if (!result.success) {
+      combined_response += "-" + result.error + "\r\n";
+    } else if (result.response.IsSimpleString()) {
+      combined_response += "+" + result.response.AsString() + "\r\n";
+    } else if (result.response.IsBulkString()) {
+      const auto& str = result.response.AsString();
+      combined_response += absl::StrCat("$", str.length(), "\r\n", str, "\r\n");
+    } else if (result.response.IsInteger()) {
+      combined_response += absl::StrCat(":", result.response.AsInteger(), "\r\n");
+    } else if (result.response.GetType() == protocol::RespType::kDouble) {
+      combined_response += absl::StrCat(",", result.response.AsDouble(), "\r\n");
+    } else if (result.response.IsArray()) {
+      combined_response += protocol::RespBuilder::Build(result.response);
+    } else if (result.response.IsNull()) {
+      combined_response += "$-1\r\n";
+    } else if (result.response.GetType() == protocol::RespType::kMap) {
+      combined_response += protocol::RespBuilder::Build(result.response);
+    } else {
+      combined_response += "+OK\r\n";
+    }
+  }
+
+  // Send all responses in one operation
+  conn->Send(combined_response);
+
+  ASTRADB_LOG_DEBUG("SendBatchResponses: sent {} responses in one write", results.size());
+  co_return;
 }
 
 }  // namespace astra::server
