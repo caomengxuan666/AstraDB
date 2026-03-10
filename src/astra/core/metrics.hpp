@@ -57,7 +57,15 @@ class MetricsRegistry {
 
     try {
       std::string bind_address = config.bind_addr + ":" + std::to_string(config.port);
-      exposer_ = std::make_unique<prometheus::Exposer>(bind_address);
+
+      // Use minimal CivetServer configuration
+      std::vector<std::string> options = {
+        "listening_ports", bind_address,
+        "num_threads", "2"
+      };
+
+      ASTRADB_LOG_INFO("Initializing Prometheus metrics exposer on {}", bind_address);
+      exposer_ = std::make_unique<prometheus::Exposer>(options);
       exposer_->RegisterCollectable(registry_);
       initialized_.store(true, std::memory_order_release);
       ASTRADB_LOG_INFO("Prometheus metrics exposer started on {}", bind_address);
