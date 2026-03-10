@@ -142,6 +142,15 @@ void Server::Run() {
   ASTRADB_LOG_INFO("Using global IO context thread pool with {} threads",
                   astra::core::async::GetGlobalThreadPool().Size());
   
+  // Start HTTP server for metrics
+  if (config_.metrics.enabled) {
+    astra::metrics::MetricsConfig metrics_config;
+    metrics_config.enabled = config_.metrics.enabled;
+    metrics_config.bind_addr = config_.metrics.bind_addr;
+    metrics_config.port = config_.metrics.port;
+    astra::metrics::MetricsRegistry::Instance().StartHTTPServer(io_context_, metrics_config);
+  }
+  
   // Create acceptor
   asio::ip::tcp::endpoint endpoint(asio::ip::make_address(config_.host), config_.port);
   acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(io_context_, endpoint);

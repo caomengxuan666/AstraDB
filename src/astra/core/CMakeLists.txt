@@ -41,6 +41,7 @@ endif()
 target_sources(astra_core PRIVATE
   async/thread_pool.cpp
   metrics.cpp
+  metrics_http.cpp
 )
 
 # Link FlatBuffers
