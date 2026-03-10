@@ -40,45 +40,47 @@ endif()
 
 # Make all project libraries depend on generated_headers
 # This ensures headers are always generated before any compilation
+# This also ensures PCH (using CMake native support) can find these headers
 if(TARGET astra_base)
-    target_link_libraries(astra_base PUBLIC generated_headers)
+  target_link_libraries(astra_base PUBLIC generated_headers)
+endif()
+
+if(TARGET astra_core)
+  target_link_libraries(astra_core PUBLIC generated_headers)
 endif()
 
 if(TARGET astra_commands)
-    target_link_libraries(astra_commands PUBLIC generated_headers)
+  target_link_libraries(astra_commands PUBLIC generated_headers)
 endif()
 
 if(TARGET astra_network)
-    target_link_libraries(astra_network PUBLIC generated_headers)
+  target_link_libraries(astra_network PUBLIC generated_headers)
 endif()
 
 if(TARGET astra_server)
-    target_link_libraries(astra_server PUBLIC generated_headers)
+  target_link_libraries(astra_server PUBLIC generated_headers)
 endif()
 
 if(TARGET astra_cluster)
-    target_link_libraries(astra_cluster PUBLIC generated_headers)
+  target_link_libraries(astra_cluster PUBLIC generated_headers)
+endif()
+
+if(TARGET astra_persistence)
+  target_link_libraries(astra_persistence INTERFACE generated_headers)
+endif()
+
+if(TARGET astra_container)
+  target_link_libraries(astra_container PUBLIC generated_headers)
 endif()
 
 if(TARGET astradb)
-    target_link_libraries(astradb PRIVATE generated_headers)
+  target_link_libraries(astradb PRIVATE generated_headers)
 endif()
 
-# Force precompiled headers to depend on header generation
-if(TARGET astra_base_pch)
-    add_dependencies(astra_base_pch generated_headers)
-endif()
-
-if(TARGET astra_commands_pch)
-    add_dependencies(astra_commands_pch generated_headers)
-endif()
-
-if(TARGET astra_server_pch)
-    add_dependencies(astra_server_pch generated_headers)
-endif()
-
-if(TARGET astradb_pch)
-    add_dependencies(astradb_pch generated_headers)
-endif()
+# Note: CMake 3.16+ native PCH (target_precompile_headers) automatically
+# depends on all header files in the include directories. Since we've
+# linked generated_headers to all targets that use PCH, and generated_headers
+# adds the generated directories to include paths, the PCH will automatically
+# depend on the generated header files.
 
 message(STATUS "✅ Generated headers interface library created and linked to all targets")
