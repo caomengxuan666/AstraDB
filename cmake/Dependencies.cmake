@@ -145,11 +145,11 @@ CPMAddPackage(
   NAME
   prometheus-cpp
   VERSION
-  1.2.2
+  1.2.4
   GITHUB_REPOSITORY
   jupp0r/prometheus-cpp
   GIT_TAG
-  v1.2.2
+  v1.2.4
   OPTIONS
   "ENABLE_PULL ON"
   "ENABLE_PUSH OFF"

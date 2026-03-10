@@ -56,12 +56,15 @@ class MetricsRegistry {
     }
 
     try {
-      std::string bind_address = config.bind_addr + ":" + std::to_string(config.port);
+      // Use 127.0.0.1 instead of 0.0.0.0 to avoid IPv4/IPv6 binding issues
+      std::string bind_address = "127.0.0.1:" + std::to_string(config.port);
 
-      // Use minimal CivetServer configuration
+      // Use vector<string> constructor with additional options
       std::vector<std::string> options = {
         "listening_ports", bind_address,
-        "num_threads", "2"
+        "num_threads", "2",
+        "enable_keep_alive", "yes",
+        "keep_alive_timeout_ms", "30000"
       };
 
       ASTRADB_LOG_INFO("Initializing Prometheus metrics exposer on {}", bind_address);
