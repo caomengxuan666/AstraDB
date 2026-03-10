@@ -121,7 +121,6 @@
 
 // Command handling
 #include "astra/commands/command_handler.hpp"
-#include "astra/commands/command_context.hpp"
 
 // Storage
 #include "astra/storage/key_metadata.hpp"
