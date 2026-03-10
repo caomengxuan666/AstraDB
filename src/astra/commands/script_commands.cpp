@@ -16,7 +16,7 @@
 namespace astra::commands {
 
 // SHA1 hash function using vog/sha1 library
-static std::string SHA1(const std::string& input) {
+static std::string ComputeSHA1(const std::string& input) {
   ::SHA1 sha1;
   sha1.update(input);
   return sha1.final();
@@ -305,7 +305,7 @@ CommandResult HandleEval(const astra::protocol::Command& command, CommandContext
   }
   
   // Cache script
-  std::string sha1 = SHA1(script);
+  std::string sha1 = ComputeSHA1(script);
   GetGlobalScriptCache().Cache(sha1, script);
   
   // Execute script
@@ -439,7 +439,7 @@ CommandResult HandleScript(const astra::protocol::Command& command, CommandConte
     }
     
     std::string script = script_arg.AsString();
-    std::string sha1 = SHA1(script);
+    std::string sha1 = ComputeSHA1(script);
     GetGlobalScriptCache().Cache(sha1, script);
     return CommandResult(RespValue(sha1));
   } else {

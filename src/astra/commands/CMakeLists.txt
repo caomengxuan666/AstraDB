@@ -5,6 +5,9 @@
 # Create separate command library for whole-archive linking
 add_library(astra_commands STATIC)
 
+# Note: UNITY BUILD disabled for astra_commands due to:
+# 1. FlatBuffers generated header include path issues
+# 2. Command registration uses __LINE__ macro which conflicts when files are unified
 target_include_directories(astra_commands PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
@@ -21,6 +24,25 @@ target_include_directories(astra_commands PUBLIC ${PERSISTENCE_GENERATED_DIR})
 set(CORE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/../core/generated")
 file(MAKE_DIRECTORY ${CORE_GENERATED_DIR})
 target_include_directories(astra_commands PUBLIC ${CORE_GENERATED_DIR})
+
+# Add dependencies on FlatBuffers generated targets to ensure correct build order
+# This prevents header file not found errors due to incorrect build order
+if(TARGET astra_persistence)
+  # Commands module depends on persistence-generated headers (aof_flatbuffers.hpp, etc.)
+  # We need to add explicit dependencies on the generated targets
+  if(TARGET rdb_generated)
+    add_dependencies(astra_commands rdb_generated)
+  endif()
+  if(TARGET aof_generated)
+    add_dependencies(astra_commands aof_generated)
+  endif()
+  # Also depend on the persistence library itself
+  add_dependencies(astra_commands astra_persistence)
+endif()
+if(TARGET astra_core)
+  # Commands module depends on core-generated headers (metrics_flatbuffers.hpp, etc.)
+  add_dependencies(astra_commands astra_core)
+endif()
 
 # Include FlatBuffers BuildFlatBuffers module
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.cpm-cache/flatbuffers/2c40/CMake/BuildFlatBuffers.cmake")

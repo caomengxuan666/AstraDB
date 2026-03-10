@@ -31,9 +31,6 @@ include(cmake/CompilerWarnings.cmake)
 include(cmake/CPMConfig.cmake)
 include(cmake/PlatformSettings.cmake)
 include(cmake/ProjectOptions.cmake)
-
-# Precompiled Headers for faster compilation
-include(cmake/cotire/PrecompiledHeader.cmake)
 # ==============================================================================
 # CMakeHub Integration
 # ==============================================================================
@@ -163,14 +160,7 @@ if(ASTRADB_BUILD_EXECUTABLE)
 
   target_compile_features(astradb PRIVATE cxx_std_23)
   
-  # Enable Precompiled Headers for the main executable
-  if(ENABLE_PCH)
-    set_target_properties(astradb PROPERTIES
-      COTIRE_ADD_PREFIX_HEADER_ADDITION TRUE
-      COTIRE_UNITY_SOURCE TRUE
-      COTIRE_CXX_PREFIX_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h"
-    )
-  endif()
+  # PCH is configured below using CMake 3.16+ native support
 endif()
 
 # ==============================================================================
@@ -196,53 +186,77 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/CMakeLists.txt")
 endif()
 
 # ==============================================================================
-# Enable Precompiled Headers with cotire
+# Enable Precompiled Headers with CMake 3.16+ Native Support
 # ==============================================================================
-# IMPORTANT: cotire must be configured AFTER all targets are fully set up
-# including all their sources, include directories, and dependencies
-# ==============================================================================
-
 if(ENABLE_PCH)
-  message(STATUS "Configuring Precompiled Headers...")
-  set(COTIRE_VERBOSE ON)  # Enable verbose output for debugging
+  message(STATUS "Configuring Precompiled Headers with CMake 3.16+ native support...")
   
-  # Apply cotire to core library targets
+  # Apply PCH to core library targets using CMake 3.16+ native support
   if(TARGET astra_base)
-    cotire(astra_base)
-    get_target_property(_unitySource astra_base COTIRE_CXX_UNITY_SOURCE)
-    get_target_property(_prefixHeader astra_base COTIRE_CXX_PREFIX_HEADER)
-    get_target_property(_precompiledHeader astra_base COTIRE_CXX_PRECOMPILED_HEADER)
-    message(STATUS "  - astra_base: unity=${_unitySource}, prefix=${_prefixHeader}, pch=${_precompiledHeader}")
+    target_precompile_headers(astra_base PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h)
+    message(STATUS "  - astra_base: PCH enabled")
   endif()
   if(TARGET astra_network)
-    cotire(astra_network)
-    message(STATUS "  - astra_network")
+    target_precompile_headers(astra_network PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h)
+    message(STATUS "  - astra_network: PCH enabled")
   endif()
   if(TARGET astra_commands)
-    cotire(astra_commands)
-    message(STATUS "  - astra_commands")
+    target_precompile_headers(astra_commands PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h)
+    message(STATUS "  - astra_commands: PCH enabled")
   endif()
   if(TARGET astra_server)
-    cotire(astra_server)
-    message(STATUS "  - astra_server")
+    target_precompile_headers(astra_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h)
+    message(STATUS "  - astra_server: PCH enabled")
   endif()
   if(TARGET astradb)
-    cotire(astradb)
-    message(STATUS "  - astradb")
+    target_precompile_headers(astradb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h)
+    message(STATUS "  - astradb: PCH enabled")
   endif()
   
-  # Ensure PCH targets are built before their dependent targets
-  if(TARGET astra_base_pch)
-    add_dependencies(astra_base astra_base_pch)
-  endif()
-  if(TARGET astra_commands_pch)
-    add_dependencies(astra_commands astra_commands_pch)
-  endif()
-  if(TARGET astra_server_pch)
-    add_dependencies(astra_server astra_server_pch)
+  message(STATUS "Precompiled Headers configured with CMake 3.16+ native support")
+endif()
+
+# ==============================================================================
+# Link liburing for io_uring support on Linux only (excluding WSL)
+# ==============================================================================
+if(UNIX AND NOT APPLE)
+  # Check if running in WSL (Windows Subsystem for Linux)
+  set(IS_WSL FALSE)
+  if(EXISTS "/proc/version")
+    file(READ "/proc/version" PROC_VERSION)
+    if(PROC_VERSION MATCHES "Microsoft|WSL")
+      set(IS_WSL TRUE)
+      message(STATUS "ℹ️  WSL environment detected, io_uring will be disabled (using epoll)")
+    endif()
   endif()
   
-  message(STATUS "Precompiled Headers configured with explicit dependencies")
+  # Only link liburing if not on WSL
+  if(NOT IS_WSL)
+    find_library(LIBURING_LIB NAMES uring)
+    if(LIBURING_LIB)
+      message(STATUS "✅ Linux platform detected, found liburing: ${LIBURING_LIB}")
+      # Link liburing to all targets that use ASIO on Linux
+      if(TARGET astra_commands)
+        target_link_libraries(astra_commands PUBLIC ${LIBURING_LIB})
+      endif()
+      if(TARGET astra_network)
+        target_link_libraries(astra_network PUBLIC ${LIBURING_LIB})
+      endif()
+      if(TARGET astra_server)
+        target_link_libraries(astra_server PUBLIC ${LIBURING_LIB})
+      endif()
+      if(TARGET astradb)
+        target_link_libraries(astradb PRIVATE ${LIBURING_LIB})
+      endif()
+      message(STATUS "✅ Linked liburing for io_uring support on Linux")
+    else()
+      message(WARNING "⚠️  Linux platform but liburing not found, io_uring support will not be available")
+    endif()
+  else()
+    message(STATUS "ℹ️  WSL platform detected, liburing not linked (using epoll)")
+  endif()
+else()
+  message(STATUS "ℹ️  Non-Linux platform detected, io_uring support not available (using epoll/kqueue instead)")
 endif()
 
 # ==============================================================================

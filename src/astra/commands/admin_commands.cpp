@@ -5,6 +5,8 @@
 #include "command_auto_register.hpp"
 #include "acl_commands.hpp"
 #include "astra/base/logging.hpp"
+#include "scan_manager.hpp"
+#include <unordered_map>
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/storage/key_metadata.hpp"
@@ -1757,40 +1759,31 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
     return CommandResult(RespValue(std::move(result)));
   }
 
-  // Get all keys (simplified implementation - should use real cursor-based iteration)
+  // Get all keys and filter by pattern
   auto keys = db->GetAllKeys();
   
-  // Filter keys by pattern
   std::vector<std::string> filtered_keys;
   for (const auto& key : keys) {
     // Glob pattern matching
     bool matches = false;
     if (match_pattern == "*") {
-      // Match all keys
       matches = true;
     } else if (match_pattern.find('*') == std::string::npos && match_pattern.find('?') == std::string::npos) {
-      // No wildcards, exact match
       matches = (key == match_pattern);
     } else {
-      // Simple glob pattern matching (supports * wildcards at start, end, or both)
       std::string pattern = match_pattern;
       std::string target = key;
 
-      // Handle pattern like "prefix*" or "*suffix" or "*middle*" or "pre*fix"
       if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
-        // *middle* - contains (avoid size == 1 case which is already handled above)
         std::string middle = pattern.substr(1, pattern.size() - 2);
         matches = (target.find(middle) != std::string::npos);
       } else if (pattern[0] == '*' && pattern.size() > 1) {
-        // *suffix - ends with (avoid size == 1 case)
         std::string suffix = pattern.substr(1);
         matches = (target.size() >= suffix.size() && target.substr(target.size() - suffix.size()) == suffix);
       } else if (pattern.back() == '*' && pattern.size() > 1) {
-        // prefix* - starts with (avoid size == 1 case)
         std::string prefix = pattern.substr(0, pattern.size() - 1);
         matches = (target.size() >= prefix.size() && target.substr(0, prefix.size()) == prefix);
       } else {
-        // pre*fix - more complex pattern, use simple substring match for now
         matches = (target.find(pattern) != std::string::npos);
       }
     }
@@ -1800,31 +1793,42 @@ CommandResult HandleScan(const protocol::Command& command, CommandContext* conte
     }
   }
 
-  // Simplified cursor logic (for now, return all keys at once)
-  // In a real implementation, this should use actual cursor-based iteration
-  std::vector<RespValue> result;
+  // Use scan state manager for proper cursor-based iteration
+  uint64_t new_cursor = 0;
+  std::vector<std::string> batch_keys;
+  
+  if (cursor == 0) {
+    // Start new scan
+    new_cursor = ScanStateManager::Instance().StartScan(filtered_keys);
+    batch_keys = ScanStateManager::Instance().GetNextBatch(new_cursor, count).second;
+  } else {
+    // Continue existing scan
+    auto result = ScanStateManager::Instance().GetNextBatch(cursor, count);
+    new_cursor = result.first;
+    batch_keys = result.second;
+  }
 
-  // New cursor (0 indicates end of iteration)
+  // Build response
+  std::vector<RespValue> response;
+  
+  // New cursor
   RespValue cursor_val;
-  cursor_val.SetString("0", protocol::RespType::kBulkString);
-  result.push_back(cursor_val);
+  cursor_val.SetString(std::to_string(new_cursor), protocol::RespType::kBulkString);
+  response.push_back(cursor_val);
   
   // Keys array
   std::vector<RespValue> keys_array;
-  size_t start_idx = static_cast<size_t>(cursor);
-  size_t end_idx = std::min(start_idx + static_cast<size_t>(count), filtered_keys.size());
-  
-  for (size_t i = start_idx; i < end_idx; ++i) {
+  for (const auto& key : batch_keys) {
     RespValue key_val;
-    key_val.SetString(filtered_keys[i], protocol::RespType::kBulkString);
+    key_val.SetString(key, protocol::RespType::kBulkString);
     keys_array.push_back(key_val);
   }
   
   RespValue keys_val;
   keys_val.SetArray(std::move(keys_array));
-  result.push_back(keys_val);
+  response.push_back(keys_val);
   
-  return CommandResult(RespValue(std::move(result)));
+  return CommandResult(RespValue(std::move(response)));
 }
 
 // MEMORY - Memory introspection commands

@@ -296,42 +296,92 @@ void Connection::ProcessData() {
   std::string_view data(read_buffer_->data(), read_buffer_->size());
   size_t consumed = 0;
 
-  while (!data.empty()) {
-    // Check if we have a complete value
-    if (!protocol::RespParser::HasCompleteValue(data)) {
-      ASTRADB_LOG_DEBUG(
-          "ProcessData: id={}, incomplete command, waiting for more data", id_);
-      break;
-    }
+  // Use batch processing if batch callback is set (Pipeline optimization)
+  if (batch_command_callback_) {
+    // Batch mode: collect all commands and process them together
+    absl::InlinedVector<protocol::Command, 16> commands;
+    commands.reserve(16);  // Pre-allocate for typical pipeline size
 
-    // Parse the value - this modifies the data reference
-    size_t data_size_before = data.size();
-    auto value = protocol::RespParser::Parse(data);
-    if (!value.has_value()) {
-      ASTRADB_LOG_ERROR("Parse error: id={}", id_);
-      Close();
-      return;
-    }
-
-    // Calculate bytes consumed by this parse
-    size_t bytes_consumed = data_size_before - data.size();
-
-    // If it's an array, parse as command
-    if (value->IsArray()) {
-      auto cmd = protocol::RespParser::ParseCommand(*value);
-      if (cmd.has_value() && command_callback_) {
-        ASTRADB_LOG_DEBUG("ProcessData: id={}, processing command: {}, args={}",
-                          id_, cmd->name, cmd->ArgCount());
-        ProcessCommand(*cmd);
+    while (!data.empty()) {
+      // Check if we have a complete value
+      if (!protocol::RespParser::HasCompleteValue(data)) {
+        ASTRADB_LOG_DEBUG(
+            "ProcessData: id={}, incomplete command, waiting for more data", id_);
+        break;
       }
+
+      // Parse the value - this modifies the data reference
+      size_t data_size_before = data.size();
+      auto value = protocol::RespParser::Parse(data);
+      if (!value.has_value()) {
+        ASTRADB_LOG_ERROR("Parse error: id={}", id_);
+        Close();
+        return;
+      }
+
+      // Calculate bytes consumed by this parse
+      size_t bytes_consumed = data_size_before - data.size();
+
+      // If it's an array, parse as command
+      if (value->IsArray()) {
+        auto cmd = protocol::RespParser::ParseCommand(*value);
+        if (cmd.has_value()) {
+          ASTRADB_LOG_DEBUG("ProcessData: id={}, batching command: {}, args={}",
+                            id_, cmd->name, cmd->ArgCount());
+          commands.push_back(std::move(*cmd));
+        }
+      }
+
+      consumed += bytes_consumed;
+
+      // Update data view for next iteration
+      data = std::string_view(read_buffer_->data() + consumed,
+                              read_buffer_->size() - consumed);
     }
 
-    // Update total consumed bytes
-    consumed += bytes_consumed;
+    // Process all commands in batch if we have any
+    if (!commands.empty()) {
+      ASTRADB_LOG_DEBUG("ProcessData: id={}, processing {} commands in batch", id_, commands.size());
+      batch_command_callback_(std::move(commands));
+    }
+  } else {
+    // Legacy mode: process commands one by one
+    while (!data.empty()) {
+      // Check if we have a complete value
+      if (!protocol::RespParser::HasCompleteValue(data)) {
+        ASTRADB_LOG_DEBUG(
+            "ProcessData: id={}, incomplete command, waiting for more data", id_);
+        break;
+      }
 
-    // Update data view for next iteration
-    data = std::string_view(read_buffer_->data() + consumed,
-                            read_buffer_->size() - consumed);
+      // Parse the value - this modifies the data reference
+      size_t data_size_before = data.size();
+      auto value = protocol::RespParser::Parse(data);
+      if (!value.has_value()) {
+        ASTRADB_LOG_ERROR("Parse error: id={}", id_);
+        Close();
+        return;
+      }
+
+      // Calculate bytes consumed by this parse
+      size_t bytes_consumed = data_size_before - data.size();
+
+      // If it's an array, parse as command
+      if (value->IsArray()) {
+        auto cmd = protocol::RespParser::ParseCommand(*value);
+        if (cmd.has_value() && command_callback_) {
+          ASTRADB_LOG_DEBUG("ProcessData: id={}, processing command: {}, args={}",
+                            id_, cmd->name, cmd->ArgCount());
+          ProcessCommand(*cmd);
+        }
+      }
+
+      consumed += bytes_consumed;
+
+      // Update data view for next iteration
+      data = std::string_view(read_buffer_->data() + consumed,
+                              read_buffer_->size() - consumed);
+    }
   }
 
   // Remove consumed data from read buffer

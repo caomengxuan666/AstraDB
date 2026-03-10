@@ -32,6 +32,8 @@ class Connection : public std::enable_shared_from_this<Connection> {
   using Executor = asio::io_context;
   using CommandCallback =
       absl::AnyInvocable<void(const protocol::Command&) const>;
+  using BatchCommandCallback =
+      absl::AnyInvocable<void(absl::InlinedVector<protocol::Command, 16>&&) const>;
 
   explicit Connection(Socket socket, Executor& io_context,
                       astra::core::memory::BufferPool* buffer_pool = nullptr);
@@ -43,6 +45,11 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // Set command callback
   void SetCommandCallback(CommandCallback callback) {
     command_callback_ = std::move(callback);
+  }
+
+  // Set batch command callback for pipeline optimization
+  void SetBatchCommandCallback(BatchCommandCallback callback) {
+    batch_command_callback_ = std::move(callback);
   }
 
   // Get remote address
@@ -147,6 +154,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   std::array<char, 8192> read_temp_buffer_;
 
   CommandCallback command_callback_;
+  BatchCommandCallback batch_command_callback_;
 
   // Buffer pool reference (not owned)
   astra::core::memory::BufferPool* buffer_pool_;
