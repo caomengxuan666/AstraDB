@@ -274,7 +274,17 @@ if(asio_ADDED)
   add_library(asio::asio INTERFACE IMPORTED)
   target_include_directories(asio::asio INTERFACE
     ${asio_SOURCE_DIR}/asio/include)
-  message(STATUS "✅ Created asio::asio target for main project")
+  
+  # Enable io_uring on Linux only, disable epoll for better performance
+  if(UNIX AND NOT APPLE)
+    target_compile_definitions(asio::asio INTERFACE
+      ASIO_HAS_IO_URING
+      ASIO_DISABLE_EPOLL)
+    message(STATUS "✅ Created asio::asio target with io_uring support on Linux")
+  else()
+    # On non-Linux platforms, use epoll/kqueue (default ASIO behavior)
+    message(STATUS "✅ Created asio::asio target for non-Linux platform (epoll/kqueue)")
+  endif()
 endif()
 
 # fmt - Formatting library (spdlog dependency)

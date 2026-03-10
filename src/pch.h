@@ -115,6 +115,32 @@
 // Date
 #include <date/date.h>
 
+// FlatBuffers
+#include <flatbuffers/flatbuffers.h>
+
+// Protocol buffers
+#include "astra/protocol/resp/resp_parser.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
+
+// Command handling
+#include "astra/commands/command_handler.hpp"
+#include "astra/commands/command_context.hpp"
+
+// Storage
+#include "astra/storage/key_metadata.hpp"
+#include "astra/storage/db.hpp"
+
+// Async operations
+#include "astra/core/async/thread_pool.hpp"
+
+// ==============================================================================
+// Platform-specific includes
+// ==============================================================================
+#if defined(__linux__) && defined(ASIO_HAS_IO_URING)
+// io_uring is Linux-only
+#include <liburing.h>
+#endif
+
 // ==============================================================================
 // Common inline functions
 // ==============================================================================

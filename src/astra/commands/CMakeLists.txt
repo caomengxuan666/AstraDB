@@ -5,6 +5,9 @@
 # Create separate command library for whole-archive linking
 add_library(astra_commands STATIC)
 
+# Note: UNITY BUILD disabled for astra_commands due to:
+# 1. FlatBuffers generated header include path issues
+# 2. Command registration uses __LINE__ macro which conflicts when files are unified
 target_include_directories(astra_commands PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
