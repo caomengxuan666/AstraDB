@@ -275,15 +275,30 @@ if(asio_ADDED)
   target_include_directories(asio::asio INTERFACE
     ${asio_SOURCE_DIR}/asio/include)
   
-  # Enable io_uring on Linux only, disable epoll for better performance
-  if(UNIX AND NOT APPLE)
+  # Check if running in WSL (Windows Subsystem for Linux)
+  # io_uring is not supported in WSL, so we use epoll instead
+  set(IS_WSL FALSE)
+  if(UNIX AND EXISTS "/proc/version")
+    file(READ "/proc/version" PROC_VERSION)
+    if(PROC_VERSION MATCHES "Microsoft|WSL")
+      set(IS_WSL TRUE)
+      message(STATUS "⚠️  WSL environment detected, io_uring will be disabled (using epoll)")
+    endif()
+  endif()
+  
+  # Enable io_uring on Linux only (excluding WSL), disable epoll for better performance
+  if(UNIX AND NOT APPLE AND NOT IS_WSL)
     target_compile_definitions(asio::asio INTERFACE
       ASIO_HAS_IO_URING
       ASIO_DISABLE_EPOLL)
     message(STATUS "✅ Created asio::asio target with io_uring support on Linux")
   else()
-    # On non-Linux platforms, use epoll/kqueue (default ASIO behavior)
-    message(STATUS "✅ Created asio::asio target for non-Linux platform (epoll/kqueue)")
+    # On non-Linux platforms or WSL, use epoll/kqueue (default ASIO behavior)
+    if(IS_WSL)
+      message(STATUS "✅ Created asio::asio target for WSL (epoll mode)")
+    else()
+      message(STATUS "✅ Created asio::asio target for non-Linux platform (epoll/kqueue)")
+    endif()
   endif()
 endif()
 
