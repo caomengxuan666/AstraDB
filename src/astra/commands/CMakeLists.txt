@@ -79,6 +79,11 @@ if(sha1_SOURCE_DIR)
   target_include_directories(astra_commands PUBLIC ${sha1_SOURCE_DIR})
 endif()
 
+# Add zstd include directory (required by aof_writer.hpp in persistence)
+if(zstd_SOURCE_DIR)
+  target_include_directories(astra_commands PUBLIC ${zstd_SOURCE_DIR}/lib)
+endif()
+
 # All command files (including core registration logic)
 target_sources(astra_commands PRIVATE
   command_handler.cpp

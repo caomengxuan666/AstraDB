@@ -87,19 +87,19 @@ ASTRABI_FORCEINLINE const char* FindCRLF_AVX2(const char* data, size_t size) {
     __m256i cmp = _mm256_cmpeq_epi16(chunk, crlf1);
     unsigned mask = _mm256_movemask_epi8(cmp);
     
-    if (mask != 0) {
-      unsigned pos = 0;
+   if (mask != 0) {
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward(&pos, mask);
 #else
       pos = __builtin_ctz(mask);
 #endif
-      if ((mask & (3 << pos)) != 0) {
-        return data + i + pos;
+     if ((mask & (3 << pos)) != 0) {
+        return data + i + static_cast<size_t>(pos);
       }
     }
   }
-  return nullptr;
+ return nullptr;
 }
 #endif
 
@@ -108,26 +108,26 @@ ASTRABI_FORCEINLINE const char* FindCRLF_AVX2(const char* data, size_t size) {
 ASTRABI_FORCEINLINE const char* FindCRLF_SSE42(const char* data, size_t size) {
   const __m128i cr = _mm_set1_epi8('\r');
   const size_t vec_size = 16;
-  const size_t limit = size - 1;
+  const size_t limit = size -1;
   
   for (size_t i = 0; i + vec_size <= limit; i += vec_size) {
     __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
     __m128i cmp = _mm_cmpeq_epi8(chunk, cr);
     unsigned mask = _mm_movemask_epi8(cmp);
     
-    if (mask != 0) {
-      unsigned pos = 0;
+   if (mask != 0) {
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward(&pos, mask);
 #else
       pos = __builtin_ctz(mask);
 #endif
-      if (pos < vec_size - 1 && data[i + pos + 1] == '\n') {
-        return data + i + pos;
+     if (pos < vec_size -1 && data[i + pos + 1] == '\n') {
+        return data + i + static_cast<size_t>(pos);
       }
     }
   }
-  return nullptr;
+ return nullptr;
 }
 #endif
 
@@ -146,28 +146,28 @@ ASTRABI_FORCEINLINE const char* FindCRLF_NEON(const char* data, size_t size) {
     uint8x16_t cmp_lf = vceqq_u8(shifted_chunk, lf);
     uint8x16_t result = vandq_u8(cmp_cr, cmp_lf);
     
-    uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(result), 0);
-    if (mask != 0) {
-      unsigned pos = 0;
+   uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(result), 0);
+  if (mask != 0) {
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward64(&pos, mask);
 #else
       pos = __builtin_ctzll(mask);
 #endif
-      return data + i + pos;
+     return data + i + static_cast<size_t>(pos);
     }
-    mask = vget_lane_u64(vreinterpret_u64_u8(result), 1);
-    if (mask != 0) {
-      unsigned pos = 0;
+   mask = vget_lane_u64(vreinterpret_u64_u8(result), 1);
+  if(mask != 0) {
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward64(&pos, mask);
 #else
       pos = __builtin_ctzll(mask);
 #endif
-      return data + i + pos + 8;
+     return data + i + static_cast<size_t>(pos) + 8;
     }
   }
-  return nullptr;
+ return nullptr;
 }
 #endif
 
@@ -319,8 +319,8 @@ ASTRABI_FORCEINLINE int MemCompare_AVX2(const void* a, const void* b, size_t len
     __m256i cmp = _mm256_cmpeq_epi8(va, vb);
     unsigned mask = _mm256_movemask_epi8(cmp);
     
-    if (mask != 0xFFFFFFFF) {
-      unsigned pos = 0;
+   if (mask != 0xFFFFFFFF) {
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward(&pos, ~mask);
 #else
@@ -330,7 +330,7 @@ ASTRABI_FORCEINLINE int MemCompare_AVX2(const void* a, const void* b, size_t len
              static_cast<int>(static_cast<const unsigned char*>(b)[i + pos]);
     }
   }
-  return 0;
+ return 0;
 }
 #endif
 
@@ -346,7 +346,7 @@ ASTRABI_FORCEINLINE int MemCompare_SSE2(const void* a, const void* b, size_t len
     unsigned mask = _mm_movemask_epi8(cmp);
     
     if (mask != 0xFFFF) {
-      unsigned pos = 0;
+      unsigned long pos = 0;
 #if defined(ASTRABI_COMPILER_MSVC)
       _BitScanForward(&pos, ~mask);
 #else

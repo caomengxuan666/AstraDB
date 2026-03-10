@@ -56,6 +56,9 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/hub/loader.cmake)
 # Load GetGitRevisionDescription module from our own cmake/modules/
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/GetGitRevisionDescription.cmake)
 
+# Read from .env
+read_env_file()
+
 # Find Git first (required for git_version module)
 find_package(Git QUIET)
 
@@ -283,8 +286,8 @@ message(STATUS "Version header generated: ${CMAKE_CURRENT_BINARY_DIR}/include/as
 # Testing
 # ==============================================================================
 
-# Disable mimalloc warnings that are treated as errors
-if(TARGET mimalloc-static)
+# Disable mimalloc warnings that are treated as errors (GCC/Clang only)
+if(NOT MSVC AND TARGET mimalloc-static)
   target_compile_options(mimalloc-static PRIVATE -Wno-error)
 endif()
 
@@ -305,6 +308,16 @@ endif()
 # Add fmt include directory
 if(fmt_SOURCE_DIR)
   target_include_directories(astradb PRIVATE ${fmt_SOURCE_DIR}/include)
+endif()
+
+# Add zstd include directory
+if(zstd_SOURCE_DIR)
+  target_include_directories(astradb PRIVATE ${zstd_SOURCE_DIR}/lib)
+endif()
+
+# Add zstd include directory to astra_persistence (propagates to all dependent targets)
+if(zstd_SOURCE_DIR AND TARGET astra_persistence)
+  target_include_directories(astra_persistence INTERFACE ${zstd_SOURCE_DIR}/lib)
 endif()
 
 # Link optional libraries

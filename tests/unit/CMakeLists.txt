@@ -14,20 +14,27 @@ if(ASTRADB_BUILD_TESTS)
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src
   )
   
+  # Add zstd include directory
+  if(zstd_SOURCE_DIR)
+   target_include_directories(astradb_tests PRIVATE ${zstd_SOURCE_DIR}/lib)
+  endif()
+  
   target_link_libraries(astradb_tests PRIVATE
-    GTest::gtest
-    GTest::gtest_main
-    mimalloc-static
-    spdlog::spdlog
-    absl::base
-    absl::hash
-    absl::flat_hash_map
-    absl::synchronization
-    astra_base
-    astra_persistence
-    astra_cluster
-    libgossip
-    leveldb
+   GTest::gtest
+   GTest::gtest_main
+   GTest::gmock
+   mimalloc-static
+   spdlog::spdlog
+   absl::base
+   absl::hash
+   absl::flat_hash_map
+   absl::synchronization
+   astra_base
+   astra_persistence
+  astra_cluster
+  libgossip
+   leveldb
+  zstd_static
   )
   
   # Directly link libgossip to get PUBLIC include directories

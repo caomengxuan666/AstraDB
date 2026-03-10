@@ -102,7 +102,7 @@ class ArenaAllocator {
 
   // Copy constructor
   template <typename U>
-  ArenaAllocator(const ArenaAllocator<U>& other) : arena_(other.arena_) {}
+  ArenaAllocator(const ArenaAllocator<U>& other) : arena_(other.GetArena()) {}
 
   // Allocate
   T* allocate(size_t n) {
