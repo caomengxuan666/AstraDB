@@ -40,6 +40,7 @@ endif()
 
 target_sources(astra_core PRIVATE
   async/thread_pool.cpp
+  metrics.cpp
 )
 
 # Link FlatBuffers
@@ -78,9 +79,6 @@ elseif(TARGET asio)
 endif()
 
 # Link date
-if(TARGET date::date)
-  target_link_libraries(astra_core PUBLIC date::date)
-endif()
 
 # Link concurrentqueue
 if(TARGET concurrentqueue)

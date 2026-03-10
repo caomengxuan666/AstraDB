@@ -52,6 +52,19 @@ cache_size = 268435456
 sync_writes = false
 
 # =============================================================================
+# Prometheus Metrics Configuration
+# =============================================================================
+[metrics]
+# Enable Prometheus metrics collection
+enabled = true
+# Metrics bind address
+bind_addr = "0.0.0.0"
+# Metrics port (default: 12345, avoid conflict with other services)
+port = 12345
+# Metrics endpoint path
+endpoint = "/metrics"
+
+# =============================================================================
 # Cluster Configuration (Redis Cluster Compatible)
 # =============================================================================
 [cluster]

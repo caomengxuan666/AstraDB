@@ -98,7 +98,7 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       config.cluster.bind_addr = cluster["bind_addr"].value_or<std::string>("0.0.0.0");
       config.cluster.gossip_port = cluster["gossip_port"].value_or<uint16_t>(7946);
       config.cluster.shard_count = cluster["shard_count"].value_or<uint32_t>(256);
-      
+
       // Parse seed nodes array
       if (cluster["seeds"]) {
         auto seeds = cluster["seeds"].as_array();
@@ -111,7 +111,15 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
         }
       }
     }
-    
+
+    // Metrics
+    if (data["metrics"]) {
+      auto metrics = *data["metrics"].as_table();
+      config.metrics.enabled = metrics["enabled"].value_or<bool>(true);
+      config.metrics.bind_addr = metrics["bind_addr"].value_or<std::string>("0.0.0.0");
+      config.metrics.port = metrics["port"].value_or<uint16_t>(9100);
+    }
+
   } catch (const std::exception& e) {
     std::cerr << "Failed to load config from " << config_file << ": " << e.what() << std::endl;
     std::cerr << "Using default configuration" << std::endl;

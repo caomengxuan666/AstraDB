@@ -112,19 +112,6 @@ CPMAddPackage(
 
 
 
-# date - Modern date/time library by Howard Hinnant
-# Usage: Timestamp handling, time calculations for TTL
-# Benefits: Better than std::chrono, easier to use, timezone support
-CPMAddPackage(
-  NAME
-  date
-  VERSION
-  3.0.3
-  URL
-  https://github.com/HowardHinnant/date/archive/refs/tags/v3.0.3.tar.gz
-  DOWNLOAD_ONLY
-  YES)
-
 # concurrentqueue - Lock-free MPMC queue
 # Usage: High-performance task queue for thread pool, command batching
 # Benefits: No locks, no memory allocation, faster than std::queue with mutex
