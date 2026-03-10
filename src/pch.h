@@ -112,9 +112,6 @@
 // JSON
 #include <nlohmann/json.hpp>
 
-// Date
-#include <date/date.h>
-
 // FlatBuffers
 #include <flatbuffers/flatbuffers.h>
 
