@@ -1,0 +1,17 @@
+#!/bin/bash
+# Pre-commit hook for AstraDB
+# Runs code formatting before committing
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Check if format.py exists
+if [ -f "$PROJECT_ROOT/scripts/format.py" ]; then
+    echo "Running code formatting..."
+    python3 "$PROJECT_ROOT/scripts/format.py" --check
+    echo "Code formatting check passed!"
+else
+    echo "Warning: format.py not found at scripts/format.py"
+fi
