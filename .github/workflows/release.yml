@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install cmake ninja
+          choco install cmake ninja nsis
         shell: pwsh
         timeout-minutes: 5
 
