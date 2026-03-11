@@ -336,13 +336,14 @@ if(asio_ADDED)
   target_include_directories(asio::asio INTERFACE
           ${asio_SOURCE_DIR}/asio/include)
 
-  # Disable io_uring support
-  # Note: io_uring has issues with network packet transmission on real Linux systems
-  # We use epoll instead for better compatibility and stability
-  # This applies to all Linux systems (both WSL and native Linux)
+  # Enable io_uring on all Linux systems (including WSL), disable epoll for better performance
   if(UNIX AND NOT APPLE)
-    message(STATUS "✅ Created asio::asio target with epoll support on Linux (io_uring disabled)")
+    target_compile_definitions(asio::asio INTERFACE
+            ASIO_HAS_IO_URING
+            ASIO_DISABLE_EPOLL)
+    message(STATUS "✅ Created asio::asio target with io_uring support on Linux")
   else()
+    # On non-Linux platforms, use epoll/kqueue (default ASIO behavior)
     message(STATUS "✅ Created asio::asio target for non-Linux platform (epoll/kqueue)")
   endif()
 endif()

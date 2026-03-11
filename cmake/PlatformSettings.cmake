@@ -33,13 +33,17 @@ elseif(UNIX)
   # Linux-specific settings
   # Linux requires pthread for threading support
   set(PLATFORM_LIBRARIES Threads::Threads rt)
-  
-  # Disable io_uring support
-  # Note: io_uring has issues with network packet transmission on real Linux systems
-  # We use epoll instead for better compatibility and stability
-  # io_uring may be re-enabled in the future once the issues are resolved
-  message(STATUS "  io_uring support: Disabled (using epoll)")
-  set(ASTRADB_IO_URING_ENABLED "OFF")
+
+# Enable io_uring support for Asio (Linux 5.1+)
+  # io_uring is enabled by Dependencies.cmake, we just check if liburing is available
+  find_library(LIBURING_LIB NAMES uring)
+  if(LIBURING_LIB)
+    message(STATUS "  io_uring support: Enabled (using liburing)")
+    set(ASTRADB_IO_URING_ENABLED "ON")
+  else()
+    message(STATUS "  io_uring support: Disabled (liburing not found)")
+    set(ASTRADB_IO_URING_ENABLED "OFF")
+  endif()
   
   # Handle static linking on Linux to avoid glibc NSS warnings
   if(ASTRADB_LINK_MODE STREQUAL "PARTIAL_STATIC")
