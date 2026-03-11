@@ -40,7 +40,7 @@ class TestClient {
 
         // Send message
         std::cout << "Sending: " << TEST_MESSAGE;
-        asio::write(socket, asio::buffer(TEST_MESSAGE));
+        asio::write(socket, asio::buffer(TEST_MESSAGE, std::strlen(TEST_MESSAGE)));
 
         // Receive response
         std::array<char, 1024> response;
