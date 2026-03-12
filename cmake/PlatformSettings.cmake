@@ -34,14 +34,19 @@ elseif(UNIX)
   # Linux requires pthread for threading support
   set(PLATFORM_LIBRARIES Threads::Threads rt)
 
-# Enable io_uring support for Asio (Linux 5.1+)
-  # io_uring is enabled by Dependencies.cmake, we just check if liburing is available
-  find_library(LIBURING_LIB NAMES uring)
-  if(LIBURING_LIB)
-    message(STATUS "  io_uring support: Enabled (using liburing)")
-    set(ASTRADB_IO_URING_ENABLED "ON")
+# Check io_uring support for Asio (Linux 5.1+)
+  # Only enabled if ASTRADB_ENABLE_IO_URING is ON
+  if(ASTRADB_ENABLE_IO_URING)
+    find_library(LIBURING_LIB NAMES uring)
+    if(LIBURING_LIB)
+      message(STATUS "  io_uring support: Enabled (using liburing)")
+      set(ASTRADB_IO_URING_ENABLED "ON")
+    else()
+      message(STATUS "  io_uring support: Disabled (liburing not found)")
+      set(ASTRADB_IO_URING_ENABLED "OFF")
+    endif()
   else()
-    message(STATUS "  io_uring support: Disabled (liburing not found)")
+    message(STATUS "  io_uring support: Disabled (ASTRADB_ENABLE_IO_URING=OFF)")
     set(ASTRADB_IO_URING_ENABLED "OFF")
   endif()
   

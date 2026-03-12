@@ -11,17 +11,14 @@ target_include_directories(astra_server PUBLIC
 
 target_sources(astra_server PRIVATE
   server.cpp
-  shard.cpp
+  worker.hpp
 )
 
 target_link_libraries(astra_server PUBLIC
-  astra_commands_whole
-  astra_network
-  astra_base
   astra_core
-  astra_protocol
-  astra_persistence
-  astra_cluster
+  astra_network
+  astra_protocol_resp
+  concurrentqueue
 )
 
 # Link asio if available

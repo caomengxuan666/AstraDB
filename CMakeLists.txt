@@ -20,6 +20,7 @@ project(
 option(ASTRADB_ENABLE_TLS "Enable TLS encryption support" OFF)
 option(ASTRADB_ENABLE_ACL "Enable ACL (Access Control List)" ON)
 option(ASTRADB_ENABLE_SIMD "Enable SIMD optimizations" ON)
+option(ASTRADB_ENABLE_IO_URING "Enable io_uring backend (Linux only, experimental)" OFF)
 option(ASTRADB_STRIP_SYMBOLS "Strip debug symbols from release builds" ON)
 
 # ==============================================================================
@@ -235,7 +236,7 @@ endif()
 # ==============================================================================
 # Link liburing for io_uring support on Linux (including WSL)
 # ==============================================================================
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND ASTRADB_ENABLE_IO_URING)
   find_library(LIBURING_LIB NAMES uring)
   if(LIBURING_LIB)
     message(STATUS "✅ Linux platform detected, found liburing: ${LIBURING_LIB}")
