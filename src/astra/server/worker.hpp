@@ -11,6 +11,11 @@
 #include <thread>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/inlined_vector.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
+
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/commands/command_auto_register.hpp"
@@ -596,8 +601,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
   }
 
 // For cross-worker requests, send requests and wait for responses
-  std::vector<std::vector<std::string>> all_results;
-  std::vector<std::future<std::vector<std::string>>> futures;
+  absl::InlinedVector<std::vector<std::string>, 4> all_results;
+  absl::InlinedVector<std::future<std::vector<std::string>>, 4> futures;
 
   // Send requests to all workers
   for (const auto& [target_worker_id, sub_keys] : worker_keys) {
@@ -635,7 +640,7 @@ inline std::vector<std::string> Worker::SendBatchRequest(
 
   // Wait for all cross-worker responses with timeout
   // Note: This is still blocking, but we call ProcessBatchResponses periodically
-  auto start_time = std::chrono::steady_clock::now();
+  auto start_time = absl::Now();
   size_t completed = 0;
 
   while (completed < futures.size()) {
@@ -645,7 +650,7 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     // Check if any future is ready
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
-        auto status = futures[i].wait_for(std::chrono::milliseconds(1));
+        auto status = futures[i].wait_for(absl::ToChronoMilliseconds(absl::Milliseconds(1)));
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
@@ -655,8 +660,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     }
 
     // Check timeout
-    auto elapsed = std::chrono::steady_clock::now() - start_time;
-    if (elapsed > std::chrono::seconds(5)) {
+    auto elapsed = absl::Now() - start_time;
+    if (elapsed > absl::Seconds(5)) {
       ASTRADB_LOG_ERROR("Worker {}: Batch request timeout after 5 seconds", worker_id_);
       // Add empty results for any remaining futures
       for (size_t i = 0; i < futures.size(); ++i) {
@@ -668,18 +673,18 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     }
 
     // Small sleep to avoid busy waiting
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    absl::SleepFor(absl::Milliseconds(1));
   }
 
   // Aggregate results based on command type
-  std::vector<std::string> final_result;
+  absl::InlinedVector<std::string, 8> final_result;
   if (cmd_type == "SINTER") {
     if (!all_results.empty()) {
       // Compute intersection of all results
-      final_result = all_results[0];
+      final_result = absl::InlinedVector<std::string, 8>(all_results[0].begin(), all_results[0].end());
       for (size_t i = 1; i < all_results.size(); ++i) {
         absl::flat_hash_set<std::string> current_set(all_results[i].begin(), all_results[i].end());
-        std::vector<std::string> temp;
+        absl::InlinedVector<std::string, 8> temp;
         for (const auto& member : final_result) {
           if (current_set.find(member) != current_set.end()) {
             temp.push_back(member);
@@ -692,7 +697,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
   }
   // TODO: Add other command types (SUNION, ZUNIONSTORE, ZINTERSTORE)
 
-  return final_result;
+  // Convert absl::InlinedVector to std::vector for return
+  return std::vector<std::string>(final_result.begin(), final_result.end());
 }
 
 inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
