@@ -118,6 +118,7 @@ struct CommandWithConnId {
   uint64_t conn_id;
   astra::protocol::Command command;
   bool is_forwarded;  // True if this is a forwarded command from another worker
+  size_t source_worker_id;  // Which worker sent this forwarded command (only valid if is_forwarded=true)
 };
 
 // Response with connection ID
@@ -260,7 +261,7 @@ class Worker {
   // Enqueue a cross-worker request (called by other workers)
   void EnqueueCrossWorkerRequest(const CrossWorkerRequest& req) {
     // Create a command with connection ID for the request
-    CommandWithConnId cmd{req.conn_id, req.command, true};  // Mark as forwarded
+    CommandWithConnId cmd{req.conn_id, req.command, true, req.source_worker_id};  // Mark as forwarded
     cmd_queue_.enqueue(cmd);
   }
   
@@ -413,7 +414,7 @@ class Worker {
         }
 
         // Enqueue command to executor thread (within same worker!)
-        CommandWithConnId cmd{conn_id_, *command_opt};
+        CommandWithConnId cmd{conn_id_, *command_opt, false, worker_id_};  // Not forwarded, source is self
         cmd_queue_->enqueue(cmd);
       }
     }
@@ -454,10 +455,10 @@ class Worker {
 
         if (cmd.is_forwarded) {
           // This is a forwarded command from another worker
-          // Execute directly and send response back
+          // Execute directly and send response back to source worker
           std::string response = data_shard_.Execute(cmd.command);
-          ResponseWithConnId resp{cmd.conn_id, response};
-          resp_queue_.enqueue(resp);
+          CrossWorkerResponse cross_resp{cmd.conn_id, response};
+          all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
         } else {
           // This is a new command from a client
           // Determine if this command should be forwarded to another worker
@@ -635,43 +636,36 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     for (auto& future : futures) {
       auto status = future.wait_for(std::chrono::seconds(5));
       if (status == std::future_status::ready) {
-        all_results.push_back(future.get());
+        auto result = future.get();
+        all_results.push_back(std::move(result));
       } else {
-        all_results.push_back({});  // Empty result on timeout
+        ASTRADB_LOG_ERROR("Worker {}: Batch request timeout", worker_id_);
+        all_results.push_back({});
       }
     }
 
     // Aggregate results based on command type
+    std::vector<std::string> final_result;
     if (cmd_type == "SINTER") {
-      if (all_results.empty()) {
-        return std::vector<std::string>{};
-      }
-
-      // Start with first result
-      std::vector<std::string> result = all_results[0];
-
-      // Intersect with remaining results
-      for (size_t i = 1; i < all_results.size(); ++i) {
-        absl::flat_hash_set<std::string> current_set(all_results[i].begin(), all_results[i].end());
-        std::vector<std::string> temp;
-        for (const auto& member : result) {
-          if (current_set.find(member) != current_set.end()) {
-            temp.push_back(member);
+      if (!all_results.empty()) {
+        // Compute intersection of all results
+        final_result = all_results[0];
+        for (size_t i = 1; i < all_results.size(); ++i) {
+          absl::flat_hash_set<std::string> current_set(all_results[i].begin(), all_results[i].end());
+          std::vector<std::string> temp;
+          for (const auto& member : final_result) {
+            if (current_set.find(member) != current_set.end()) {
+              temp.push_back(member);
+            }
           }
+          final_result = std::move(temp);
+          if (final_result.empty()) break;
         }
-        result = std::move(temp);
-        if (result.empty()) break;
       }
-
-      return result;
     }
-
-    // For other commands, just concatenate results
-    std::vector<std::string> concatenated;
-    for (auto& result : all_results) {
-      concatenated.insert(concatenated.end(), result.begin(), result.end());
-    }
-    return concatenated;
+    // TODO: Add other command types (SUNION, ZUNIONSTORE, ZINTERSTORE)
+    
+    return final_result;
   });
 
   // Wait for the async task to complete (with timeout)
@@ -709,7 +703,7 @@ inline void Worker::ProcessBatchResponses() {
     std::lock_guard<std::mutex> lock(batch_mutex_);
     auto it = pending_batch_reqs_.find(resp.req_id);
     if (it != pending_batch_reqs_.end()) {
-      // Set the promise value
+      // Set the promise value with the received result
       it->second->result_promise->set_value(std::move(resp.result));
       // Remove from pending map
       pending_batch_reqs_.erase(it);
