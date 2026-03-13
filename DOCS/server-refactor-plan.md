@@ -18,6 +18,11 @@ This document describes the detailed plan for integrating existing AstraDB funct
   - Connection acceptance and lifecycle management
   - RESP protocol parsing
   - PING command support
+- ✅ Metrics monitoring
+  - Custom ASIO HTTP server (prometheus-cpp core only)
+  - Prometheus metrics format support
+  - Independent Metrics Server thread with dedicated io_context
+  - /metrics endpoint on port 9999
 
 ### Current Limitations
 - ❌ DataShard only supports PING command (placeholder implementation)
@@ -29,9 +34,15 @@ This document describes the detailed plan for integrating existing AstraDB funct
   - Publish/Subscribe
   - Transaction support
   - ACL authentication
-  - Metrics monitoring
   - Lua scripting
   - Blocking commands
+
+### Recently Completed Features
+- ✅ Metrics monitoring (Phase 5.2)
+  - Custom ASIO HTTP server on port 9999
+  - Prometheus metrics format support
+  - Independent Metrics Server thread
+  - CivetWeb disabled (WSL2 compatibility)
 
 ## Target Architecture (NO SHARING)
 
@@ -63,6 +74,8 @@ This document describes the detailed plan for integrating existing AstraDB funct
 ```
 
 ## Content Temporarily Removed for Compilation
+
+**Note**: Some features listed below have been re-implemented. See "Recently Completed Features" section for details.
 
 ### 1. Server Class Simplification (server.hpp/server.cpp)
 
@@ -539,26 +552,43 @@ resp.SetInteger(0);
 #### 5.2 Metrics Monitoring Integration
 **Goal**: Integrate metrics monitoring into NO SHARING architecture
 
-**Architecture Options**:
-
-**Option A: Independent Metrics Server (Recommended)**
-- Server creates independent Metrics Server thread
-- Periodically collect metrics from Workers
-- Expose HTTP/metrics endpoint
+**Architecture Implementation**:
+- Server creates independent Metrics Server thread with dedicated io_context
+- Custom ASIO HTTP server (prometheus-cpp core only, CivetWeb disabled)
+- Expose HTTP/metrics endpoint on configurable port (default: 9999)
 - ✅ Complies with NO SHARING
 - ✅ Doesn't affect main flow
 
-**Task List**:
-- [ ] Integrate metrics collector in Server
+**Technical Details**:
+- **Dependency**: prometheus-cpp 1.2.4 (core library only)
+- **HTTP Server**: Custom ASIO-based implementation (CivetWeb disabled for WSL2 compatibility)
+- **Configuration**: cmake/Dependencies.cmake (ENABLE_PULL=OFF, ENABLE_PUSH=OFF)
+- **Port**: 9999 (configurable via server configuration)
+- **Format**: Prometheus text format (version 0.0.4)
+
+**Completed Tasks**:
+- ✅ Integrated prometheus-cpp::core dependency in CMakeLists.txt
+- ✅ Disabled CivetWeb build (ENABLE_PULL=OFF in cmake/Dependencies.cmake)
+- ✅ Implemented custom HTTP server using ASIO
+- ✅ Created MetricsManager with dedicated io_context and thread
+- ✅ Exposed /metrics endpoint (returns HTTP 200 OK)
+- ✅ Added metrics configuration support in Server
+
+**Pending Tasks**:
+- [ ] Add basic metrics (connection count, command count, memory usage)
+- [ ] Rewrite HTTP server using coroutines (asio::awaitable)
 - [ ] Implement Worker metrics reporting mechanism
-- [ ] Implement Prometheus metrics format
-- [ ] Expose HTTP/metrics endpoint
-- [ ] Implement INFO command
+- [ ] Implement INFO command metrics section
+- [ ] Add latency histograms (command processing time)
+- [ ] Add throughput metrics (commands per second)
 
 **Files Involved**:
-- `src/astra/core/metrics.hpp` (already exists, needs adaptation)
-- `src/astra/server/server.hpp` (add Metrics Server)
-- `src/astra/server/worker.hpp` (add metrics reporting)
+- `src/astra/core/metrics.hpp` (metrics infrastructure)
+- `src/astra/core/metrics_http.cpp` (custom HTTP server)
+- `src/astra/server/managers.hpp` (MetricsManager implementation)
+- `src/astra/server/server.hpp` (metrics configuration)
+- `cmake/Dependencies.cmake` (prometheus-cpp configuration)
+- `src/astra/commands/CMakeLists.txt` (prometheus-cpp::core linking)
 
 ---
 
@@ -835,7 +865,7 @@ resp.SetInteger(0);
 
 ---
 
-**Document Version**: 2.0
+**Document Version**: 2.1
 **Created**: 2026-03-13
-**Last Updated**: 2026-03-13
+**Last Updated**: 2026-03-14
 **Authors**: AstraDB Team
