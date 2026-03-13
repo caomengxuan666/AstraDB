@@ -59,7 +59,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   // Metrics
   bool metrics_enabled = true;
   std::string metrics_bind_addr = "0.0.0.0";
-  uint16_t metrics_port = 9090;
+  uint16_t metrics_port = 9100;
 
   // Load configuration from file
   static NoSharingServerConfig LoadFromFile(const std::string& config_file) {

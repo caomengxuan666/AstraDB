@@ -7,11 +7,13 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
+
+#include <prometheus/exposer.h>
 
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
+#include "astra/core/metrics.hpp"
 #include "astra/persistence/aof_writer.hpp"
 #include "astra/persistence/rdb_writer.hpp"
 #include "astra/storage/key_metadata.hpp"
@@ -312,21 +314,70 @@ class PubSubManager {
   }
 };
 
-// Simple metrics manager stub
-// TODO: Implement full metrics with Prometheus
+// Metrics Manager - Prometheus metrics collection and HTTP server
+// Uses prometheus-cpp built-in Exposer for NO SHARING architecture
 class MetricsManager {
  public:
   MetricsManager() = default;
-  ~MetricsManager() = default;
+  ~MetricsManager() { Shutdown(); }
 
   bool Init(const std::string& bind_addr, uint16_t port) {
     ASTRADB_LOG_INFO("MetricsManager: Init on {}:{}", bind_addr, port);
-    return true;
+
+    try {
+      // Initialize metrics registry
+      astra::metrics::MetricsConfig config;
+      config.enabled = true;
+      config.bind_addr = bind_addr;
+      config.port = port;
+
+      if (!astra::metrics::MetricsRegistry::Instance().Init(config)) {
+        ASTRADB_LOG_ERROR("Failed to initialize metrics registry");
+        return false;
+      }
+
+      // Create prometheus-cpp Exposer (built-in CivetWeb HTTP server)
+      // Use vector constructor for better CivetWeb control
+      std::vector<std::string> options = {
+        "listening_ports", bind_addr + ":" + std::to_string(port),
+        "num_threads", "1",
+        "enable_keep_alive", "no"
+      };
+      exposer_ = std::make_unique<prometheus::Exposer>(options);
+
+      // Register the registry with the exposer
+      exposer_->RegisterCollectable(astra::metrics::MetricsRegistry::Instance().GetRegistry());
+
+      ASTRADB_LOG_INFO("MetricsManager: Initialized successfully with built-in Exposer");
+      initialized_ = true;
+      return true;
+    } catch (const std::exception& e) {
+      ASTRADB_LOG_ERROR("MetricsManager: Init exception: {}", e.what());
+      return false;
+    }
   }
 
   void Shutdown() {
-    ASTRADB_LOG_INFO("MetricsManager: Shutdown");
+    if (!running_.exchange(false)) {
+      return;
+    }
+
+    ASTRADB_LOG_INFO("MetricsManager: Shutting down");
+
+    // The Exposer will be automatically destroyed when exposer_ is reset
+    // No need to manually stop HTTP server
+
+    ASTRADB_LOG_INFO("MetricsManager: Shutdown complete");
   }
+
+  bool IsInitialized() const { return initialized_; }
+
+ private:
+  bool initialized_ = false;
+  std::atomic<bool> running_{false};
+
+  // prometheus-cpp built-in Exposer (CivetWeb HTTP server)
+  std::unique_ptr<prometheus::Exposer> exposer_;
 };
 
 }  // namespace astra::server
