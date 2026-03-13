@@ -168,6 +168,7 @@ if(ASTRADB_BUILD_EXECUTABLE)
     astra_protocol
     spdlog::spdlog
     absl::base
+    absl::status
   )
 
   # asio is header-only, just include directories

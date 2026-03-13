@@ -1841,7 +1841,7 @@ CommandResult HandleZUnion(const astra::protocol::Command& command,
   }
 
   // Compute union using a map
-  std::map<std::string, std::vector<double>> member_scores;
+  absl::flat_hash_map<std::string, std::vector<double>> member_scores;
 
   for (size_t i = 0; i < keys.size(); ++i) {
     auto members = db->ZRangeByRank(keys[i], 0, -1, false, true);

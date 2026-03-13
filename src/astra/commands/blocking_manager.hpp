@@ -11,7 +11,6 @@
 #include <functional>
 #include <memory>
 #include <shared_mutex>
-#include <unordered_map>
 
 #include "astra/protocol/resp/resp_types.hpp"
 
@@ -70,11 +69,11 @@ class BlockingManager {
   asio::io_context& io_context_;
 
   // Per-key wait queue
-  std::unordered_map<std::string, std::deque<BlockedClient>> wait_queues_;
+  absl::flat_hash_map<std::string, std::deque<BlockedClient>> wait_queues_;
   mutable std::shared_mutex wait_queues_mutex_;
 
   // Timeout timers
-  std::unordered_map<uint64_t, std::unique_ptr<asio::steady_timer>>
+  absl::flat_hash_map<uint64_t, std::unique_ptr<asio::steady_timer>>
       timeout_timers_;
   mutable std::shared_mutex timers_mutex_;
 };

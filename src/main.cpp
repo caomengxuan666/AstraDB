@@ -3,9 +3,11 @@
 
 #include <chrono>
 #include <csignal>
-#include <iostream>
 #include <memory>
 #include <thread>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 
 #include "astra/base/logging.hpp"
 #include "astra/server/server.hpp"
@@ -15,8 +17,6 @@ namespace {
 std::unique_ptr<astra::server::Server> g_server;
 
 void SignalHandler(int signal) {
-  std::cout << "[Main] Received signal " << signal << ", shutting down..."
-            << std::endl;
   ASTRADB_LOG_INFO("Received signal {}, shutting down...", signal);
   if (g_server) {
     g_server->Stop();
@@ -34,22 +34,18 @@ void SetupSignalHandlers() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  // Initialize logging first (required for logging in other parts)
+absl::Status RunServer() {
+  // Initialize logging first
   astra::base::InitLogging("", spdlog::level::debug, false, 1024);
 
-  std::cout << "======================================" << std::endl;
-  std::cout << "AstraDB Server (Per-Worker IO)" << std::endl;
-  std::cout << "======================================" << std::endl;
-
   ASTRADB_LOG_INFO("========================================");
-  ASTRADB_LOG_INFO("AstraDB Server (Per-Worker IO)");
+  ASTRADB_LOG_INFO("AstraDB Server (NO SHARING Architecture)");
   ASTRADB_LOG_INFO("========================================");
 
   // Setup signal handlers
   SetupSignalHandlers();
 
-// Create server configuration
+  // Create server configuration
   astra::server::NoSharingServerConfig config;
   config.host = "0.0.0.0";
   config.port = 6379;
@@ -72,27 +68,23 @@ int main(int argc, char** argv) {
   // config.metrics_enabled = true;
   // config.metrics_port = 9090;
 
-  std::cout << "[Main] Creating server with configuration:" << std::endl;
-  std::cout << "  Host: " << config.host << std::endl;
-  std::cout << "  Port: " << config.port << std::endl;
-  std::cout << "  Workers: " << config.num_workers << " (each has IO + Executor threads)" << std::endl;
-  std::cout << "  SO_REUSEPORT: " << (config.use_so_reuseport ? "enabled" : "disabled")
-            << std::endl;
-
   ASTRADB_LOG_INFO("Creating server with configuration:");
   ASTRADB_LOG_INFO("  Host: {}", config.host);
   ASTRADB_LOG_INFO("  Port: {}", config.port);
   ASTRADB_LOG_INFO("  Workers: {}", config.num_workers);
   ASTRADB_LOG_INFO("  SO_REUSEPORT: {}", config.use_so_reuseport ? "enabled" : "disabled");
+  ASTRADB_LOG_INFO("  AOF enabled: {}", config.aof_enabled ? "yes" : "no");
+  ASTRADB_LOG_INFO("  Cluster enabled: {}", config.cluster_enabled ? "yes" : "no");
+  ASTRADB_LOG_INFO("  ACL enabled: {}", config.acl_enabled ? "yes" : "no");
+  ASTRADB_LOG_INFO("  Metrics enabled: {}", config.metrics_enabled ? "yes" : "no");
 
   // Create server
   g_server = std::make_unique<astra::server::Server>(config);
 
   // Start server
-  std::cout << "[Main] Starting server..." << std::endl;
+  ASTRADB_LOG_INFO("Starting server...");
   g_server->Start();
 
-  std::cout << "[Main] Server running. Press Ctrl+C to stop." << std::endl;
   ASTRADB_LOG_INFO("Server running. Press Ctrl+C to stop.");
 
   // Keep main thread alive
@@ -100,9 +92,19 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
-  // Wait for server to finish
-  std::cout << "[Main] Server stopped." << std::endl;
+  // Server stopped
   ASTRADB_LOG_INFO("Server stopped.");
 
+  return absl::OkStatus();
+}
+
+int main(int argc, char** argv) {
+  absl::Status status = RunServer();
+  
+  if (!status.ok()) {
+    ASTRADB_LOG_ERROR("Server failed: {}", status.ToString());
+    return 1;
+  }
+  
   return 0;
 }
