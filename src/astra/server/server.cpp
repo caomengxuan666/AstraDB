@@ -11,12 +11,23 @@ Server::Server(const ServerConfig& config)
   ASTRADB_LOG_INFO("Config: host={}, port={}, workers={}", config.host,
                    config.port, config.num_workers);
 
-  // Create workers (each worker is completely independent)
+  // Create all workers (without cross-worker references initially)
   for (size_t i = 0; i < config.num_workers; ++i) {
-    workers_.push_back(std::make_unique<Worker>(i, config.host, config.port));
+    workers_.push_back(std::make_unique<Worker>(i, config.host, config.port, std::vector<Worker*>()));
   }
 
-  ASTRADB_LOG_INFO("Server created successfully with {} workers", workers_.size());
+  // Now, set up cross-worker references
+  std::vector<Worker*> worker_ptrs;
+  for (auto& worker : workers_) {
+    worker_ptrs.push_back(worker.get());
+  }
+
+  // Set all workers reference for each worker
+  for (auto& worker : workers_) {
+    worker->SetAllWorkers(worker_ptrs);
+  }
+
+  ASTRADB_LOG_INFO("Server created successfully with {} workers (MPSC cross-worker communication enabled)", workers_.size());
 }
 
 Server::~Server() { ASTRADB_LOG_INFO("Server destroyed"); }

@@ -4,9 +4,11 @@
 #pragma once
 
 #include <asio.hpp>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
@@ -18,6 +20,9 @@
 #include "astra/protocol/resp/resp_types.hpp"
 
 namespace astra::server {
+
+// Forward declaration
+class Worker;
 
 // Simple CommandContext implementation for Worker
 class WorkerCommandContext : public astra::commands::CommandContext {
@@ -76,6 +81,19 @@ class DataShard {
   astra::commands::CommandRegistry registry_;
 };
 
+// Cross-worker request (forwarded from one worker to another)
+struct CrossWorkerRequest {
+  size_t source_worker_id;  // Which worker sent this request
+  uint64_t conn_id;         // Connection ID on source worker
+  astra::protocol::Command command;
+};
+
+// Cross-worker response (sent back to source worker)
+struct CrossWorkerResponse {
+  uint64_t conn_id;         // Connection ID on source worker
+  std::string response;     // Response data
+};
+
 // Command with connection ID
 struct CommandWithConnId {
   uint64_t conn_id;
@@ -88,16 +106,18 @@ struct ResponseWithConnId {
   std::string response;
 };
 
-// Worker - NO SHARING architecture
+// Worker - NO SHARING architecture with MPSC cross-worker communication
 // Each worker is a completely independent "mini server"
 class Worker {
  public:
-  explicit Worker(size_t worker_id, const std::string& host, uint16_t port)
+  explicit Worker(size_t worker_id, const std::string& host, uint16_t port,
+                 std::vector<Worker*> all_workers)
       : worker_id_(worker_id),
         io_context_(),
         acceptor_(io_context_),
         data_shard_(worker_id),
-        running_(false) {
+        running_(false),
+        all_workers_(std::move(all_workers)) {
     
     ASTRADB_LOG_INFO("Worker {}: Creating", worker_id_);
     
@@ -180,6 +200,34 @@ class Worker {
 
   // Get the worker's io_context (for creating connections)
   asio::io_context& GetIOContext() { return io_context_; }
+
+  // Get worker ID
+  size_t GetWorkerId() const { return worker_id_; }
+
+  // Set all workers reference (called by Server after all workers are created)
+  void SetAllWorkers(const std::vector<Worker*>& all_workers) {
+    all_workers_ = all_workers;
+  }
+
+  // Process a cross-worker request (MPSC queue entry point)
+  void ProcessCrossWorkerRequest(const CrossWorkerRequest& req) {
+    ASTRADB_LOG_DEBUG("Worker {}: Processing cross-worker request from Worker {}",
+                     worker_id_, req.source_worker_id);
+
+    // Execute command on this worker's data shard
+    std::string response = data_shard_.Execute(req.command);
+
+    // Send response back to source worker
+    if (req.source_worker_id < all_workers_.size()) {
+      CrossWorkerResponse cross_resp{req.conn_id, response};
+      all_workers_[req.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
+    }
+  }
+
+  // Enqueue a cross-worker response (called by other workers)
+  void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
+    cross_worker_resp_queue_.enqueue(resp);
+  }
 
  private:
   void DoAccept() {
@@ -329,22 +377,60 @@ class Worker {
     std::string receive_buffer_;
   };
 
+  // Calculate which worker should handle this key (consistent hashing)
+  size_t RouteToWorker(const std::string& key) {
+    if (key.empty()) {
+      return worker_id_ % all_workers_.size();
+    }
+    // Simple hash-based routing
+    uint64_t hash = std::hash<std::string>{}(key);
+    return hash % all_workers_.size();
+  }
+
   void ExecutorLoop() {
     while (running_) {
+      // Process local commands first
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
         ASTRADB_LOG_DEBUG("Worker {}: Executor processing command: {} for conn {}",
                          worker_id_, cmd.command.name, cmd.conn_id);
 
-        // Execute command (using this worker's data shard)
-        std::string response = data_shard_.Execute(cmd.command);
+        // Determine if this command should be forwarded to another worker
+        // Check if command has a key argument
+        size_t target_worker = worker_id_;
+        if (!cmd.command.args.empty() && 
+            (cmd.command.args[0].IsBulkString() || cmd.command.args[0].IsSimpleString())) {
+          std::string key = cmd.command.args[0].AsString();
+          target_worker = RouteToWorker(key);
+        }
 
-        // Enqueue response to be sent by IO thread
-        ResponseWithConnId resp{cmd.conn_id, response};
-        resp_queue_.enqueue(resp);
-      } else {
-        std::this_thread::yield();
+        if (target_worker == worker_id_) {
+          // Handle locally
+          std::string response = data_shard_.Execute(cmd.command);
+          ResponseWithConnId resp{cmd.conn_id, response};
+          resp_queue_.enqueue(resp);
+        } else {
+          // Forward to target worker
+          ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
+                           worker_id_, target_worker);
+          CrossWorkerRequest cross_req{
+            worker_id_,  // source worker
+            cmd.conn_id,
+            cmd.command
+          };
+          all_workers_[target_worker]->ProcessCrossWorkerRequest(cross_req);
+        }
       }
+
+      // Process cross-worker responses
+      CrossWorkerResponse cross_resp;
+      while (cross_worker_resp_queue_.try_dequeue(cross_resp)) {
+        ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
+        resp_queue_.enqueue(resp);
+      }
+
+      // Yield if no work
+      std::this_thread::yield();
     }
   }
 
@@ -383,8 +469,14 @@ class Worker {
   // Worker's private queues (no sharing!)
   moodycamel::ConcurrentQueue<CommandWithConnId> cmd_queue_;
   moodycamel::ConcurrentQueue<ResponseWithConnId> resp_queue_;
+  
+  // Cross-worker communication queues (MPSC)
+  moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
 
   absl::flat_hash_map<uint64_t, std::shared_ptr<Connection>> connections_;
+
+  // Reference to all workers for cross-worker communication
+  std::vector<Worker*> all_workers_;
 
   asio::steady_timer response_timer_{io_context_};  // Timer for checking response queue
 
