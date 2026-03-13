@@ -205,8 +205,10 @@ struct CommandResult {
 };
 
 // Command handler function signature
-using CommandHandler = absl::AnyInvocable<CommandResult(
-    const astra::protocol::Command& command, CommandContext* context) const>;
+// Using std::function instead of absl::AnyInvocable to support copying
+// (needed for NO SHARING architecture where each Worker has its own CommandRegistry)
+using CommandHandler = std::function<CommandResult(
+    const astra::protocol::Command& command, CommandContext* context)>;
 
 // Command routing strategy
 enum class RoutingStrategy {
