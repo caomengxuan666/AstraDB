@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-#include <prometheus/exposer.h>
-
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/core/metrics.hpp"
@@ -340,21 +338,24 @@ class MetricsManager {
         return false;
       }
 
+      // Initialize AstraMetrics (creates Prometheus metrics)
+      astra::metrics::AstraMetrics::Instance().Init(config);
+
       // Create dedicated io_context for metrics HTTP server
       metrics_io_context_ = std::make_unique<asio::io_context>();
 
       // Start HTTP server in background thread
       running_ = true;
-      metrics_thread_ = std::thread([this, bind_addr, port, config]() {
+      metrics_thread_ = std::thread([this, bind_addr, config]() {
         ASTRADB_LOG_INFO("MetricsManager: Starting HTTP server thread");
-        
+
         // Start HTTP server
         astra::metrics::MetricsRegistry::Instance().StartHTTPServer(
             *metrics_io_context_, config);
-        
+
         // Run io_context
         metrics_io_context_->run();
-        
+
         ASTRADB_LOG_INFO("MetricsManager: HTTP server thread exited");
       });
 
