@@ -13,6 +13,8 @@
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/persistence/aof_writer.hpp"
+#include "astra/persistence/rdb_writer.hpp"
+#include "astra/storage/key_metadata.hpp"
 
 namespace astra::server {
 
@@ -24,32 +26,43 @@ class PersistenceManager {
   ~PersistenceManager() { Shutdown(); }
 
   // Initialize persistence manager
-  bool Init(const std::string& data_dir, bool aof_enabled = true,
-            const std::string& aof_path = "./data/aof/appendonly.aof") {
+  bool Init(const std::string& data_dir, bool aof_enabled = true, bool rdb_enabled = true,
+            const std::string& aof_path = "./data/aof/appendonly.aof",
+            const std::string& rdb_path = "./data/dump.rdb") {
     data_dir_ = data_dir;
     aof_enabled_ = aof_enabled;
+    rdb_enabled_ = rdb_enabled;
 
-    if (!aof_enabled_) {
-      ASTRADB_LOG_INFO("PersistenceManager: Init (AOF disabled)");
-      return true;
+    // Initialize AOF writer if enabled
+    if (aof_enabled_) {
+      persistence::AofOptions options;
+      options.aof_path = aof_path;
+      options.sync_policy = persistence::AofSyncPolicy::kEverySec;
+
+      if (!aof_writer_.Init(options)) {
+        ASTRADB_LOG_ERROR("Failed to initialize AOF writer");
+        return false;
+      }
     }
 
-    // Initialize AOF writer
-    persistence::AofOptions options;
-    options.aof_path = aof_path;
-    options.sync_policy = persistence::AofSyncPolicy::kEverySec;
+    // Initialize RDB writer if enabled
+    if (rdb_enabled_) {
+      persistence::RdbOptions rdb_options;
+      rdb_options.save_path = rdb_path;
+      rdb_options.checksum = true;
 
-    if (!aof_writer_.Init(options)) {
-      ASTRADB_LOG_ERROR("Failed to initialize AOF writer");
-      return false;
+      if (!rdb_writer_.Init(rdb_options)) {
+        ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
+        return false;
+      }
     }
 
-    // Start background thread for processing commands
+    // Start background thread for processing AOF commands
     running_.store(true, std::memory_order_release);
     processing_thread_ = std::thread(&PersistenceManager::ProcessCommands, this);
 
-    ASTRADB_LOG_INFO("PersistenceManager: Init with data_dir={}, aof_path={}",
-                     data_dir, aof_path);
+    ASTRADB_LOG_INFO("PersistenceManager: Init with data_dir={}, aof_enabled={}, rdb_enabled={}",
+                     data_dir, aof_enabled, rdb_enabled);
     initialized_ = true;
     return true;
   }
@@ -84,6 +97,123 @@ class PersistenceManager {
 
   // Get AOF writer (for advanced operations like rewrite)
   persistence::AofWriter* GetAofWriter() { return &aof_writer_; }
+
+  // ========== RDB Persistence Operations ==========
+
+  // Save all workers' data to RDB file (blocking)
+  template <typename WorkerCollection>
+  bool SaveRdb(const WorkerCollection& workers) {
+    if (!rdb_enabled_) {
+      ASTRADB_LOG_WARN("PersistenceManager: RDB is disabled");
+      return false;
+    }
+
+    ASTRADB_LOG_INFO("PersistenceManager: Starting RDB save");
+
+    // Collect data from all workers
+    std::vector<std::vector<std::tuple<std::string, astra::storage::KeyType,
+                                         std::string, int64_t>>> all_data;
+
+    for (const auto& worker : workers) {
+      auto worker_data = worker->GetRdbData();
+      all_data.push_back(std::move(worker_data));
+      ASTRADB_LOG_DEBUG("PersistenceManager: Collected {} keys from worker {}",
+                       worker_data.size(), worker->GetWorkerId());
+    }
+
+    // Save to RDB file using callback
+    auto save_callback = [&all_data](persistence::RdbWriter& writer) {
+      size_t db_index = 0;
+      size_t db_size = 0;
+      size_t expires_size = 0;
+
+      // Count total keys
+      for (const auto& worker_data : all_data) {
+        db_size += worker_data.size();
+        for (const auto& [key, type, value, ttl_ms] : worker_data) {
+          if (ttl_ms > 0) {
+            expires_size++;
+          }
+        }
+      }
+
+      // Select database and write header
+      writer.SelectDb(db_index);
+      writer.ResizeDb(db_size, expires_size);
+
+      // Write all key-value pairs
+      for (const auto& worker_data : all_data) {
+        for (const auto& [key, type, value, ttl_ms] : worker_data) {
+          // Calculate absolute expire time
+          int64_t expire_ms = -1;
+          if (ttl_ms > 0) {
+            auto expire_time = absl::Now() + absl::Milliseconds(ttl_ms);
+            expire_ms = absl::ToUnixMillis(expire_time);
+          }
+
+          // Write key-value pair based on type
+          switch (type) {
+            case astra::storage::KeyType::kString:
+              writer.WriteKv(astra::persistence::RDB_TYPE_STRING, key, value, expire_ms);
+              break;
+            case astra::storage::KeyType::kHash:
+              writer.WriteKv(astra::persistence::RDB_TYPE_HASH, key, value, expire_ms);
+              break;
+            case astra::storage::KeyType::kList:
+              writer.WriteKv(astra::persistence::RDB_TYPE_LIST, key, value, expire_ms);
+              break;
+            case astra::storage::KeyType::kSet:
+              writer.WriteKv(astra::persistence::RDB_TYPE_SET, key, value, expire_ms);
+              break;
+            case astra::storage::KeyType::kZSet:
+              writer.WriteKv(astra::persistence::RDB_TYPE_ZSET, key, value, expire_ms);
+              break;
+            default:
+              ASTRADB_LOG_WARN("PersistenceManager: Unknown type {} for key {}",
+                               static_cast<int>(type), key);
+              break;
+          }
+        }
+      }
+    };
+
+    bool success = rdb_writer_.Save(save_callback);
+    if (success) {
+      ASTRADB_LOG_INFO("PersistenceManager: RDB save completed");
+    } else {
+      ASTRADB_LOG_ERROR("PersistenceManager: RDB save failed");
+    }
+
+    return success;
+  }
+
+  // Start background RDB save (non-blocking)
+  template <typename WorkerCollection>
+  bool BackgroundSaveRdb(const WorkerCollection& workers) {
+    if (bg_save_in_progress_) {
+      ASTRADB_LOG_WARN("PersistenceManager: Background RDB save already in progress");
+      return false;
+    }
+
+    bg_save_in_progress_ = true;
+
+    // Start background save thread
+    if (bg_save_thread_.joinable()) {
+      bg_save_thread_.join();
+    }
+
+    bg_save_thread_ = std::thread([this, workers]() {
+      ASTRADB_LOG_INFO("PersistenceManager: Background RDB save started");
+      bool success = SaveRdb(workers);
+      bg_save_in_progress_ = false;
+      ASTRADB_LOG_INFO("PersistenceManager: Background RDB save completed, success={}", success);
+    });
+
+    return true;
+  }
+
+  // Check if background RDB save is in progress
+  bool IsBgSaveInProgress() const { return bg_save_in_progress_; }
 
  private:
   // Background thread to process commands and write to AOF
@@ -127,17 +257,25 @@ class PersistenceManager {
 
   std::string data_dir_;
   bool aof_enabled_ = true;
+  bool rdb_enabled_ = true;
   bool initialized_ = false;
   std::atomic<bool> running_{false};
 
   // AOF writer
   persistence::AofWriter aof_writer_;
 
+  // RDB writer
+  persistence::RdbWriter rdb_writer_;
+
   // MPSC queue for commands from all workers
   moodycamel::ConcurrentQueue<std::string> command_queue_;
 
-  // Background thread
+  // Background thread for AOF processing
   std::thread processing_thread_;
+
+  // Background RDB save state
+  std::atomic<bool> bg_save_in_progress_{false};
+  std::thread bg_save_thread_;
 };
 
 // Simple cluster manager stub

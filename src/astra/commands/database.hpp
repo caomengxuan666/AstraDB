@@ -1544,7 +1544,7 @@ class Database {
     return metadata_manager_.GetTtlSeconds(key);
   }
 
-  int64_t GetTtlMs(const std::string& key) {
+  int64_t GetTtlMs(const std::string& key) const {
     return metadata_manager_.GetTtlMs(key);
   }
 
@@ -1563,6 +1563,98 @@ class Database {
   // ========== Utility Operations ==========
 
   size_t Size() const { return strings_.Size(); }
+
+  // Get total key count across all data types
+  size_t GetKeyCount() const {
+    return strings_.Size() + hashes_.Size() + lists_.Size() + 
+           sets_.Size() + zsets_.Size() + streams_.Size();
+  }
+
+  // Get expired keys count
+  size_t GetExpiredKeysCount() const {
+    return metadata_manager_.GetExpiredKeys().size();
+  }
+
+  // ========== RDB Persistence Operations ==========
+
+  // ForEachKey callback type
+  using ForEachKeyCallback = std::function<void(
+      const std::string& key,
+      astra::storage::KeyType type,
+      const std::string& value,
+      int64_t ttl_ms)>;
+
+  // Iterate through all keys in the database
+  // callback(key, type, value, ttl_ms)
+  // value is serialized as string for all types
+  void ForEachKey(ForEachKeyCallback callback) const {
+    // Iterate strings
+    auto string_pairs = strings_.GetAllKeyValuePairs();
+    for (const auto& [key, str_value] : string_pairs) {
+      auto ttl_ms = GetTtlMs(key);
+      callback(key, astra::storage::KeyType::kString, str_value.value, ttl_ms);
+    }
+
+    // Iterate hashes (serialize as field-value pairs)
+    auto hash_keys = hashes_.GetAllKeys();
+    for (const auto& key : hash_keys) {
+      std::shared_ptr<HashType> hash;
+      if (hashes_.Get(key, &hash)) {
+        auto field_value_pairs = hash->GetAllKeyValuePairs();
+        std::string serialized_hash;
+        for (const auto& [field, value] : field_value_pairs) {
+          serialized_hash += field + ":" + value + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kHash, serialized_hash, ttl_ms);
+      }
+    }
+
+    // Iterate lists (serialize as element list)
+    auto list_keys = lists_.GetAllKeys();
+    for (const auto& key : list_keys) {
+      std::shared_ptr<ListType> list;
+      if (lists_.Get(key, &list)) {
+        std::string serialized_list;
+        auto elements = list->Range(0, -1);
+        for (const auto& elem : elements) {
+          serialized_list += elem + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kList, serialized_list, ttl_ms);
+      }
+    }
+
+    // Iterate sets (serialize as member list)
+    auto set_keys = sets_.GetAllKeys();
+    for (const auto& key : set_keys) {
+      std::shared_ptr<SetType> set;
+      if (sets_.Get(key, &set)) {
+        std::string serialized_set;
+        auto members = set->GetAll();
+        for (const auto& member : members) {
+          serialized_set += member + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kSet, serialized_set, ttl_ms);
+      }
+    }
+
+    // Iterate sorted sets (serialize as member:score pairs)
+    auto zset_keys = zsets_.GetAllKeys();
+    for (const auto& key : zset_keys) {
+      std::shared_ptr<ZSetType> zset;
+      if (zsets_.Get(key, &zset)) {
+        std::string serialized_zset;
+        auto members_scores = zset->GetAll();
+        for (const auto& [member, score] : members_scores) {
+          serialized_zset += member + ":" + std::to_string(score) + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kZSet, serialized_zset, ttl_ms);
+      }
+    }
+  }
 
   // Get key type
   std::optional<astra::storage::KeyType> GetType(const std::string& key) {

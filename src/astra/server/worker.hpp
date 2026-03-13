@@ -48,6 +48,16 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     aof_callback_ = std::move(callback);
   }
 
+  // Set RDB save callback (for persistence)
+  void SetRdbSaveCallback(std::function<std::string(bool)> callback) {
+    rdb_save_callback_ = std::move(callback);
+  }
+
+  // Get RDB save callback
+  const std::function<std::string(bool)>& GetRdbSaveCallback() const {
+    return rdb_save_callback_;
+  }
+
   // Log command to AOF
   void LogToAof(absl::string_view command, absl::Span<const absl::string_view> args) override {
     ASTRADB_LOG_DEBUG("LogToAof called: command={}, args={}", command, args.size());
@@ -62,7 +72,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
       cmd_str += "\r\n";
       cmd_str.append(command.data(), command.size());
       cmd_str += "\r\n";
-      
+
       for (size_t i = 0; i < args.size(); ++i) {
         cmd_str += "$";
         cmd_str += std::to_string(args[i].size());
@@ -70,7 +80,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
         cmd_str.append(args[i].data(), args[i].size());
         cmd_str += "\r\n";
       }
-      
+
       ASTRADB_LOG_DEBUG("LogToAof calling callback, cmd_str size={}", cmd_str.size());
       aof_callback_(cmd_str);
       ASTRADB_LOG_DEBUG("LogToAof callback completed");
@@ -82,6 +92,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
  private:
   astra::commands::Database* db_;
   std::function<void(const std::string&)> aof_callback_;
+  std::function<std::string(bool)> rdb_save_callback_;  // bool = background save
 };
 
 // DataShard - Contains a full Database instance
@@ -121,6 +132,9 @@ class DataShard {
 
   // Get database reference (for setting callbacks)
   astra::commands::Database& GetDatabase() { return database_; }
+
+  // Get database reference (const version for RDB serialization)
+  const astra::commands::Database& GetDatabase() const { return database_; }
 
   // Get command context (for setting callbacks)
   WorkerCommandContext* GetCommandContext() { return &context_; }
@@ -286,20 +300,96 @@ class Worker {
   }
 
   // Set persistence manager (called by Server after persistence is initialized)
-  void SetPersistenceManager(void* persistence_manager) {
-    ASTRADB_LOG_INFO("Worker {}: SetPersistenceManager called with ptr={}", worker_id_, persistence_manager);
-    if (persistence_manager) {
-      data_shard_.GetCommandContext()->SetAofCallback([persistence_manager](const std::string& command) {
-        ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}", command.size());
+
+    void SetPersistenceManager(void* persistence_manager) {
+
+      ASTRADB_LOG_INFO("Worker {}: SetPersistenceManager called with ptr={}", worker_id_, persistence_manager);
+
+  
+
+      if (persistence_manager) {
+
         auto* pm = static_cast<PersistenceManager*>(persistence_manager);
-        pm->AppendCommand(command);
-        ASTRADB_LOG_DEBUG("AOF callback completed");
-      });
-      ASTRADB_LOG_INFO("Worker {}: AOF callback set successfully", worker_id_);
-    } else {
-      ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr", worker_id_);
+
+  
+
+        // Set AOF callback
+
+        data_shard_.GetCommandContext()->SetAofCallback([pm](const std::string& command) {
+
+          ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}", command.size());
+
+          pm->AppendCommand(command);
+
+          ASTRADB_LOG_DEBUG("AOF callback completed");
+
+        });
+
+  
+
+        // Set RDB save callback
+
+        data_shard_.GetCommandContext()->SetRdbSaveCallback([this, pm](bool background) -> std::string {
+
+          ASTRADB_LOG_INFO("Worker {}: RDB save requested, background={}", worker_id_, background);
+
+  
+
+          if (background) {
+
+            // Background save
+
+            bool success = pm->BackgroundSaveRdb(all_workers_);
+
+            if (success) {
+
+              return "OK";
+
+            } else {
+
+              // Check if already in progress
+
+              if (pm->IsBgSaveInProgress()) {
+
+                return "ALREADY_IN_PROGRESS";
+
+              }
+
+              return "ERR Background save failed";
+
+            }
+
+          } else {
+
+            // Synchronous save
+
+            bool success = pm->SaveRdb(all_workers_);
+
+            if (success) {
+
+              return "OK";
+
+            } else {
+
+              return "ERR Save failed";
+
+            }
+
+          }
+
+        });
+
+  
+
+        ASTRADB_LOG_INFO("Worker {}: Persistence callbacks set successfully", worker_id_);
+
+      } else {
+
+        ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr", worker_id_);
+
+      }
+
     }
-  }
 
   // Process a cross-worker request (MPSC queue entry point)
   void ProcessCrossWorkerRequest(const CrossWorkerRequest& req) {
@@ -349,6 +439,36 @@ class Worker {
   
   // Process batch responses (called in executor loop)
   void ProcessBatchResponses();
+
+  // ========== RDB Persistence Operations ==========
+
+  // Serialize worker's data to RDB format
+  // Returns a vector of (key, type, value, ttl_ms) tuples
+  std::vector<std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>>
+  GetRdbData() const {
+    std::vector<std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>> data;
+
+    // Iterate through all keys in the database
+    data_shard_.GetDatabase().ForEachKey([&data](
+        const std::string& key,
+        astra::storage::KeyType type,
+        const std::string& value,
+        int64_t ttl_ms) {
+      data.emplace_back(key, type, value, ttl_ms);
+    });
+
+    return data;
+  }
+
+  // Get key count for RDB file
+  size_t GetRdbKeyCount() const {
+    return data_shard_.GetDatabase().GetKeyCount();
+  }
+
+  // Get expired keys count for RDB file
+  size_t GetRdbExpiredKeysCount() const {
+    return data_shard_.GetDatabase().GetExpiredKeysCount();
+  }
 
  private:
   void DoAccept() {

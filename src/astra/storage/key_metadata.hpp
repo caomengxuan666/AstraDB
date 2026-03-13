@@ -144,7 +144,7 @@ class KeyMetadataManager {
   }
 
   // Get TTL
-  int64_t GetTtlMs(const std::string& key) {
+  int64_t GetTtlMs(const std::string& key) const {
     KeyMetadata metadata;
     if (!metadata_map_.Get(key, &metadata)) {
       return -2;  // Key does not exist
@@ -199,7 +199,7 @@ class KeyMetadataManager {
   }
 
   // Get all expired keys (for cleanup)
-  std::vector<std::string> GetExpiredKeys() {
+  std::vector<std::string> GetExpiredKeys() const {
     std::vector<std::string> expired_keys;
     [[maybe_unused]] int64_t now = KeyMetadata::GetCurrentTimeMs();
 
