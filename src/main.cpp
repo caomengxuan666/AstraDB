@@ -49,12 +49,28 @@ int main(int argc, char** argv) {
   // Setup signal handlers
   SetupSignalHandlers();
 
-  // Create server configuration
-  astra::server::ServerConfig config;
+// Create server configuration
+  astra::server::NoSharingServerConfig config;
   config.host = "0.0.0.0";
   config.port = 6379;
-  config.num_workers = 1;  // TODO: Temporary, fix Worker 1 crash
-  config.use_so_reuseport = false;  // Disable for single worker
+  config.num_workers = 2;  // Number of workers (each has IO + Executor threads)
+  config.use_so_reuseport = true;  // Enable SO_REUSEPORT
+  
+  // Optional: Enable AOF persistence
+  // config.aof_enabled = true;
+  // config.aof_path = "./data/aof/appendonly.aof";
+  
+  // Optional: Enable cluster
+  // config.cluster_enabled = true;
+  // config.cluster_node_id = "node-1";
+  
+  // Optional: Enable ACL
+  // config.acl_enabled = true;
+  // config.acl_default_user = "default";
+  
+  // Optional: Enable metrics
+  // config.metrics_enabled = true;
+  // config.metrics_port = 9090;
 
   std::cout << "[Main] Creating server with configuration:" << std::endl;
   std::cout << "  Host: " << config.host << std::endl;

@@ -10,6 +10,7 @@
 #include "astra/network/connection.hpp"
 #include "astra/server/server.hpp"
 #include "command_auto_register.hpp"
+#include "command_handler.hpp"  // For CommandResult and RoutingStrategy
 
 namespace astra::commands {
 
@@ -20,46 +21,10 @@ CommandResult HandleClientList(const protocol::Command& command,
   // The subcommand is already handled by the router, so we accept 0 additional
   // args
 
-  // Get server from context
-  auto server_ptr = context->GetServer();
-  if (!server_ptr) {
-    return CommandResult(false, "ERR server not available");
-  }
-
-  auto* server = static_cast<server::Server*>(server_ptr);
-
-  // Get connection list
-  auto connections = server->GetConnections();
-
-  std::string result;
-  for (const auto& [id, conn_weak] : connections) {
-    auto conn = conn_weak.lock();
-    if (conn && conn->IsConnected()) {
-      std::string addr = conn->GetRemoteAddress();
-
-      // Parse address to get IP and port
-      std::string ip = "unknown";
-      uint16_t port = 0;
-      size_t colon_pos = addr.find(':');
-      if (colon_pos != std::string::npos) {
-        ip = addr.substr(0, colon_pos);
-        try {
-          port = static_cast<uint16_t>(std::stoul(addr.substr(colon_pos + 1)));
-        } catch (...) {
-          port = 0;
-        }
-      }
-
-      // Build client info string (simplified format)
-      result += absl::StrCat("id=", id, " ");
-      result += "addr=" + absl::StrCat(ip, ":", port) + " ";
-      result += "name=" + conn->GetClientName() + " ";
-      result += "age=0 ";   // Age not tracked for now
-      result += "idle=0 ";  // Idle time not tracked for now
-      result += "\n";
-    }
-  }
-
+  // Note: Connection tracking not yet implemented in io_uring backend
+  // Return empty list for now
+  std::string result = "";
+  
   protocol::RespValue resp;
   resp.SetString(result, protocol::RespType::kBulkString);
   return CommandResult(resp);
@@ -231,95 +196,10 @@ CommandResult HandleClientKill(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'client kill' command");
   }
 
-  // Get server from context
-  auto server_ptr = context->GetServer();
-  if (!server_ptr) {
-    return CommandResult(false, "ERR server not available");
-  }
-
-  auto* server = static_cast<server::Server*>(server_ptr);
-
-  std::string target_type;
-  std::string target_addr;
-  uint64_t target_id = 0;
-  bool has_id = false;
-
-  size_t i = 0;
-  while (i < command.ArgCount()) {
-    const std::string& arg = command[i].AsString();
-
-    if (arg == "ID") {
-      if (i + 1 >= command.ArgCount()) {
-        return CommandResult(false, "ERR ID option requires a client ID");
-      }
-      try {
-        target_id = std::stoull(command[i + 1].AsString());
-        has_id = true;
-        i += 2;
-      } catch (...) {
-        return CommandResult(false, "ERR invalid client ID");
-      }
-    } else if (arg == "TYPE") {
-      if (i + 1 >= command.ArgCount()) {
-        return CommandResult(false, "ERR TYPE option requires a type");
-      }
-      target_type = command[i + 1].AsString();
-      i += 2;
-    } else {
-      // Assume it's an address (ip:port)
-      target_addr = arg;
-      i++;
-    }
-  }
-
-  // Get connections
-  auto connections = server->GetConnections();
-  uint64_t killed = 0;
-
-  for (const auto& [id, conn_weak] : connections) {
-    auto conn = conn_weak.lock();
-    if (!conn || !conn->IsConnected()) {
-      continue;
-    }
-
-    // Skip self (can't kill own connection)
-    if (id == context->GetConnection()->GetId()) {
-      continue;
-    }
-
-    bool match = true;
-
-    // Check ID match
-    if (has_id && id != target_id) {
-      match = false;
-    }
-
-    // Check address match
-    if (!target_addr.empty()) {
-      std::string addr = conn->GetRemoteAddress();
-      if (addr != target_addr) {
-        match = false;
-      }
-    }
-
-    // Check type match (simplified - all connections are "normal" for now)
-    if (!target_type.empty() && target_type != "normal") {
-      match = false;
-    }
-
-    // Kill matching connection
-    if (match) {
-      // Skip self (can't kill own connection)
-      if (id == context->GetConnectionId()) {
-        continue;
-      }
-      conn->Close();
-      killed++;
-    }
-  }
-
+  // Note: Connection tracking not yet implemented in io_uring backend
+  // Return 0 (no connections killed) for now
   protocol::RespValue resp;
-  resp.SetInteger(killed);
+  resp.SetInteger(0);
   return CommandResult(resp);
 }
 
