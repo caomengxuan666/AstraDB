@@ -48,12 +48,9 @@ if(TARGET absl::btree)
   target_link_libraries(astra_core PUBLIC absl::btree)
 endif()
 
-# Link Prometheus (core + pull for Exposer)
+# Link Prometheus core only (custom HTTP server)
 if(TARGET prometheus-cpp::core)
   target_link_libraries(astra_core PUBLIC prometheus-cpp::core)
-endif()
-if(TARGET prometheus-cpp::pull)
-  target_link_libraries(astra_core PUBLIC prometheus-cpp::pull)
 endif()
 
 # Link asio
