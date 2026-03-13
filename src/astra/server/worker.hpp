@@ -117,6 +117,7 @@ struct BatchCrossWorkerResponse {
 struct CommandWithConnId {
   uint64_t conn_id;
   astra::protocol::Command command;
+  bool is_forwarded;  // True if this is a forwarded command from another worker
 };
 
 // Response with connection ID
@@ -254,6 +255,13 @@ class Worker {
   // Enqueue a cross-worker response (called by other workers)
   void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
     cross_worker_resp_queue_.enqueue(resp);
+  }
+
+  // Enqueue a cross-worker request (called by other workers)
+  void EnqueueCrossWorkerRequest(const CrossWorkerRequest& req) {
+    // Create a command with connection ID for the request
+    CommandWithConnId cmd{req.conn_id, req.command, true};  // Mark as forwarded
+    cmd_queue_.enqueue(cmd);
   }
   
   // Send batch request to multiple workers (for multi-key commands)
@@ -441,33 +449,43 @@ class Worker {
       // Process local commands first
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
-        ASTRADB_LOG_DEBUG("Worker {}: Executor processing command: {} for conn {}",
-                         worker_id_, cmd.command.name, cmd.conn_id);
+        ASTRADB_LOG_DEBUG("Worker {}: Executor processing command: {} for conn {} (forwarded={})",
+                         worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
-        // Determine if this command should be forwarded to another worker
-        // Check if command has a key argument
-        size_t target_worker = worker_id_;
-        if (!cmd.command.args.empty() && 
-            (cmd.command.args[0].IsBulkString() || cmd.command.args[0].IsSimpleString())) {
-          std::string key = cmd.command.args[0].AsString();
-          target_worker = RouteToWorker(key);
-        }
-
-        if (target_worker == worker_id_) {
-          // Handle locally
+        if (cmd.is_forwarded) {
+          // This is a forwarded command from another worker
+          // Execute directly and send response back
           std::string response = data_shard_.Execute(cmd.command);
           ResponseWithConnId resp{cmd.conn_id, response};
           resp_queue_.enqueue(resp);
         } else {
-          // Forward to target worker
-          ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
-                           worker_id_, target_worker);
-          CrossWorkerRequest cross_req{
-            worker_id_,  // source worker
-            cmd.conn_id,
-            cmd.command
-          };
-          all_workers_[target_worker]->ProcessCrossWorkerRequest(cross_req);
+          // This is a new command from a client
+          // Determine if this command should be forwarded to another worker
+          // Check if command has a key argument
+          size_t target_worker = worker_id_;
+          if (!cmd.command.args.empty() && 
+              (cmd.command.args[0].IsBulkString() || cmd.command.args[0].IsSimpleString())) {
+            std::string key = cmd.command.args[0].AsString();
+            target_worker = RouteToWorker(key);
+          }
+
+          if (target_worker == worker_id_) {
+            // Handle locally
+            std::string response = data_shard_.Execute(cmd.command);
+            ResponseWithConnId resp{cmd.conn_id, response};
+            resp_queue_.enqueue(resp);
+          } else {
+            // Forward to target worker (enqueue to avoid blocking)
+            ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
+                             worker_id_, target_worker);
+            CrossWorkerRequest cross_req{
+              worker_id_,  // source worker
+              cmd.conn_id,
+              cmd.command
+            };
+            // Enqueue to target worker to avoid blocking this worker's ExecutorLoop
+            all_workers_[target_worker]->EnqueueCrossWorkerRequest(cross_req);
+          }
         }
       }
 
