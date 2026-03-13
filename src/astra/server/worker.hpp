@@ -396,52 +396,63 @@ class Worker {
 
     void Start() {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} starting", worker_id_, conn_id_);
-      DoRead();
+      // Spawn coroutine for reading (similar to Dragonfly's Fiber per connection)
+      asio::co_spawn(socket_.get_executor(), [self = shared_from_this()]() -> asio::awaitable<void> {
+        co_await self->DoRead();
+      }, asio::detached);
     }
 
-    void Send(const std::string& response) {
+    asio::ip::tcp::socket& GetSocket() {
+      return socket_;
+    }
+
+    asio::awaitable<void> Send(const std::string& response) {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} sending response: {} (len={})",
                        worker_id_, conn_id_, response, response.size());
 
-      auto self = shared_from_this();
-      // Copy response to ensure it's alive during async operation
-      std::string response_copy = response;
-      asio::async_write(
-          socket_, asio::buffer(response_copy),
-          [this, self, response_copy](asio::error_code ec, size_t bytes_written) {
-            if (!ec) {
-              ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
-                               worker_id_, conn_id_, bytes_written);
-            } else {
-              ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
-                                worker_id_, conn_id_, ec.message());
-            }
-          });
+      asio::error_code ec;
+      size_t bytes_written = co_await asio::async_write(
+          socket_, asio::buffer(response),
+          asio::redirect_error(asio::use_awaitable, ec));
+
+      if (!ec) {
+        ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
+                         worker_id_, conn_id_, bytes_written);
+      } else {
+        ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
+                          worker_id_, conn_id_, ec.message());
+      }
     }
 
    private:
-    void DoRead() {
-      auto self = shared_from_this();
-      socket_.async_read_some(
-          asio::buffer(buffer_),
-          [this, self](asio::error_code ec, size_t bytes_transferred) {
-            if (!ec) {
-              ASTRADB_LOG_DEBUG("Worker {}: Connection {} received {} bytes",
-                               worker_id_, conn_id_, bytes_transferred);
+    asio::awaitable<void> DoRead() {
+      // Get the executor for this coroutine
+      auto executor = co_await asio::this_coro::executor;
 
-              // Append to receive buffer
-              receive_buffer_.append(buffer_.data(), bytes_transferred);
+      while (true) {
+        asio::error_code ec;
+        size_t bytes_transferred = co_await socket_.async_read_some(
+            asio::buffer(buffer_),
+            asio::redirect_error(asio::use_awaitable, ec));
 
-              // Process commands (minimal parsing only)
-              ProcessCommands();
+        if (ec) {
+          ASTRADB_LOG_ERROR("Worker {}: Connection {} read error: {}",
+                           worker_id_, conn_id_, ec.message());
+          break;
+        }
 
-              // Continue reading
-              DoRead();
-            } else {
-              ASTRADB_LOG_ERROR("Worker {}: Connection {} read error: {}",
-                                worker_id_, conn_id_, ec.message());
-            }
-          });
+        ASTRADB_LOG_DEBUG("Worker {}: Connection {} received {} bytes",
+                         worker_id_, conn_id_, bytes_transferred);
+
+        // Append to receive buffer
+        receive_buffer_.append(buffer_.data(), bytes_transferred);
+
+        // Process commands (minimal parsing only)
+        ProcessCommands();
+      }
+
+      ASTRADB_LOG_DEBUG("Worker {}: Connection {} read loop terminated",
+                       worker_id_, conn_id_);
     }
 
     void ProcessCommands() {
@@ -585,7 +596,13 @@ class Worker {
       if (resp_queue_.try_dequeue(resp)) {
         auto it = connections_.find(resp.conn_id);
         if (it != connections_.end()) {
-          it->second->Send(resp.response);
+          // Spawn coroutine to send response (non-blocking)
+          asio::co_spawn(
+              it->second->GetSocket().get_executor(),
+              [conn = it->second, response = resp.response]() -> asio::awaitable<void> {
+                co_await conn->Send(response);
+              },
+              asio::detached);
         }
       } else {
         break;  // Queue is empty
