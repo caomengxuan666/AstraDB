@@ -21,6 +21,7 @@
 #include <string>
 
 #include "astra/base/logging.hpp"
+#include "astra/core/server_stats.hpp"
 #include "metrics_flatbuffers.hpp"
 
 namespace astra::metrics {
@@ -178,10 +179,38 @@ class AstraMetrics {
                              .Help("Persistence information")
                              .Register(*registry.GetRegistry());
 
+    // Server uptime
+    uptime_ = &prometheus::BuildGauge()
+                   .Name("astradb_uptime_seconds")
+                   .Help("Server uptime in seconds")
+                   .Register(*registry.GetRegistry());
+    uptime_current_ = &uptime_->Add({});
+
+    // Total connections
+    total_connections_ = &prometheus::BuildCounter()
+                             .Name("astradb_connections_received_total")
+                             .Help("Total connections received")
+                             .Register(*registry.GetRegistry());
+    total_connections_received_ = &total_connections_->Add({});
+
+    // Total commands
+    total_commands_ = &prometheus::BuildCounter()
+                          .Name("astradb_commands_total_all")
+                          .Help("Total commands processed")
+                          .Register(*registry.GetRegistry());
+    total_commands_processed_ = &total_commands_->Add({});
+
+    // Keys total
+    keys_total_ = &prometheus::BuildGauge()
+                      .Name("astradb_keys_total")
+                      .Help("Total number of keys")
+                      .Register(*registry.GetRegistry());
+    keys_total_current_ = &keys_total_->Add({});
+
     initialized_ = true;
   }
 
-  // Record command execution
+  // Record command execution (also updates ServerStats)
   void RecordCommand(absl::string_view command, bool success,
                      double duration_seconds) {
     if (!initialized_ || !config_.enabled) return;
@@ -189,37 +218,59 @@ class AstraMetrics {
     std::string cmd(command);
     std::string status = success ? "success" : "error";
 
+    // Update Prometheus metrics
     command_counter_->Add({{"command", cmd}, {"status", status}}).Increment();
     command_duration_->Add({{"command", cmd}}, duration_buckets_)
         .Observe(duration_seconds);
+
+    // Update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    uint64_t usec = static_cast<uint64_t>(duration_seconds * 1000000);
+    stats->RecordCommand(cmd, success, usec);
   }
 
-  // Connection tracking
+  // Connection tracking (also updates ServerStats)
   void IncrementConnections() {
     if (!initialized_ || !config_.enabled) return;
     connections_current_->Increment();
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->connected_clients.fetch_add(1, std::memory_order_relaxed);
+    stats->total_connections_received.fetch_add(1, std::memory_order_relaxed);
   }
 
   void DecrementConnections() {
     if (!initialized_ || !config_.enabled) return;
     connections_current_->Decrement();
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->connected_clients.fetch_sub(1, std::memory_order_relaxed);
   }
 
-  // Memory tracking
+  // Memory tracking (also updates ServerStats)
   void SetMemoryUsed(double bytes) {
     if (!initialized_ || !config_.enabled) return;
     memory_used_->Set(bytes);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->used_memory_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
   }
 
   void SetMemoryTotal(double bytes) {
     if (!initialized_ || !config_.enabled) return;
     memory_total_->Set(bytes);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->used_memory_rss_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
   }
 
-  // Keys tracking
+  // Keys tracking (also updates ServerStats)
   void SetKeys(int db_index, double count) {
     if (!initialized_ || !config_.enabled) return;
     keys_->Add({{"db", absl::StrCat(db_index)}}).Set(count);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->total_keys.store(static_cast<uint64_t>(count), std::memory_order_relaxed);
   }
 
   // Cluster status
@@ -333,6 +384,66 @@ class AstraMetrics {
                                                           instance, job);
   }
 
+  // Update Prometheus metrics from ServerStats (call this periodically)
+  void UpdateFromServerStats() {
+    if (!initialized_ || !config_.enabled) return;
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+
+    // Update uptime
+    if (uptime_current_) {
+      uptime_current_->Set(stats->uptime_seconds.load(std::memory_order_relaxed));
+    }
+
+    // Update connections
+    if (connections_current_) {
+      connections_current_->Set(stats->connected_clients.load(std::memory_order_relaxed));
+    }
+    if (total_connections_received_) {
+      total_connections_received_->Increment(
+          stats->total_connections_received.load(std::memory_order_relaxed));
+    }
+
+    // Update memory
+    if (memory_used_) {
+      memory_used_->Set(stats->used_memory_bytes.load(std::memory_order_relaxed));
+    }
+    if (memory_total_) {
+      memory_total_->Set(stats->used_memory_rss_bytes.load(std::memory_order_relaxed));
+    }
+
+    // Update keys
+    if (keys_total_current_) {
+      keys_total_current_->Set(stats->total_keys.load(std::memory_order_relaxed));
+    }
+
+    // Update total commands
+    if (total_commands_processed_) {
+      total_commands_processed_->Increment(
+          stats->total_commands_processed.load(std::memory_order_relaxed));
+    }
+
+    // Update cluster info
+    if (cluster_info_) {
+      cluster_info_->Add({{"enabled", stats->cluster_enabled.load() ? "true" : "false"}})
+          .Set(stats->cluster_enabled.load() ? 1 : 0);
+      cluster_info_->Add({{"metric", "slots_assigned"}})
+          .Set(stats->cluster_slots_assigned.load(std::memory_order_relaxed));
+    }
+
+    // Update persistence info
+    if (persistence_info_) {
+      persistence_info_->Add({{"aof_enabled", stats->aof_enabled.load() ? "true" : "false"}})
+          .Set(stats->aof_enabled.load() ? 1 : 0);
+      persistence_info_->Add({{"rdb_enabled", stats->rdb_enabled.load() ? "true" : "false"}})
+          .Set(stats->rdb_enabled.load() ? 1 : 0);
+      persistence_info_->Add({{"type", "aof_size"}})
+          .Set(stats->aof_size_bytes.load(std::memory_order_relaxed));
+      persistence_info_->Add({{"type", "rdb_last_save"}})
+          .Set(stats->rdb_last_save_time.load(std::memory_order_relaxed));
+    }
+  }
+
  private:
   AstraMetrics() = default;
   ~AstraMetrics() = default;
@@ -354,6 +465,14 @@ class AstraMetrics {
   prometheus::Family<prometheus::Gauge>* keys_ = nullptr;
   prometheus::Family<prometheus::Gauge>* cluster_info_ = nullptr;
   prometheus::Family<prometheus::Gauge>* persistence_info_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* uptime_ = nullptr;
+  prometheus::Gauge* uptime_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* total_connections_ = nullptr;
+  prometheus::Counter* total_connections_received_ = nullptr;
+  prometheus::Family<prometheus::Counter>* total_commands_ = nullptr;
+  prometheus::Counter* total_commands_processed_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* keys_total_ = nullptr;
+  prometheus::Gauge* keys_total_current_ = nullptr;
 };
 
 // RAII timer for command duration

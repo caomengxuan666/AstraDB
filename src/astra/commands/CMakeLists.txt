@@ -73,7 +73,6 @@ target_link_libraries(
          absl::random_random
          leveldb
          prometheus-cpp::core
-         prometheus-cpp::pull
          concurrentqueue)
 
 # Link FlatBuffers

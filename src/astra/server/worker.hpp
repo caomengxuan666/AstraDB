@@ -21,6 +21,7 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/core/metrics.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
@@ -44,7 +45,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   void SetAuthenticated(bool auth) override { (void)auth; }
 
   // Set AOF callback (for persistence)
-  void SetAofCallback(std::function<void(const std::string&)> callback) {
+  void SetAofCallbackString(std::function<void(const std::string&)> callback) {
     aof_callback_ = std::move(callback);
   }
 
@@ -198,8 +199,8 @@ class Worker {
         io_context_(),
         acceptor_(io_context_),
         data_shard_(worker_id),
-        running_(false),
-        all_workers_(std::move(all_workers)) {
+        all_workers_(std::move(all_workers)),
+        running_(false) {
     
     ASTRADB_LOG_INFO("Worker {}: Creating", worker_id_);
     
@@ -315,7 +316,7 @@ class Worker {
 
         // Set AOF callback
 
-        data_shard_.GetCommandContext()->SetAofCallback([pm](const std::string& command) {
+        data_shard_.GetCommandContext()->SetAofCallbackString([pm](const std::string& command) {
 
           ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}", command.size());
 
@@ -491,6 +492,9 @@ class Worker {
         connections_[conn_id] = conn;
         conn->Start();
 
+        // Record connection in metrics
+        astra::metrics::AstraMetrics::Instance().IncrementConnections();
+
         ASTRADB_LOG_INFO("Worker {}: Connection {} started, total connections: {}",
                          worker_id_, conn_id, connections_.size());
       }
@@ -512,6 +516,12 @@ class Worker {
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue) {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_, conn_id_);
+    }
+
+    ~Connection() {
+      ASTRADB_LOG_DEBUG("Worker {}: Connection {} destroyed", worker_id_, conn_id_);
+      // Record connection in metrics
+      astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
 
     void Start() {
@@ -650,6 +660,7 @@ class Worker {
         if (cmd.is_forwarded) {
           // This is a forwarded command from another worker
           // Execute directly and send response back to source worker
+          astra::metrics::CommandTimer timer(cmd.command.name);
           std::string response = data_shard_.Execute(cmd.command);
           CrossWorkerResponse cross_resp{cmd.conn_id, response};
           all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
@@ -666,6 +677,7 @@ class Worker {
 
           if (target_worker == worker_id_) {
             // Handle locally
+            astra::metrics::CommandTimer timer(cmd.command.name);
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
