@@ -38,10 +38,18 @@ void Server::Start() {
   ASTRADB_LOG_INFO("Starting server...");
 
   // Initialize persistence if enabled
-  if (config_.aof_enabled) {
+  if (config_.aof.enabled) {
     if (!InitPersistence()) {
       ASTRADB_LOG_WARN(
           "Persistence initialization failed, running without persistence");
+    } else {
+      ASTRADB_LOG_INFO("Setting persistence manager for {} workers", workers_.size());
+      // Set persistence manager for all workers
+      for (auto& worker : workers_) {
+        ASTRADB_LOG_DEBUG("Calling SetPersistenceManager for worker");
+        worker->SetPersistenceManager(persistence_manager_.get());
+      }
+      ASTRADB_LOG_INFO("Persistence manager set for all workers");
     }
   }
 
@@ -119,20 +127,20 @@ void Server::Stop() {
 bool Server::InitPersistence() noexcept {
   try {
     ASTRADB_LOG_INFO("Initializing persistence...");
-    
+
     // Create persistence manager
     persistence_manager_ = std::make_unique<PersistenceManager>();
-    
-    // Initialize with data directory
+
+    // Initialize with AOF configuration
     std::string data_dir = "./data";
-    if (!persistence_manager_->Init(data_dir)) {
+    if (!persistence_manager_->Init(data_dir, config_.aof.enabled, config_.aof.path)) {
       ASTRADB_LOG_ERROR("Failed to initialize persistence manager");
       persistence_manager_.reset();
       return false;
     }
-    
+
     ASTRADB_LOG_INFO("Persistence initialized successfully (AOF enabled: {})",
-                     config_.aof_enabled ? "yes" : "no");
+                     config_.aof.enabled ? "yes" : "no");
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Persistence initialization exception: {}", e.what());

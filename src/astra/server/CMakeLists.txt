@@ -21,6 +21,9 @@ target_link_libraries(astra_server PUBLIC
   astra_commands_whole
   flatbuffers_generated
   concurrentqueue
+  astra_persistence
+  absl::time
+  absl::flat_hash_map
 )
 
 # Link asio if available

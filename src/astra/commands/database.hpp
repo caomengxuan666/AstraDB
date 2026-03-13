@@ -72,6 +72,11 @@ class Database {
     batch_request_callback_ = std::move(callback);
   }
 
+  // Set AOF callback (for persistence)
+  void SetAofCallback(std::function<void(const std::string&)> callback) {
+    aof_callback_ = std::move(callback);
+  }
+
   // ========== String Pool Optimization ==========
 
   // Get pooled string view from pool (optimized for frequent keys)
@@ -615,6 +620,7 @@ class Database {
 
   // SINTER key [key ...]
   // Return intersection of multiple sets
+  // Dragonfly-style: Distribute to all relevant shards and aggregate results
   std::vector<std::string> SInter(const std::vector<std::string>& keys) {
     if (keys.empty()) {
       return {};
@@ -1623,6 +1629,7 @@ class Database {
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
+  std::function<void(const std::string&)> aof_callback_;  // For persistence
 };
 
 // Database manager - manages multiple databases

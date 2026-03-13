@@ -112,6 +112,8 @@ class CommandContext {
   }
   virtual void LogToAof(absl::string_view command,
                         absl::Span<const absl::string_view> args) {
+    ASTRADB_LOG_DEBUG("CommandContext::LogToAof called: command={}, args={}, has_callback={}",
+                     command, args.size(), aof_callback_ != nullptr);
     if (aof_callback_) {
       aof_callback_(command, args);
     }

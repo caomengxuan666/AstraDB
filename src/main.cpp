@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <csignal>
+#include <filesystem>
 #include <memory>
 #include <thread>
 
@@ -45,11 +46,17 @@ absl::Status RunServer() {
   // Setup signal handlers
   SetupSignalHandlers();
 
-  // Create server configuration
+  // Load configuration from file if exists
   astra::server::NoSharingServerConfig config;
-  config.host = "0.0.0.0";
-  config.port = 6379;
-  config.num_workers = 2;  // Number of workers (each has IO + Executor threads)
+  if (std::filesystem::exists("astradb.toml")) {
+    ASTRADB_LOG_INFO("Loading configuration from astradb.toml");
+    config = astra::server::NoSharingServerConfig::LoadFromFile("astradb.toml");
+  } else {
+    ASTRADB_LOG_INFO("No astradb.toml found, using default configuration");
+    config.host = "0.0.0.0";
+    config.port = 6379;
+    config.num_workers = 2;
+  }  // Number of workers (each has IO + Executor threads)
   config.use_so_reuseport = true;  // Enable SO_REUSEPORT
   
   // Optional: Enable AOF persistence
@@ -73,7 +80,7 @@ absl::Status RunServer() {
   ASTRADB_LOG_INFO("  Port: {}", config.port);
   ASTRADB_LOG_INFO("  Workers: {}", config.num_workers);
   ASTRADB_LOG_INFO("  SO_REUSEPORT: {}", config.use_so_reuseport ? "enabled" : "disabled");
-  ASTRADB_LOG_INFO("  AOF enabled: {}", config.aof_enabled ? "yes" : "no");
+  ASTRADB_LOG_INFO("  AOF enabled: {}", config.aof.enabled ? "yes" : "no");
   ASTRADB_LOG_INFO("  Cluster enabled: {}", config.cluster_enabled ? "yes" : "no");
   ASTRADB_LOG_INFO("  ACL enabled: {}", config.acl_enabled ? "yes" : "no");
   ASTRADB_LOG_INFO("  Metrics enabled: {}", config.metrics_enabled ? "yes" : "no");

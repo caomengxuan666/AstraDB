@@ -116,31 +116,51 @@ if(TARGET asio)
 endif()
 
 # ==============================================================================
-# Testing targets
+# Example 4: ASIO + io_uring Server with STRAND
 # ==============================================================================
 
-if(TARGET raw_io_uring_server AND TARGET test_client)
-  add_custom_target(test_raw_io_uring
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/raw_io_uring_server 8765 &
+if(TARGET asio)
+  add_executable(asio_io_uring_server_strand asio_io_uring_strand_server.cpp)
+  target_link_libraries(asio_io_uring_server_strand asio pthread ${LIBURING_LIBRARY})
+  target_compile_definitions(asio_io_uring_server_strand PRIVATE ASIO_HAS_IO_URING=1 ASIO_DISABLE_EPOLL=1)
+  set_target_properties(asio_io_uring_server_strand PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
+  message(STATUS "Added target: asio_io_uring_server_strand")
+endif()
+
+if(TARGET asio_io_uring_server_strand AND TARGET test_client)
+  add_custom_target(test_asio_io_uring_strand
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/asio_io_uring_server_strand 8771 &
     COMMAND sleep 2
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/test_client -p 8765 -n 5
-    DEPENDS raw_io_uring_server test_client
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/test_client -p 8771 -n 5
+    DEPENDS asio_io_uring_server_strand test_client
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Testing raw io_uring server..."
+    COMMENT "Testing ASIO io_uring server with STRAND..."
   )
 endif()
 
-if(TARGET asio_io_uring_server AND TARGET test_client)
-  add_custom_target(test_asio_io_uring
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/asio_io_uring_server 8766 &
+# ==============================================================================
+# Example 5: ASIO + io_uring Server with SO_REUSEPORT
+# ==============================================================================
+
+if(TARGET asio)
+  add_executable(asio_io_uring_reuseport_server asio_io_uring_reuseport_server.cpp)
+  target_link_libraries(asio_io_uring_reuseport_server asio pthread ${LIBURING_LIBRARY})
+  target_compile_definitions(asio_io_uring_reuseport_server PRIVATE ASIO_HAS_IO_URING=1 ASIO_DISABLE_EPOLL=1)
+  set_target_properties(asio_io_uring_reuseport_server PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
+  message(STATUS "Added target: asio_io_uring_reuseport_server")
+endif()
+
+if(TARGET asio_io_uring_reuseport_server AND TARGET test_client)
+  add_custom_target(test_asio_io_uring_reuseport
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/asio_io_uring_reuseport_server 8772 4 &
     COMMAND sleep 2
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/test_client -p 8766 -n 5
-    DEPENDS asio_io_uring_server test_client
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/test_client -p 8772 -n 5
+    DEPENDS asio_io_uring_reuseport_server test_client
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Testing ASIO io_uring server..."
+    COMMENT "Testing ASIO io_uring server with SO_REUSEPORT..."
   )
 endif()
 
-if(TARGET test_raw_io_uring AND TARGET test_asio_io_uring)
-  add_custom_target(test_all_io_uring DEPENDS test_raw_io_uring test_asio_io_uring)
+if(TARGET test_raw_io_uring AND TARGET test_asio_io_uring AND TARGET test_asio_io_uring_strand AND TARGET test_asio_io_uring_reuseport)
+  add_custom_target(test_all_io_uring DEPENDS test_raw_io_uring test_asio_io_uring test_asio_io_uring_strand test_asio_io_uring_reuseport)
 endif()

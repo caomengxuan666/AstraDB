@@ -82,6 +82,59 @@ Both servers should:
 - Handle multiple clients
 - Handle multiple messages per connection
 
+## Test Results
+
+✅ **All io_uring examples compile and work correctly:**
+
+1. **asio_io_uring_server.cpp** - Basic ASIO io_uring server
+   - ✅ Accepts connections
+   - ✅ Receives data correctly
+   - ✅ Sends responses
+   - ✅ Handles multiple clients
+
+2. **asio_io_uring_strand_server.cpp** - ASIO io_uring with strand serialization
+   - ✅ Accepts connections
+   - ✅ Receives data correctly
+   - ✅ Thread-safe with strand
+   - ✅ Handles concurrent clients
+
+3. **asio_io_uring_pool_server.cpp** - ASIO io_uring with io_context pool
+   - ✅ Accepts connections
+   - ✅ Receives data correctly
+   - ✅ Multi-threaded with pool
+   - ✅ High concurrency support
+
+4. **asio_io_uring_pool_server_debug.cpp** - Extended architecture test
+   - ✅ 12 pool threads + executor + main io_context
+   - ✅ Accepts connections
+   - ✅ Receives data correctly
+   - ✅ Full architecture validation
+
+5. **test_client.cpp** - Fixed test client
+   - ✅ Sends correct 6-byte "PING\\r\\n" (not 7 bytes)
+   - ✅ Receives responses correctly
+   - ✅ No buffer corruption
+
+**Conclusion:** All minimal io_uring examples work correctly. The issue is isolated to the main AstraDB server, not the io_uring backend itself.
+
+## Main Server Issue
+
+While all examples work correctly with io_uring, the main AstraDB server has issues:
+
+❌ **Main Server (io_uring):**
+- ✅ Accepts connections successfully
+- ✅ Connection callbacks invoked
+- ❌ `async_read_some` returns 0 bytes immediately
+- ❌ No data received from clients
+- ❌ Total commands processed: 0
+
+**Comparison:**
+- All examples: ✅ Work with io_uring
+- Main server (epoll): ✅ Works
+- Main server (io_uring): ❌ Fails to receive data
+
+This suggests the issue is in the main server's specific initialization or configuration, not in io_uring itself.
+
 ## Debugging
 
 If ASIO io_uring server fails to receive data:
@@ -151,7 +204,10 @@ Once the issue is identified:
 ## Files
 
 - `raw_io_uring_server.cpp` - Raw liburing implementation
-- `asio_io_uring_server.cpp` - ASIO with io_uring backend
-- `test_client.cpp` - Test client for both servers
+- `asio_io_uring_server.cpp` - Basic ASIO with io_uring backend ✅
+- `asio_io_uring_strand_server.cpp` - ASIO io_uring with strand ✅
+- `asio_io_uring_pool_server.cpp` - ASIO io_uring with io_context pool ✅
+- `asio_io_uring_pool_server_debug.cpp` - Extended architecture test ✅
+- `test_client.cpp` - Test client (fixed to send 6 bytes) ✅
 - `CMakeLists.txt` - Build configuration
 - `README.md` - This file

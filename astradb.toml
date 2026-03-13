@@ -7,7 +7,17 @@ host = "0.0.0.0"
 port = 6379
 max_connections = 10000
 # Set to 0 to auto-detect number of threads
-thread_count = 1
+thread_count = 2
+
+# Network Architecture Configuration
+# use_per_worker_io: Enable per-worker IO architecture (SO_REUSEPORT)
+#   - true: Each worker has its own io_context and acceptor (recommended for high performance)
+#   - false: Use legacy single acceptor architecture (backward compatible)
+use_per_worker_io = false
+# use_so_reuseport: Enable SO_REUSEPORT for kernel-level load balancing (only works with use_per_worker_io=true)
+#   - true: Kernel automatically distributes connections across workers
+#   - false: Connections accepted by worker 0 only (fallback mode)
+use_so_reuseport = false
 
 [database]
 # Number of databases
@@ -50,6 +60,17 @@ write_buffer_size = 4194304
 cache_size = 268435456
 # Sync writes to disk (slower but more durable)
 sync_writes = false
+
+# =============================================================================
+# AOF Configuration (NO SHARING Architecture)
+# =============================================================================
+[aof]
+# Enable AOF (Append-Only File) persistence
+enabled = true
+# AOF file path
+path = "./data/aof/appendonly.aof"
+# Sync policy: true = sync every second, false = sync after every write
+sync_everysec = true
 
 # =============================================================================
 # Prometheus Metrics Configuration

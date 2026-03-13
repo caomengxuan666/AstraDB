@@ -1,0 +1,24 @@
+# GDB 调试脚本
+set pagination off
+set logging file /tmp/gdb_run.txt
+set logging on
+
+# 设置断点 - 在 ExecutorLoop 中
+break worker.hpp:486
+commands
+  silent
+  printf "\n=== Processing batch request ===\n"
+  info args
+  continue
+end
+
+# 设置断点 - 在 ProcessBatchResponses
+break worker.hpp:507
+commands
+  silent
+  printf "\n=== Processing batch response ===\n"
+  continue
+end
+
+# 启动服务器
+run
