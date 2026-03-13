@@ -6,6 +6,7 @@
 #include <asio.hpp>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -74,6 +75,9 @@ class DataShard {
     return response;
   }
 
+  // Get database reference (for setting callbacks)
+  astra::commands::Database& GetDatabase() { return database_; }
+
  private:
   size_t shard_id_;
   astra::commands::Database database_;
@@ -92,6 +96,21 @@ struct CrossWorkerRequest {
 struct CrossWorkerResponse {
   uint64_t conn_id;         // Connection ID on source worker
   std::string response;     // Response data
+};
+
+// Batch cross-worker request for multi-key commands
+struct BatchCrossWorkerRequest {
+  uint64_t req_id;  // Unique request ID for matching responses
+  size_t source_worker_id;
+  std::string cmd_type;  // "SINTER", "SUNION", "ZUNIONSTORE", etc.
+  std::vector<std::string> keys;  // Keys this worker should process
+  std::vector<std::string> args;  // Additional arguments (weights, aggregate, etc.)
+  std::shared_ptr<std::promise<std::vector<std::string>>> result_promise;  // For async response
+};
+
+struct BatchCrossWorkerResponse {
+  uint64_t req_id;  // Matching request ID
+  std::vector<std::string> result;  // Result from this worker
 };
 
 // Command with connection ID
@@ -151,6 +170,14 @@ class Worker {
 
     running_ = true;
     ASTRADB_LOG_INFO("Worker {}: Starting", worker_id_);
+
+    // Set batch request callback in database
+    data_shard_.GetDatabase().SetBatchRequestCallback(
+        [this](const std::string& cmd_type,
+               const std::vector<std::string>& keys,
+               const std::vector<std::string>& args) -> std::vector<std::string> {
+          return SendBatchRequest(cmd_type, keys, args);
+        });
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
@@ -228,6 +255,28 @@ class Worker {
   void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
     cross_worker_resp_queue_.enqueue(resp);
   }
+  
+  // Send batch request to multiple workers (for multi-key commands)
+  std::vector<std::string> SendBatchRequest(
+      const std::string& cmd_type,
+      const std::vector<std::string>& keys,
+      const std::vector<std::string>& args = {});
+  
+  // Enqueue batch response
+  void EnqueueBatchResponse(const BatchCrossWorkerResponse& resp) {
+    batch_resp_queue_.enqueue(resp);
+  }
+
+  // Enqueue batch request (called by other workers)
+  void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
+    batch_req_queue_.enqueue(req);
+  }
+  
+  // Process batch request from another worker
+  void ProcessBatchRequest(const BatchCrossWorkerRequest& req);
+  
+  // Process batch responses (called in executor loop)
+  void ProcessBatchResponses();
 
  private:
   void DoAccept() {
@@ -429,6 +478,15 @@ class Worker {
         resp_queue_.enqueue(resp);
       }
 
+      // Process batch responses
+      ProcessBatchResponses();
+
+      // Process batch requests from other workers
+      BatchCrossWorkerRequest batch_req;
+      while (batch_req_queue_.try_dequeue(batch_req)) {
+        ProcessBatchRequest(batch_req);
+      }
+
       // Yield if no work
       std::this_thread::yield();
     }
@@ -472,6 +530,14 @@ class Worker {
   
   // Cross-worker communication queues (MPSC)
   moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
+  
+  // Batch request queues (for multi-key commands)
+  moodycamel::ConcurrentQueue<BatchCrossWorkerRequest> batch_req_queue_;
+  moodycamel::ConcurrentQueue<BatchCrossWorkerResponse> batch_resp_queue_;
+  
+  // Pending batch requests (for matching responses)
+  std::unordered_map<uint64_t, std::shared_ptr<BatchCrossWorkerRequest>> pending_batch_reqs_;
+  std::atomic<uint64_t> next_batch_req_id_{1};
 
   absl::flat_hash_map<uint64_t, std::shared_ptr<Connection>> connections_;
 
@@ -484,6 +550,156 @@ class Worker {
   std::thread exec_thread_;
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> next_conn_id_{0};
+  std::mutex batch_mutex_;  // For pending_batch_reqs_ access
 };
+
+// ==============================================================================
+// Batch Request Implementation (Inline)
+// ==============================================================================
+
+inline std::vector<std::string> Worker::SendBatchRequest(
+    const std::string& cmd_type,
+    const std::vector<std::string>& keys,
+    const std::vector<std::string>& args) {
+  ASTRADB_LOG_DEBUG("Worker {}: SendBatchRequest called with cmd_type={}, keys={}",
+                   worker_id_, cmd_type, keys.size());
+
+  // Group keys by worker ID
+  absl::flat_hash_map<size_t, std::vector<std::string>> worker_keys;
+  for (const auto& key : keys) {
+    size_t target_worker = RouteToWorker(key);
+    worker_keys[target_worker].push_back(key);
+    ASTRADB_LOG_DEBUG("Worker {}: Key {} -> Worker {}", worker_id_, key, target_worker);
+  }
+
+  // If all keys are on this worker, process locally
+  if (worker_keys.size() == 1 && worker_keys.begin()->first == worker_id_) {
+    ASTRADB_LOG_DEBUG("Worker {}: All keys local, processing locally", worker_id_);
+    if (cmd_type == "SINTER") {
+      return data_shard_.GetDatabase().SInterLocal(keys);
+    }
+    // Add other command types as needed
+    return {};
+  }
+
+  // For cross-worker requests, we need to handle asynchronously
+  // For simplicity, let's implement a synchronous version with timeout
+  // In production, this should be converted to full async with coroutines
+
+  std::vector<std::vector<std::string>> all_results;
+  std::vector<std::future<std::vector<std::string>>> futures;
+
+  // Send requests to all workers
+  for (const auto& [target_worker_id, sub_keys] : worker_keys) {
+    if (target_worker_id == worker_id_) {
+      // Local processing - do it directly
+      if (cmd_type == "SINTER") {
+        all_results.push_back(data_shard_.GetDatabase().SInterLocal(sub_keys));
+      }
+    } else {
+      // Cross-worker request
+      uint64_t req_id = next_batch_req_id_++;
+      auto req = std::make_shared<BatchCrossWorkerRequest>();
+      req->req_id = req_id;
+      req->source_worker_id = worker_id_;
+      req->cmd_type = cmd_type;
+      req->keys = sub_keys;
+      req->args = args;
+      req->result_promise = std::make_shared<std::promise<std::vector<std::string>>>();
+
+      // Store the request in pending map
+      {
+        std::lock_guard<std::mutex> lock(batch_mutex_);
+        pending_batch_reqs_[req_id] = req;
+      }
+
+      // Get future before sending request
+      futures.push_back(req->result_promise->get_future());
+
+      // Send request to target worker
+      all_workers_[target_worker_id]->EnqueueBatchRequest(*req);
+    }
+  }
+
+  // Wait for all cross-worker responses with timeout
+  for (auto& future : futures) {
+    auto status = future.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::ready) {
+      all_results.push_back(future.get());
+    } else {
+      ASTRADB_LOG_ERROR("Worker {}: Batch request timeout", worker_id_);
+      all_results.push_back({});  // Empty result on timeout
+    }
+  }
+
+  // Aggregate results based on command type
+  if (cmd_type == "SINTER") {
+    // Compute intersection of all results
+    if (all_results.empty()) {
+      return {};
+    }
+
+    // Start with first result
+    std::vector<std::string> result = all_results[0];
+
+    // Intersect with remaining results
+    for (size_t i = 1; i < all_results.size(); ++i) {
+      absl::flat_hash_set<std::string> current_set(all_results[i].begin(), all_results[i].end());
+      std::vector<std::string> temp;
+      for (const auto& member : result) {
+        if (current_set.find(member) != current_set.end()) {
+          temp.push_back(member);
+        }
+      }
+      result = std::move(temp);
+
+      if (result.empty()) {
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  // For other commands, just concatenate results
+  std::vector<std::string> concatenated;
+  for (auto& result : all_results) {
+    concatenated.insert(concatenated.end(), result.begin(), result.end());
+  }
+  return concatenated;
+}
+
+inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
+  ASTRADB_LOG_DEBUG("Worker {}: Processing batch request {} from Worker {}",
+                   worker_id_, req.req_id, req.source_worker_id);
+
+  std::vector<std::string> result;
+
+  // Execute command on this worker's database
+  if (req.cmd_type == "SINTER") {
+    result = data_shard_.GetDatabase().SInterLocal(req.keys);
+  }
+  // Add other command types as needed
+
+  // Send response back
+  BatchCrossWorkerResponse resp{req.req_id, std::move(result)};
+  if (req.source_worker_id < all_workers_.size()) {
+    all_workers_[req.source_worker_id]->EnqueueBatchResponse(resp);
+  }
+}
+
+inline void Worker::ProcessBatchResponses() {
+  BatchCrossWorkerResponse resp;
+  while (batch_resp_queue_.try_dequeue(resp)) {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    auto it = pending_batch_reqs_.find(resp.req_id);
+    if (it != pending_batch_reqs_.end()) {
+      // Set the promise value
+      it->second->result_promise->set_value(std::move(resp.result));
+      // Remove from pending map
+      pending_batch_reqs_.erase(it);
+    }
+  }
+}
 
 }  // namespace astra::server
