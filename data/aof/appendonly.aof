@@ -1,0 +1,12 @@
+*3
+$3
+SET
+$7
+testkey
+$11
+Hello World
+*2
+$4
+INCR
+$7
+counter

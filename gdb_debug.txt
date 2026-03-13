@@ -1,0 +1,32 @@
+# GDB 调试脚本
+set pagination off
+set logging file /tmp/gdb_output.txt
+set logging on
+
+# 设置断点 - 在 SINTER 相关函数
+break astra::server::Worker::SendBatchRequest
+commands
+  silent
+  printf "\n=== SendBatchRequest called ===\n"
+  bt
+  continue
+end
+
+break astra::server::Worker::ProcessBatchRequest
+commands
+  silent
+  printf "\n=== ProcessBatchRequest called, req_id=%lu ===\n", req.req_id
+  printf "cmd_type=%s\n", req.cmd_type.c_str()
+  printf "keys count=%zu\n", req.keys.size()
+  continue
+end
+
+break astra::server::Worker::ProcessBatchResponses
+commands
+  silent
+  printf "\n=== ProcessBatchResponses called ===\n"
+  continue
+end
+
+# 启动程序
+run

@@ -10,6 +10,7 @@ if(NOT TARGET astra_protocol)
   )
   
   target_link_libraries(astra_protocol INTERFACE
+    astra_protocol_resp
     absl::base
     absl::strings
   )

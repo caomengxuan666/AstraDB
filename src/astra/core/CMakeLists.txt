@@ -23,6 +23,7 @@ endif()
 
 target_sources(astra_core PRIVATE
   async/thread_pool.cpp
+  async/new_io_context_pool.cpp
   metrics.cpp
   metrics_http.cpp
 )

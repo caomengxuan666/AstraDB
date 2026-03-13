@@ -56,8 +56,20 @@ struct ServerConfig {
   // Async / Coroutine
   bool use_async_commands = true;
 
+  // Network Architecture
+  bool use_per_worker_io = false;  // Use per-worker IO architecture (SO_REUSEPORT)
+  bool use_so_reuseport = true;    // Enable SO_REUSEPORT for kernel load balancing
+
   // Persistence (LevelDB)
   PersistenceConfig persistence;
+
+  // AOF (NO SHARING architecture)
+  struct AofConfig {
+    bool enabled = false;
+    std::string path = "./data/aof/appendonly.aof";
+    bool sync_everysec = true;
+  };
+  AofConfig aof;
 
   // Cluster
   ClusterConfig cluster;

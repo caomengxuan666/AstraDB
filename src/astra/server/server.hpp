@@ -43,11 +43,6 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   size_t num_workers = 2;  // Number of workers (each has IO + Executor threads)
   bool use_so_reuseport = true;  // Enable SO_REUSEPORT for kernel load balancing
   
-  // Persistence (NO SHARING: independent AOF writer thread)
-  bool aof_enabled = false;
-  std::string aof_path = "./data/aof/appendonly.aof";
-  bool aof_sync_everysec = true;  // true = everysec, false = always
-  
   // Cluster
   bool cluster_enabled = false;
   std::string cluster_node_id;
@@ -65,6 +60,40 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   bool metrics_enabled = true;
   std::string metrics_bind_addr = "0.0.0.0";
   uint16_t metrics_port = 9090;
+
+  // Load configuration from file
+  static NoSharingServerConfig LoadFromFile(const std::string& config_file) {
+    // Load base configuration
+    auto base_config = ::astra::base::ServerConfig::LoadFromFile(config_file);
+    
+    // Convert to NoSharingServerConfig
+    NoSharingServerConfig config;
+    
+    // Copy base fields
+    config.host = base_config.host;
+    config.port = base_config.port;
+    config.max_connections = base_config.max_connections;
+    config.thread_count = base_config.thread_count;
+    config.num_databases = base_config.num_databases;
+    config.num_shards = base_config.num_shards;
+    config.log_level = base_config.log_level;
+    config.log_file = base_config.log_file;
+    config.log_async = base_config.log_async;
+    config.log_queue_size = base_config.log_queue_size;
+    config.enable_pipeline = base_config.enable_pipeline;
+    config.enable_compression = base_config.enable_compression;
+    config.use_async_commands = base_config.use_async_commands;
+    config.use_per_worker_io = base_config.use_per_worker_io;
+    config.use_so_reuseport = base_config.use_so_reuseport;
+    config.persistence = base_config.persistence;
+    config.cluster = base_config.cluster;
+    config.metrics = base_config.metrics;
+    
+    // Copy AOF configuration
+    config.aof = base_config.aof;
+    
+    return config;
+  }
 };
 
 // For backward compatibility

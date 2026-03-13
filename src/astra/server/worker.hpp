@@ -24,11 +24,13 @@
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
+#include "managers.hpp"
 
 namespace astra::server {
 
-// Forward declaration
+// Forward declarations
 class Worker;
+class PersistenceManager;
 
 // Simple CommandContext implementation for Worker
 class WorkerCommandContext : public astra::commands::CommandContext {
@@ -41,8 +43,45 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   bool IsAuthenticated() const override { return true; }
   void SetAuthenticated(bool auth) override { (void)auth; }
 
+  // Set AOF callback (for persistence)
+  void SetAofCallback(std::function<void(const std::string&)> callback) {
+    aof_callback_ = std::move(callback);
+  }
+
+  // Log command to AOF
+  void LogToAof(absl::string_view command, absl::Span<const absl::string_view> args) override {
+    ASTRADB_LOG_DEBUG("LogToAof called: command={}, args={}", command, args.size());
+    if (aof_callback_) {
+      // Build RESP command string
+      std::string cmd_str;
+      cmd_str += "*";
+      cmd_str += std::to_string(args.size() + 1);  // +1 for the command name
+      cmd_str += "\r\n";
+      cmd_str += "$";
+      cmd_str += std::to_string(command.size());
+      cmd_str += "\r\n";
+      cmd_str.append(command.data(), command.size());
+      cmd_str += "\r\n";
+      
+      for (size_t i = 0; i < args.size(); ++i) {
+        cmd_str += "$";
+        cmd_str += std::to_string(args[i].size());
+        cmd_str += "\r\n";
+        cmd_str.append(args[i].data(), args[i].size());
+        cmd_str += "\r\n";
+      }
+      
+      ASTRADB_LOG_DEBUG("LogToAof calling callback, cmd_str size={}", cmd_str.size());
+      aof_callback_(cmd_str);
+      ASTRADB_LOG_DEBUG("LogToAof callback completed");
+    } else {
+      ASTRADB_LOG_WARN("LogToAof called but aof_callback_ is null!");
+    }
+  }
+
  private:
   astra::commands::Database* db_;
+  std::function<void(const std::string&)> aof_callback_;
 };
 
 // DataShard - Contains a full Database instance
@@ -82,6 +121,9 @@ class DataShard {
 
   // Get database reference (for setting callbacks)
   astra::commands::Database& GetDatabase() { return database_; }
+
+  // Get command context (for setting callbacks)
+  WorkerCommandContext* GetCommandContext() { return &context_; }
 
  private:
   size_t shard_id_;
@@ -241,6 +283,22 @@ class Worker {
   // Set all workers reference (called by Server after all workers are created)
   void SetAllWorkers(const std::vector<Worker*>& all_workers) {
     all_workers_ = all_workers;
+  }
+
+  // Set persistence manager (called by Server after persistence is initialized)
+  void SetPersistenceManager(void* persistence_manager) {
+    ASTRADB_LOG_INFO("Worker {}: SetPersistenceManager called with ptr={}", worker_id_, persistence_manager);
+    if (persistence_manager) {
+      data_shard_.GetCommandContext()->SetAofCallback([persistence_manager](const std::string& command) {
+        ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}", command.size());
+        auto* pm = static_cast<PersistenceManager*>(persistence_manager);
+        pm->AppendCommand(command);
+        ASTRADB_LOG_DEBUG("AOF callback completed");
+      });
+      ASTRADB_LOG_INFO("Worker {}: AOF callback set successfully", worker_id_);
+    } else {
+      ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr", worker_id_);
+    }
   }
 
   // Process a cross-worker request (MPSC queue entry point)
