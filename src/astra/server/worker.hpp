@@ -10,34 +10,70 @@
 
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
+#include "astra/commands/command_auto_register.hpp"
+#include "astra/commands/command_handler.hpp"
+#include "astra/commands/database.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 
 namespace astra::server {
 
-// Simple data shard (placeholder for now)
-// TODO: Replace with actual database implementation
+// Simple CommandContext implementation for Worker
+class WorkerCommandContext : public astra::commands::CommandContext {
+ public:
+  explicit WorkerCommandContext(astra::commands::Database* db) : db_(db) {}
+
+  astra::commands::Database* GetDatabase() const override { return db_; }
+  int GetDBIndex() const override { return 0; }
+  void SetDBIndex(int index) override { (void)index; }
+  bool IsAuthenticated() const override { return true; }
+  void SetAuthenticated(bool auth) override { (void)auth; }
+
+ private:
+  astra::commands::Database* db_;
+};
+
+// DataShard - Contains a full Database instance
 class DataShard {
  public:
-  explicit DataShard(size_t shard_id) : shard_id_(shard_id) {}
+  explicit DataShard(size_t shard_id) : shard_id_(shard_id), context_(&database_) {
+    // Initialize command registry
+    auto cmd_count = astra::commands::RuntimeCommandRegistry::Instance().GetCommandCount();
+    ASTRADB_LOG_INFO("Shard {}: RuntimeCommandRegistry has {} commands", shard_id_, cmd_count);
 
-  // Execute a command and return result
-  // For now, just handle PING
+    astra::commands::RuntimeCommandRegistry::Instance().ApplyToRegistry(registry_);
+
+    auto registry_size = registry_.Size();
+    ASTRADB_LOG_INFO("Shard {}: CommandRegistry now has {} commands", shard_id_, registry_size);
+  }
+
+  // Execute a command using the command registry
   std::string Execute(const astra::protocol::Command& command) {
     ASTRADB_LOG_DEBUG("Shard {}: Executing command: {}", shard_id_, command.name);
-    
-    if (command.name == "PING") {
-      auto response = astra::protocol::RespBuilder::BuildSimpleString("PONG");
-      ASTRADB_LOG_DEBUG("Shard {}: PING response: {}", shard_id_, response);
-      return response;
-    } else {
-      return astra::protocol::RespBuilder::BuildError("ERR unknown command");
+    ASTRADB_LOG_DEBUG("Shard {}: Command args count: {}", shard_id_, command.args.size());
+
+    auto result = registry_.Execute(command, &context_);
+    ASTRADB_LOG_DEBUG("Shard {}: Registry::Execute completed", shard_id_);
+    ASTRADB_LOG_DEBUG("Shard {}: Command result success={}, type={}", shard_id_, result.success, static_cast<int>(result.response.GetType()));
+
+    if (!result.success) {
+      ASTRADB_LOG_ERROR("Shard {}: Command failed: {}", shard_id_, result.error);
+      return astra::protocol::RespBuilder::BuildError(result.error);
     }
+
+    ASTRADB_LOG_DEBUG("Shard {}: Calling RespBuilder::Build", shard_id_);
+    auto response = astra::protocol::RespBuilder::Build(result.response);
+    ASTRADB_LOG_DEBUG("Shard {}: RespBuilder::Build completed, len={}", shard_id_, response.size());
+
+    return response;
   }
 
  private:
   size_t shard_id_;
+  astra::commands::Database database_;
+  WorkerCommandContext context_;
+  astra::commands::CommandRegistry registry_;
 };
 
 // Command with connection ID

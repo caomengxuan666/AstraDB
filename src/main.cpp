@@ -53,8 +53,8 @@ int main(int argc, char** argv) {
   astra::server::ServerConfig config;
   config.host = "0.0.0.0";
   config.port = 6379;
-  config.num_workers = 2;  // Number of workers (each worker has IO + Executor threads)
-  config.use_so_reuseport = true;  // Enable SO_REUSEPORT
+  config.num_workers = 1;  // TODO: Temporary, fix Worker 1 crash
+  config.use_so_reuseport = false;  // Disable for single worker
 
   std::cout << "[Main] Creating server with configuration:" << std::endl;
   std::cout << "  Host: " << config.host << std::endl;

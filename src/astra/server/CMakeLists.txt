@@ -18,6 +18,8 @@ target_link_libraries(astra_server PUBLIC
   astra_core
   astra_network
   astra_protocol_resp
+  astra_commands_whole
+  flatbuffers_generated
   concurrentqueue
 )
 
