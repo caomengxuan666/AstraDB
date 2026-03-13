@@ -131,9 +131,10 @@ bool Server::InitPersistence() noexcept {
     // Create persistence manager
     persistence_manager_ = std::make_unique<PersistenceManager>();
 
-    // Initialize with AOF configuration
+    // Initialize with AOF and RDB configuration
     std::string data_dir = "./data";
-    if (!persistence_manager_->Init(data_dir, config_.aof.enabled, config_.aof.path)) {
+    std::string rdb_path = data_dir + "/dump.rdb";
+    if (!persistence_manager_->Init(data_dir, config_.aof.enabled, true, config_.aof.path, rdb_path)) {
       ASTRADB_LOG_ERROR("Failed to initialize persistence manager");
       persistence_manager_.reset();
       return false;

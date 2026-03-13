@@ -6,6 +6,8 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/strings/ascii.h>
 
+#include "astra/server/worker.hpp"
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -1170,11 +1172,35 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 // BGSAVE - Background save (persistence)
 CommandResult HandleBgSave(const astra::protocol::Command& command,
                            CommandContext* context) {
-  // TODO: Implement actual background save
+  // Check if this is WorkerCommandContext (NO SHARING architecture)
+  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  if (!worker_ctx) {
+    return CommandResult(false, "ERR BGSAVE command requires WorkerCommandContext");
+  }
+
+  // Get RDB save callback
+  const auto& rdb_save_callback = worker_ctx->GetRdbSaveCallback();
+  if (!rdb_save_callback) {
+    return CommandResult(false, "ERR RDB save callback not configured");
+  }
+
+  // Call RDB save callback (background save)
+  // The callback should return "OK" on success, error message on failure
+  std::string result = rdb_save_callback(true);  // true = background save
+
   RespValue response;
-  response.SetString("Background saving started",
-                     protocol::RespType::kSimpleString);
-  return CommandResult(response);
+  if (result == "OK") {
+    response.SetString("Background saving started",
+                       protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else if (result == "ALREADY_IN_PROGRESS") {
+    response.SetString("Background save already in progress",
+                       protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else {
+    response.SetString(result, protocol::RespType::kError);
+    return CommandResult(false, result);
+  }
 }
 
 // LASTSAVE - Last save timestamp
@@ -1194,10 +1220,30 @@ CommandResult HandleLastSave(const astra::protocol::Command& command,
 // SAVE - Synchronous save (persistence)
 CommandResult HandleSave(const astra::protocol::Command& command,
                          CommandContext* context) {
-  // TODO: Implement actual save
+  // Check if this is WorkerCommandContext (NO SHARING architecture)
+  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  if (!worker_ctx) {
+    return CommandResult(false, "ERR SAVE command requires WorkerCommandContext");
+  }
+
+  // Get RDB save callback
+  const auto& rdb_save_callback = worker_ctx->GetRdbSaveCallback();
+  if (!rdb_save_callback) {
+    return CommandResult(false, "ERR RDB save callback not configured");
+  }
+
+  // Call RDB save callback (blocking save)
+  // The callback should return "OK" on success, error message on failure
+  std::string result = rdb_save_callback(false);  // false = not background
+
   RespValue response;
-  response.SetString("OK", protocol::RespType::kSimpleString);
-  return CommandResult(response);
+  if (result == "OK") {
+    response.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else {
+    response.SetString(result, protocol::RespType::kError);
+    return CommandResult(false, result);
+  }
 }
 
 // MIGRATE - Migrate a key to another Redis instance
