@@ -114,6 +114,15 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       config.aof.sync_everysec = aof["sync_everysec"].value_or<bool>(true);
     }
 
+    // RDB (NO SHARING architecture)
+    if (data["rdb"]) {
+      auto rdb = *data["rdb"].as_table();
+      config.rdb.enabled = rdb["enabled"].value_or<bool>(true);
+      config.rdb.path = rdb["path"].value_or<std::string>("./data/dump.rdb");
+      config.rdb.auto_save = rdb["auto_save"].value_or<bool>(false);
+      config.rdb.save_interval = rdb["save_interval"].value_or<int>(300);
+    }
+
     // Cluster
     if (data["cluster"]) {
       auto cluster = *data["cluster"].as_table();

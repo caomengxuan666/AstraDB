@@ -22,6 +22,7 @@
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
 #include "astra/core/metrics.hpp"
+#include "astra/core/server_stats.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
@@ -294,6 +295,14 @@ class Worker {
 
   // Get worker ID
   size_t GetWorkerId() const { return worker_id_; }
+
+  // Get local stats (NO SHARING architecture - each worker has its own stats)
+  ServerStats& GetLocalStats() { return local_stats_; }
+  const ServerStats& GetLocalStats() const { return local_stats_; }
+
+  // Get data shard (for RDB loading)
+  DataShard& GetDataShard() { return data_shard_; }
+  const DataShard& GetDataShard() const { return data_shard_; }
 
   // Set all workers reference (called by Server after all workers are created)
   void SetAllWorkers(const std::vector<Worker*>& all_workers) {
@@ -667,7 +676,7 @@ class Worker {
         if (cmd.is_forwarded) {
           // This is a forwarded command from another worker
           // Execute directly and send response back to source worker
-          astra::metrics::CommandTimer timer(cmd.command.name);
+          LocalCommandTimer timer(cmd.command.name, &local_stats_);
           std::string response = data_shard_.Execute(cmd.command);
           CrossWorkerResponse cross_resp{cmd.conn_id, response};
           all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
@@ -684,7 +693,7 @@ class Worker {
 
           if (target_worker == worker_id_) {
             // Handle locally
-            astra::metrics::CommandTimer timer(cmd.command.name);
+            LocalCommandTimer timer(cmd.command.name, &local_stats_);
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
@@ -789,6 +798,32 @@ class Worker {
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> next_conn_id_{0};
   std::mutex batch_mutex_;  // For pending_batch_reqs_ access
+
+  // Local stats (NO SHARING architecture - each worker has its own stats)
+  ServerStats local_stats_;
+
+  // RAII timer for command duration (NO SHARING architecture - uses local stats)
+  class LocalCommandTimer {
+   public:
+    explicit LocalCommandTimer(absl::string_view command, ServerStats* stats)
+        : command_(command), start_(absl::Now()), stats_(stats) {}
+
+    ~LocalCommandTimer() {
+      if (!stats_) return;
+      auto duration = absl::Now() - start_;
+      double seconds = absl::ToDoubleSeconds(duration);
+      uint64_t usec = static_cast<uint64_t>(seconds * 1000000);
+      stats_->RecordCommand(command_, success_, usec);
+    }
+
+    void SetError() { success_ = false; }
+
+   private:
+    std::string command_;
+    absl::Time start_;
+    bool success_ = true;
+    ServerStats* stats_;
+  };
 };
 
 // ==============================================================================

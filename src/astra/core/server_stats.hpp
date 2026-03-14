@@ -126,6 +126,133 @@ struct ServerStats {
     }
     return result;
   }
+
+  // Merge stats from another ServerStats (for NO SHARING architecture)
+  // This is used to aggregate per-worker stats into global stats
+  void Merge(ServerStats& other) {
+    // Merge all atomic counters
+    uptime_seconds.store(other.uptime_seconds.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    start_time.store(other.start_time.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    connected_clients.fetch_add(other.connected_clients.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    total_connections_received.fetch_add(other.total_connections_received.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    total_connections_rejected.fetch_add(other.total_connections_rejected.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    used_memory_bytes.store(other.used_memory_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    used_memory_peak_bytes.store(other.used_memory_peak_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    used_memory_rss_bytes.store(other.used_memory_rss_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    used_memory_fragmentation_ratio.store(other.used_memory_fragmentation_ratio.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    total_commands_processed.fetch_add(other.total_commands_processed.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    total_commands_failed.fetch_add(other.total_commands_failed.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    instantaneous_ops_per_sec.fetch_add(other.instantaneous_ops_per_sec.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    slowlog_count.fetch_add(other.slowlog_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    total_keys.fetch_add(other.total_keys.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    keys_with_expiration.fetch_add(other.keys_with_expiration.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    keyspace_hits.fetch_add(other.keyspace_hits.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    keyspace_misses.fetch_add(other.keyspace_misses.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    total_net_input_bytes.fetch_add(other.total_net_input_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    total_net_output_bytes.fetch_add(other.total_net_output_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    instantaneous_input_kbps.store(other.instantaneous_input_kbps.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    instantaneous_output_kbps.store(other.instantaneous_output_kbps.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    total_errors.fetch_add(other.total_errors.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    error_rejected_connections.fetch_add(other.error_rejected_connections.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    error_syntax.fetch_add(other.error_syntax.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    error_protocol.fetch_add(other.error_protocol.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    aof_size_bytes.store(other.aof_size_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    aof_rewrite_time_seconds.store(other.aof_rewrite_time_seconds.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    rdb_last_save_time.store(other.rdb_last_save_time.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    rdb_last_save_duration_ms.store(other.rdb_last_save_duration_ms.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    aof_enabled.store(other.aof_enabled.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    rdb_enabled.store(other.rdb_enabled.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    cluster_enabled.store(other.cluster_enabled.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    cluster_slots_assigned.fetch_add(other.cluster_slots_assigned.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    cluster_slots_ok.fetch_add(other.cluster_slots_ok.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    cluster_slots_pfail.fetch_add(other.cluster_slots_pfail.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    cluster_slots_fail.fetch_add(other.cluster_slots_fail.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    
+    role_master.store(other.role_master.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    connected_replicas.fetch_add(other.connected_replicas.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    master_repl_offset.fetch_add(other.master_repl_offset.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    master_repl_backlog_active.store(other.master_repl_backlog_active.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    master_repl_backlog_size.store(other.master_repl_backlog_size.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
+    // Merge command stats
+    {
+      absl::MutexLock lock(&command_stats_mutex_);
+      absl::MutexLock lock_other(&other.command_stats_mutex_);
+      
+      for (const auto& [cmd, other_stats] : other.command_stats_) {
+        auto& stats = command_stats_[cmd];
+        if (!stats) {
+          stats = std::make_unique<CommandStats>();
+        }
+        stats->calls.fetch_add(other_stats->calls.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        stats->errors.fetch_add(other_stats->errors.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        stats->usec.fetch_add(other_stats->usec.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      }
+    }
+  }
+
+  // Reset all stats to zero
+  void Reset() {
+    uptime_seconds.store(0, std::memory_order_relaxed);
+    start_time.store(0, std::memory_order_relaxed);
+    connected_clients.store(0, std::memory_order_relaxed);
+    total_connections_received.store(0, std::memory_order_relaxed);
+    total_connections_rejected.store(0, std::memory_order_relaxed);
+    
+    used_memory_bytes.store(0, std::memory_order_relaxed);
+    used_memory_peak_bytes.store(0, std::memory_order_relaxed);
+    used_memory_rss_bytes.store(0, std::memory_order_relaxed);
+    used_memory_fragmentation_ratio.store(0, std::memory_order_relaxed);
+    
+    total_commands_processed.store(0, std::memory_order_relaxed);
+    total_commands_failed.store(0, std::memory_order_relaxed);
+    instantaneous_ops_per_sec.store(0, std::memory_order_relaxed);
+    slowlog_count.store(0, std::memory_order_relaxed);
+    
+    total_keys.store(0, std::memory_order_relaxed);
+    keys_with_expiration.store(0, std::memory_order_relaxed);
+    keyspace_hits.store(0, std::memory_order_relaxed);
+    keyspace_misses.store(0, std::memory_order_relaxed);
+    
+    total_net_input_bytes.store(0, std::memory_order_relaxed);
+    total_net_output_bytes.store(0, std::memory_order_relaxed);
+    instantaneous_input_kbps.store(0, std::memory_order_relaxed);
+    instantaneous_output_kbps.store(0, std::memory_order_relaxed);
+    
+    total_errors.store(0, std::memory_order_relaxed);
+    error_rejected_connections.store(0, std::memory_order_relaxed);
+    error_syntax.store(0, std::memory_order_relaxed);
+    error_protocol.store(0, std::memory_order_relaxed);
+    
+    aof_size_bytes.store(0, std::memory_order_relaxed);
+    aof_rewrite_time_seconds.store(0, std::memory_order_relaxed);
+    rdb_last_save_time.store(0, std::memory_order_relaxed);
+    rdb_last_save_duration_ms.store(0, std::memory_order_relaxed);
+    aof_enabled.store(false, std::memory_order_relaxed);
+    rdb_enabled.store(false, std::memory_order_relaxed);
+    
+    cluster_enabled.store(false, std::memory_order_relaxed);
+    cluster_slots_assigned.store(0, std::memory_order_relaxed);
+    cluster_slots_ok.store(0, std::memory_order_relaxed);
+    cluster_slots_pfail.store(0, std::memory_order_relaxed);
+    cluster_slots_fail.store(0, std::memory_order_relaxed);
+    
+    role_master.store(true, std::memory_order_relaxed);
+    connected_replicas.store(0, std::memory_order_relaxed);
+    master_repl_offset.store(0, std::memory_order_relaxed);
+    master_repl_backlog_active.store(0, std::memory_order_relaxed);
+    master_repl_backlog_size.store(0, std::memory_order_relaxed);
+
+    absl::MutexLock lock(&command_stats_mutex_);
+    command_stats_.clear();
+  }
 };
 
 // Global server stats accessor

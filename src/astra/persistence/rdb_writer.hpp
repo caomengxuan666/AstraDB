@@ -26,32 +26,9 @@
 #include <vector>
 
 #include "astra/base/logging.hpp"
+#include "astra/persistence/rdb_common.hpp"
 
 namespace astra::persistence {
-
-// RDB opcodes
-constexpr uint8_t RDB_OPCODE_EOF = 0xFF;
-constexpr uint8_t RDB_OPCODE_SELECTDB = 0xFE;
-constexpr uint8_t RDB_OPCODE_RESIZEDB = 0xFB;
-constexpr uint8_t RDB_OPCODE_EXPIRETIME_MS = 0xFD;
-constexpr uint8_t RDB_OPCODE_AUX = 0xFA;
-
-// RDB types
-constexpr uint8_t RDB_TYPE_STRING = 0;
-constexpr uint8_t RDB_TYPE_HASH = 1;
-constexpr uint8_t RDB_TYPE_LIST = 2;
-constexpr uint8_t RDB_TYPE_SET = 3;
-constexpr uint8_t RDB_TYPE_ZSET = 4;
-constexpr uint8_t RDB_TYPE_HASH_ZIPMAP = 9;
-constexpr uint8_t RDB_TYPE_ZSET_ZIPLIST = 11;
-constexpr uint8_t RDB_TYPE_HASH_ZIPLIST = 13;
-constexpr uint8_t RDB_TYPE_LIST_ZIPLIST = 14;
-constexpr uint8_t RDB_TYPE_SET_INTSET = 15;
-constexpr uint8_t RDB_TYPE_ZSET_SKIPLIST = 17;
-constexpr uint8_t RDB_TYPE_HASH_LISTPACK = 18;
-
-// RDB version
-constexpr uint8_t RDB_VERSION = 10;
 
 // RDB configuration options
 struct RdbOptions {
@@ -112,8 +89,8 @@ class RdbWriter {
     // Initialize CRC32C for streaming checksum calculation
     crc_value_ = absl::crc32c_t{0};
 
-    // Write RDB header
-    WriteString("REDIS");
+    // Write RDB header: "REDIS" + version
+    Write("REDIS", 5);
     Write(&RDB_VERSION, 1);
 
     // Write auxiliary fields
@@ -131,6 +108,7 @@ class RdbWriter {
     // Write checksum if enabled
     if (options_.checksum) {
       uint32_t checksum = static_cast<uint32_t>(crc_value_);
+      ASTRADB_LOG_DEBUG("RDB checksum written: {}", checksum);
       current_file_->write(reinterpret_cast<const char*>(&checksum), 4);
     }
 
@@ -173,6 +151,8 @@ class RdbWriter {
                int64_t expire_ms = -1) noexcept {
     if (!current_file_ || !current_file_->is_open()) return;
 
+    ASTRADB_LOG_INFO("WriteKv: type={}, key={}, value={}", type, key, value);
+
     if (expire_ms >= 0) {
       uint8_t opcode = RDB_OPCODE_EXPIRETIME_MS;
       Write(&opcode, 1);
@@ -190,6 +170,12 @@ class RdbWriter {
   void Write(const void* data, size_t len) noexcept {
     if (!current_file_ || !current_file_->is_open()) return;
 
+    // Debug: log first byte of write
+    if (len > 0) {
+      uint8_t first_byte = *static_cast<const uint8_t*>(data);
+      ASTRADB_LOG_DEBUG("Write: byte={}, len={}", first_byte, len);
+    }
+
     // Update CRC32C in streaming fashion
     crc_value_ = absl::ExtendCrc32c(
         crc_value_, absl::string_view(static_cast<const char*>(data), len));
@@ -200,8 +186,9 @@ class RdbWriter {
 
   // Write string
   void WriteString(const std::string& str) noexcept {
-    WriteLength(str.size());
-    Write(str.data(), str.size());
+    uint64_t len = str.size();
+    WriteLength(len);
+    Write(str.data(), len);
   }
 
   // Write length in RDB encoding format
@@ -211,14 +198,24 @@ class RdbWriter {
       Write(&b, 1);
     } else if (len < 0x4000) {
       uint16_t v = static_cast<uint16_t>(len) | 0x4000;
-      uint8_t b1 = v & 0xFF;
-      uint8_t b2 = (v >> 8) & 0xFF;
+      uint8_t b1 = static_cast<uint8_t>((v >> 8) & 0xFF);  // High byte first (big-endian)
+      uint8_t b2 = static_cast<uint8_t>(v & 0xFF);           // Low byte
       Write(&b1, 1);
       Write(&b2, 1);
     } else {
       uint8_t b = 0x80;
       Write(&b, 1);
-      Write(&len, 8);
+      // Write 8-byte big-endian
+      uint8_t bytes[8];
+      bytes[0] = static_cast<uint8_t>((len >> 56) & 0xFF);
+      bytes[1] = static_cast<uint8_t>((len >> 48) & 0xFF);
+      bytes[2] = static_cast<uint8_t>((len >> 40) & 0xFF);
+      bytes[3] = static_cast<uint8_t>((len >> 32) & 0xFF);
+      bytes[4] = static_cast<uint8_t>((len >> 24) & 0xFF);
+      bytes[5] = static_cast<uint8_t>((len >> 16) & 0xFF);
+      bytes[6] = static_cast<uint8_t>((len >> 8) & 0xFF);
+      bytes[7] = static_cast<uint8_t>(len & 0xFF);
+      Write(bytes, 8);
     }
   }
 

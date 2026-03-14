@@ -84,3 +84,6 @@ astradb.log
 
 # Distribution packages
 dist/
+
+# Paper markdown
+DOCS/PAPER
