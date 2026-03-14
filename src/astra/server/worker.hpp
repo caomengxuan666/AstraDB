@@ -34,6 +34,7 @@ namespace astra::server {
 // Forward declarations
 class Worker;
 class PersistenceManager;
+class WorkerScheduler;
 
 // Simple CommandContext implementation for Worker
 class WorkerCommandContext : public astra::commands::CommandContext {
@@ -88,6 +89,17 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // initialized)
   void SetCommandRegistry(class commands::CommandRegistry* command_registry) {
     command_registry_ = command_registry;
+  }
+
+  // Get worker scheduler (for SCRIPT KILL - NO SHARING architecture)
+  WorkerScheduler* GetWorkerScheduler() const override{
+    return worker_scheduler_;
+  }
+
+  // Set worker scheduler (called by Worker after worker scheduler is
+  // initialized)
+  void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
+    worker_scheduler_ = worker_scheduler;
   }
 
   // Get connection (for async response)
@@ -159,6 +171,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   astra::commands::Database* db_;
   class commands::BlockingManager* blocking_manager_ = nullptr;
   class commands::CommandRegistry* command_registry_ = nullptr;
+  class WorkerScheduler* worker_scheduler_ = nullptr;
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
@@ -482,6 +495,13 @@ class Worker {
   // Get worker ID
   size_t GetWorkerId() const { return worker_id_; }
 
+  // Add a task to the scheduler queue (called by WorkerScheduler)
+  template <typename F>
+  void AddTask(F&& func) {
+    ASTRADB_LOG_DEBUG("Worker {}: Task added to scheduler queue", worker_id_);
+    task_queue_.enqueue(std::function<void()>(std::forward<F>(func)));
+  }
+
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() {
     return blocking_manager_.get();
@@ -612,6 +632,13 @@ class Worker {
       ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr",
                        worker_id_);
     }
+  }
+
+  // Set worker scheduler (called by Server after worker scheduler is initialized)
+  void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
+    ASTRADB_LOG_DEBUG("Worker {}: SetWorkerScheduler called with ptr={}",
+                      worker_id_, static_cast<const void*>(worker_scheduler));
+    data_shard_.GetCommandContext()->SetWorkerScheduler(worker_scheduler);
   }
 
   // Process a cross-worker request (MPSC queue entry point)
@@ -1006,6 +1033,17 @@ class Worker {
       // Process pubsub messages from other workers
       ProcessPubSubMessages();
 
+      // Process scheduler tasks (from WorkerScheduler)
+      std::function<void()> task;
+      while (task_queue_.try_dequeue(task)) {
+        ASTRADB_LOG_DEBUG("Worker {}: Processing scheduler task", worker_id_);
+        try {
+          task();
+        } catch (const std::exception& e) {
+          ASTRADB_LOG_ERROR("Worker {}: Scheduler task failed: {}", worker_id_, e.what());
+        }
+      }
+
       // Process batch requests from other workers
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
@@ -1068,6 +1106,9 @@ class Worker {
   moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
   moodycamel::ConcurrentQueue<ClientInfoRequest> client_info_req_queue_;
   moodycamel::ConcurrentQueue<ClientInfoResponse> client_info_resp_queue_;
+
+  // Scheduler task queue (for WorkerScheduler cross-worker task dispatch)
+  moodycamel::ConcurrentQueue<std::function<void()>> task_queue_;
 
   // Batch request queues (for multi-key commands)
   moodycamel::ConcurrentQueue<BatchCrossWorkerRequest> batch_req_queue_;

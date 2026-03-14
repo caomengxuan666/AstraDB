@@ -39,6 +39,10 @@ namespace astra::security {
 class AclManager;
 }
 
+namespace astra::server {
+class WorkerScheduler;
+}
+
 namespace astra::persistence {
 class LevelDBAdapter;
 class AofWriter;
@@ -61,6 +65,12 @@ class BlockingManager;
 class CommandContext {
  public:
   virtual ~CommandContext() = default;
+
+  // Get worker scheduler
+  virtual astra::server::WorkerScheduler* GetWorkerScheduler() const{
+    // return nullptr if not implemented
+    return nullptr;
+  }
 
   // Get current database
   virtual Database* GetDatabase() const = 0;

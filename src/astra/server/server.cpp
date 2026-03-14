@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "server.hpp"
+#include "worker_scheduler.hpp"
 
 #include "astra/security/acl_manager.hpp"  // For AclManager
 
@@ -121,6 +122,23 @@ void Server::Start() {
   // Start all workers
   for (auto& worker : workers_) {
     worker->Start();
+  }
+
+  // Create worker scheduler (after workers are started)
+  {
+    std::vector<Worker*> worker_ptrs;
+    worker_ptrs.reserve(workers_.size());
+    for (auto& worker : workers_) {
+      worker_ptrs.push_back(worker.get());
+    }
+    worker_scheduler_ = std::make_unique<WorkerScheduler>(worker_ptrs);
+    ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
+
+    // Set worker scheduler for all workers (for SCRIPT KILL command)
+    for (auto& worker : workers_) {
+      worker->SetWorkerScheduler(worker_scheduler_.get());
+    }
+    ASTRADB_LOG_INFO("Worker scheduler set for all workers");
   }
 
   running_ = true;
