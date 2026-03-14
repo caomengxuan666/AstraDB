@@ -482,6 +482,12 @@ class Worker {
   // Get worker ID
   size_t GetWorkerId() const { return worker_id_; }
 
+  // Add a task to the scheduler queue (called by WorkerScheduler)
+  template <typename F>
+  void AddTask(F&& func) {
+    task_queue_.enqueue(std::function<void()>(std::forward<F>(func)));
+  }
+
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() {
     return blocking_manager_.get();
@@ -1006,6 +1012,17 @@ class Worker {
       // Process pubsub messages from other workers
       ProcessPubSubMessages();
 
+      // Process scheduler tasks (from WorkerScheduler)
+      std::function<void()> task;
+      while (task_queue_.try_dequeue(task)) {
+        ASTRADB_LOG_DEBUG("Worker {}: Processing scheduler task", worker_id_);
+        try {
+          task();
+        } catch (const std::exception& e) {
+          ASTRADB_LOG_ERROR("Worker {}: Scheduler task failed: {}", worker_id_, e.what());
+        }
+      }
+
       // Process batch requests from other workers
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
@@ -1068,6 +1085,9 @@ class Worker {
   moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
   moodycamel::ConcurrentQueue<ClientInfoRequest> client_info_req_queue_;
   moodycamel::ConcurrentQueue<ClientInfoResponse> client_info_resp_queue_;
+
+  // Scheduler task queue (for WorkerScheduler cross-worker task dispatch)
+  moodycamel::ConcurrentQueue<std::function<void()>> task_queue_;
 
   // Batch request queues (for multi-key commands)
   moodycamel::ConcurrentQueue<BatchCrossWorkerRequest> batch_req_queue_;

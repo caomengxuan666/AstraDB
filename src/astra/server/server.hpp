@@ -148,6 +148,11 @@ class Server {
     return false;
   }
 
+  // Get worker scheduler (for cross-worker task dispatch)
+  class WorkerScheduler* GetWorkerScheduler() {
+    return worker_scheduler_.get();
+  }
+
  private:
   // Initialize persistence
   bool InitPersistence() noexcept;
@@ -178,6 +183,9 @@ class Server {
 
   // Workers (NO SHARING: each worker is completely independent)
   std::vector<std::unique_ptr<Worker>> workers_;
+
+  // Worker scheduler (for cross-worker task dispatch)
+  std::unique_ptr<class WorkerScheduler> worker_scheduler_;
 
   // Server-level managers (shared by all workers via MPSC if needed)
   std::unique_ptr<PersistenceManager> persistence_manager_;
