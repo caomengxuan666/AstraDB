@@ -61,9 +61,10 @@ void RuntimeCommandRegistry::ApplyToRegistry(CommandRegistry& registry) {
   absl::MutexLock lock(&mutex_);
   for (auto& [name, cmd] : commands_) {
     // Use the pre-parsed flags array directly
+    // Copy handler instead of moving to allow multiple calls
     registry.Register(CommandInfo(std::string(cmd.name), cmd.arity, cmd.flags,
                                   cmd.routing, cmd.is_write),
-                      std::move(cmd.handler));
+                      cmd.handler);  // Copy instead of move
   }
 }
 

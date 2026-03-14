@@ -1,5 +1,5 @@
 // ==============================================================================
-// Metrics HTTP Server - Asio-based Prometheus metrics endpoint
+// Metrics HTTP Server - Coroutine-based Prometheus metrics endpoint
 // ==============================================================================
 // License: Apache 2.0
 // ==============================================================================
@@ -8,12 +8,12 @@
 #include <memory>
 #include <sstream>
 
-#include "astra/core/async/thread_pool.hpp"
+#include "astra/core/async/awaitable_ops.hpp"
 #include "metrics.hpp"
 
 namespace astra::metrics {
 
-// ASIO-based HTTP server for Prometheus metrics using server's io_context
+// ASIO-based HTTP server for Prometheus metrics using coroutines
 class MetricsHTTPServer
     : public std::enable_shared_from_this<MetricsHTTPServer> {
  public:
@@ -44,7 +44,14 @@ class MetricsHTTPServer
 
     ASTRADB_LOG_INFO("Starting Metrics HTTP server on {}:{}", bind_addr_,
                      port_);
-    AcceptConnection();
+
+    // Spawn coroutine for accepting connections
+    asio::co_spawn(
+        acceptor_.get_executor(),
+        [self = shared_from_this()]() -> asio::awaitable<void> {
+          co_await self->DoAccept();
+        },
+        asio::detached);
   }
 
   ~MetricsHTTPServer() {
@@ -57,63 +64,80 @@ class MetricsHTTPServer
   }
 
  private:
-  void AcceptConnection() {
-    ASTRADB_LOG_DEBUG("Metrics HTTP: AcceptConnection called");
+  asio::awaitable<void> DoAccept() {
+    while (running_.load()) {
+      auto socket = std::make_shared<asio::ip::tcp::socket>(
+          co_await asio::this_coro::executor);
 
-    if (!acceptor_.is_open()) {
-      ASTRADB_LOG_ERROR("Metrics HTTP: Acceptor is not open");
-      return;
-    }
+      asio::error_code ec;
+      co_await acceptor_.async_accept(
+          *socket, asio::redirect_error(asio::use_awaitable, ec));
 
-    auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
-    acceptor_.async_accept(*socket, [this, socket](std::error_code ec) {
-      ASTRADB_LOG_DEBUG("Metrics HTTP: async_accept callback, ec={}",
-                        ec.message());
-
-      if (running_.load()) {
-        if (!ec) {
-          ASTRADB_LOG_DEBUG("Metrics HTTP: Calling HandleConnection");
-          HandleConnection(socket);
-        } else {
+      if (ec) {
+        if (running_.load()) {
           ASTRADB_LOG_ERROR("Metrics HTTP: async_accept error: {}",
                             ec.message());
         }
-        AcceptConnection();
+        continue;
       }
-    });
+
+      ASTRADB_LOG_DEBUG("Metrics HTTP: Connection accepted from {}",
+                        socket->remote_endpoint().address().to_string());
+
+      // Spawn coroutine for handling this connection
+      asio::co_spawn(
+          socket->get_executor(),
+          [self = shared_from_this(), socket]() -> asio::awaitable<void> {
+            co_await self->HandleConnection(socket);
+          },
+          asio::detached);
+    }
   }
 
-  void HandleConnection(std::shared_ptr<asio::ip::tcp::socket> socket) {
-    auto buffer = std::make_shared<std::array<char, 4096>>();
-    socket->async_read_some(asio::buffer(*buffer), [this, socket, buffer](
-                                                       std::error_code ec,
-                                                       size_t bytes_read) {
-      if (ec) {
-        return;
-      }
+  asio::awaitable<void> HandleConnection(
+      std::shared_ptr<asio::ip::tcp::socket> socket) {
+    auto executor = co_await asio::this_coro::executor;
+    std::array<char, 4096> buffer;
 
-      std::string request(buffer->data(), bytes_read);
-      std::string response;
+    asio::error_code ec;
+    size_t bytes_read = co_await socket->async_read_some(
+        asio::buffer(buffer),
+        asio::redirect_error(asio::use_awaitable, ec));
 
-      if (request.find("GET /metrics") == 0) {
-        std::vector<prometheus::MetricFamily> metrics = registry_->Collect();
-        std::string body = SerializeMetrics(metrics);
-        response =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-            "Content-Length: " +
-            std::to_string(body.size()) +
-            "\r\n"
-            "\r\n" +
-            body;
-      } else {
-        response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-      }
+    if (ec) {
+      ASTRADB_LOG_DEBUG("Metrics HTTP: Read error: {}", ec.message());
+      co_return;
+    }
 
-      auto response_ptr = std::make_shared<std::string>(response);
-      asio::async_write(*socket, asio::buffer(*response_ptr),
-                        [socket](std::error_code, size_t) { socket->close(); });
-    });
+    std::string request(buffer.data(), bytes_read);
+    std::string response;
+
+    if (request.find("GET /metrics") == 0) {
+      std::vector<prometheus::MetricFamily> metrics = registry_->Collect();
+      std::string body = SerializeMetrics(metrics);
+      response = "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
+                 "Content-Length: " +
+                 std::to_string(body.size()) + "\r\n\r\n" + body;
+
+      ASTRADB_LOG_DEBUG("Metrics HTTP: Sending metrics response (size={})",
+                        body.size());
+    } else {
+      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+      ASTRADB_LOG_DEBUG("Metrics HTTP: 404 Not Found");
+    }
+
+    co_await asio::async_write(
+        *socket, asio::buffer(response),
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (!ec) {
+      ASTRADB_LOG_DEBUG("Metrics HTTP: Response sent successfully");
+    } else {
+      ASTRADB_LOG_ERROR("Metrics HTTP: Write error: {}", ec.message());
+    }
+
+    socket->close(ec);
   }
 
   std::string SerializeMetrics(

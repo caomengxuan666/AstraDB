@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <absl/random/random.h>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
@@ -38,6 +40,20 @@ struct StringValue {
 // Key-value database
 class Database {
  public:
+  // Callback for batch cross-worker requests
+  struct BatchRequestContext {
+    size_t worker_id;  // This worker's ID
+    size_t num_workers;  // Total number of workers
+    std::function<std::vector<std::string>(size_t target_worker, const std::string& cmd_type,
+                                           const std::vector<std::string>& keys,
+                                           const std::vector<std::string>& args)> send_request;
+  };
+
+  using BatchRequestCallback = std::function<std::vector<std::string>(
+      const std::string& cmd_type,
+      const std::vector<std::string>& keys,
+      const std::vector<std::string>& args)>;
+
   using StringMap = astra::container::DashMap<std::string, StringValue>;
   using SetType = astra::container::DashSet<std::string>;
   using HashType = astra::container::DashMap<std::string, std::string>;
@@ -50,6 +66,16 @@ class Database {
   // Disable copy and move
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
+
+  // Set batch request callback (for multi-key commands)
+  void SetBatchRequestCallback(BatchRequestCallback callback) {
+    batch_request_callback_ = std::move(callback);
+  }
+
+  // Set AOF callback (for persistence)
+  void SetAofCallback(std::function<void(const std::string&)> callback) {
+    aof_callback_ = std::move(callback);
+  }
 
   // ========== String Pool Optimization ==========
 
@@ -594,7 +620,23 @@ class Database {
 
   // SINTER key [key ...]
   // Return intersection of multiple sets
+  // Dragonfly-style: Distribute to all relevant shards and aggregate results
   std::vector<std::string> SInter(const std::vector<std::string>& keys) {
+    if (keys.empty()) {
+      return {};
+    }
+
+    // Check if batch request callback is available (for multi-worker architecture)
+    if (batch_request_callback_) {
+      return batch_request_callback_("SINTER", keys, {});
+    }
+
+    // Single-worker mode: process locally
+    return SInterLocal(keys);
+  }
+
+  // SINTER local implementation (all keys on this shard)
+  std::vector<std::string> SInterLocal(const std::vector<std::string>& keys) {
     if (keys.empty()) {
       return {};
     }
@@ -621,7 +663,7 @@ class Database {
       // Find intersection
       std::vector<std::string> temp;
       auto current_members = current_set->GetAll();
-      std::unordered_set<std::string> current_set_members(
+      absl::flat_hash_set<std::string> current_set_members(
           current_members.begin(), current_members.end());
 
       for (const auto& member : result) {
@@ -643,7 +685,7 @@ class Database {
   // SUNION key [key ...]
   // Return union of multiple sets
   std::vector<std::string> SUnion(const std::vector<std::string>& keys) {
-    std::unordered_set<std::string> union_set;
+    absl::flat_hash_set<std::string> union_set;
 
     for (const auto& key : keys) {
       if (!metadata_manager_.IsValid(key)) {
@@ -684,7 +726,7 @@ class Database {
       auto current_set = GetSet(keys[i]);
       if (current_set) {
         auto current_members = current_set->GetAll();
-        std::unordered_set<std::string> current_set_members(
+        absl::flat_hash_set<std::string> current_set_members(
             current_members.begin(), current_members.end());
 
         // Remove members that exist in current set
@@ -1102,7 +1144,7 @@ class Database {
     }
 
     // Aggregate all members from all sets with weights
-    std::unordered_map<std::string, double> aggregated_scores;
+    absl::flat_hash_map<std::string, double> aggregated_scores;
 
     for (size_t i = 0; i < numkeys; ++i) {
       if (!metadata_manager_.IsValid(keys[i])) {
@@ -1174,7 +1216,7 @@ class Database {
 
     auto first_members =
         first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
-    std::unordered_map<std::string, double> intersection_scores;
+    absl::flat_hash_map<std::string, double> intersection_scores;
 
     for (const auto& [member, score] : first_members) {
       intersection_scores[member] =
@@ -1194,11 +1236,11 @@ class Database {
 
       auto current_members = current_zset->GetRangeByRank(
           0, current_zset->Size() - 1, false, true);
-      std::unordered_map<std::string, double> current_map(
+      absl::flat_hash_map<std::string, double> current_map(
           current_members.begin(), current_members.end());
       double weight = (i < weights.size()) ? weights[i] : 1.0;
 
-      std::unordered_map<std::string, double> temp;
+      absl::flat_hash_map<std::string, double> temp;
       for (const auto& [member, score] : intersection_scores) {
         auto it = current_map.find(member);
         if (it != current_map.end()) {
@@ -1255,8 +1297,8 @@ class Database {
 
     auto result =
         first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
-    std::unordered_map<std::string, double> result_map(result.begin(),
-                                                       result.end());
+    absl::flat_hash_map<std::string, double> result_map(result.begin(),
+                                                         result.end());
 
     // Remove members from all other sets
     for (size_t i = 1; i < numkeys; ++i) {
@@ -1268,7 +1310,7 @@ class Database {
       if (current_zset) {
         auto current_members = current_zset->GetRangeByRank(
             0, current_zset->Size() - 1, false, true);
-        std::unordered_set<std::string> current_set;
+        absl::flat_hash_set<std::string> current_set;
         for (const auto& [member, _] : current_members) {
           current_set.insert(member);
         }
@@ -1502,7 +1544,7 @@ class Database {
     return metadata_manager_.GetTtlSeconds(key);
   }
 
-  int64_t GetTtlMs(const std::string& key) {
+  int64_t GetTtlMs(const std::string& key) const {
     return metadata_manager_.GetTtlMs(key);
   }
 
@@ -1521,6 +1563,98 @@ class Database {
   // ========== Utility Operations ==========
 
   size_t Size() const { return strings_.Size(); }
+
+  // Get total key count across all data types
+  size_t GetKeyCount() const {
+    return strings_.Size() + hashes_.Size() + lists_.Size() + 
+           sets_.Size() + zsets_.Size() + streams_.Size();
+  }
+
+  // Get expired keys count
+  size_t GetExpiredKeysCount() const {
+    return metadata_manager_.GetExpiredKeys().size();
+  }
+
+  // ========== RDB Persistence Operations ==========
+
+  // ForEachKey callback type
+  using ForEachKeyCallback = std::function<void(
+      const std::string& key,
+      astra::storage::KeyType type,
+      const std::string& value,
+      int64_t ttl_ms)>;
+
+  // Iterate through all keys in the database
+  // callback(key, type, value, ttl_ms)
+  // value is serialized as string for all types
+  void ForEachKey(ForEachKeyCallback callback) const {
+    // Iterate strings
+    auto string_pairs = strings_.GetAllKeyValuePairs();
+    for (const auto& [key, str_value] : string_pairs) {
+      auto ttl_ms = GetTtlMs(key);
+      callback(key, astra::storage::KeyType::kString, str_value.value, ttl_ms);
+    }
+
+    // Iterate hashes (serialize as field-value pairs)
+    auto hash_keys = hashes_.GetAllKeys();
+    for (const auto& key : hash_keys) {
+      std::shared_ptr<HashType> hash;
+      if (hashes_.Get(key, &hash)) {
+        auto field_value_pairs = hash->GetAllKeyValuePairs();
+        std::string serialized_hash;
+        for (const auto& [field, value] : field_value_pairs) {
+          serialized_hash += field + ":" + value + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kHash, serialized_hash, ttl_ms);
+      }
+    }
+
+    // Iterate lists (serialize as element list)
+    auto list_keys = lists_.GetAllKeys();
+    for (const auto& key : list_keys) {
+      std::shared_ptr<ListType> list;
+      if (lists_.Get(key, &list)) {
+        std::string serialized_list;
+        auto elements = list->Range(0, -1);
+        for (const auto& elem : elements) {
+          serialized_list += elem + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kList, serialized_list, ttl_ms);
+      }
+    }
+
+    // Iterate sets (serialize as member list)
+    auto set_keys = sets_.GetAllKeys();
+    for (const auto& key : set_keys) {
+      std::shared_ptr<SetType> set;
+      if (sets_.Get(key, &set)) {
+        std::string serialized_set;
+        auto members = set->GetAll();
+        for (const auto& member : members) {
+          serialized_set += member + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kSet, serialized_set, ttl_ms);
+      }
+    }
+
+    // Iterate sorted sets (serialize as member:score pairs)
+    auto zset_keys = zsets_.GetAllKeys();
+    for (const auto& key : zset_keys) {
+      std::shared_ptr<ZSetType> zset;
+      if (zsets_.Get(key, &zset)) {
+        std::string serialized_zset;
+        auto members_scores = zset->GetAll();
+        for (const auto& [member, score] : members_scores) {
+          serialized_zset += member + ":" + std::to_string(score) + "\n";
+        }
+        auto ttl_ms = GetTtlMs(key);
+        callback(key, astra::storage::KeyType::kZSet, serialized_zset, ttl_ms);
+      }
+    }
+  }
 
   // Get key type
   std::optional<astra::storage::KeyType> GetType(const std::string& key) {
@@ -1586,6 +1720,8 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
+  BatchRequestCallback batch_request_callback_;  // For cross-worker requests
+  std::function<void(const std::string&)> aof_callback_;  // For persistence
 };
 
 // Database manager - manages multiple databases

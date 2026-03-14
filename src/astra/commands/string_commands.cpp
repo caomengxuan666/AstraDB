@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "astra/core/metrics.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "command_auto_register.hpp"
 
@@ -39,8 +40,10 @@ CommandResult HandleGet(const astra::protocol::Command& command,
   auto value = db->Get(key);
 
   if (value.has_value()) {
+    astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
     return CommandResult(RespValue(std::string(value->value)));
   } else {
+    astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 }
@@ -165,6 +168,8 @@ CommandResult HandleSet(const astra::protocol::Command& command,
     db->SetExpireMs(key, *expire_time_ms);
   }
 
+  ASTRADB_LOG_DEBUG("HandleSet: About to call LogToAof for key={}", key);
+
   // Log to AOF (zero-copy with absl::Span)
   if (expire_time_ms.has_value()) {
     std::string px_str = absl::StrCat(*expire_time_ms);
@@ -175,6 +180,8 @@ CommandResult HandleSet(const astra::protocol::Command& command,
     std::array<absl::string_view, 2> aof_args_simple = {key, value};
     context->LogToAof("SET", absl::MakeSpan(aof_args_simple));
   }
+
+  ASTRADB_LOG_DEBUG("HandleSet: LogToAof call completed");
 
   RespValue response;
   response.SetString("OK", RespType::kSimpleString);

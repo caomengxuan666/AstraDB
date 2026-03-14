@@ -23,6 +23,7 @@ endif()
 
 target_sources(astra_core PRIVATE
   async/thread_pool.cpp
+  async/new_io_context_pool.cpp
   metrics.cpp
   metrics_http.cpp
 )
@@ -47,7 +48,7 @@ if(TARGET absl::btree)
   target_link_libraries(astra_core PUBLIC absl::btree)
 endif()
 
-# Link Prometheus (only core, we use our own ASIO HTTP server)
+# Link Prometheus core only (custom HTTP server)
 if(TARGET prometheus-cpp::core)
   target_link_libraries(astra_core PUBLIC prometheus-cpp::core)
 endif()

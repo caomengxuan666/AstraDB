@@ -6,6 +6,8 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/strings/ascii.h>
 
+#include "astra/server/worker.hpp"
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -16,11 +18,28 @@
 #include "astra/base/logging.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
+#include "astra/core/server_stats.hpp"
 #include "astra/storage/key_metadata.hpp"
 #include "command_auto_register.hpp"
 #include "scan_manager.hpp"
 
 namespace astra::commands {
+
+// Helper function to format bytes to human readable format
+static std::string FormatBytes(uint64_t bytes) {
+  const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+  int unit_index = 0;
+  double size = static_cast<double>(bytes);
+
+  while (size >= 1024.0 && unit_index < 4) {
+    size /= 1024.0;
+    unit_index++;
+  }
+
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(2) << size << units[unit_index];
+  return oss.str();
+}
 
 // PING
 CommandResult HandlePing(const astra::protocol::Command& command,
@@ -35,21 +54,34 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
                          CommandContext* context) {
   std::ostringstream oss;
 
+  // Get server stats (NO SHARING architecture - aggregated stats)
+  auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+
   // Server section
   oss << "# Server\r\n";
   oss << "redis_version:7.0.0\r\n";
   oss << "os:Linux\r\n";
   oss << "arch_bits:64\r\n";
+  oss << "uptime_in_seconds:" << stats->uptime_seconds.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Clients section
   oss << "# Clients\r\n";
-  oss << "connected_clients:1\r\n";
+  oss << "connected_clients:" << stats->connected_clients.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_connections_received:" << stats->total_connections_received.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_connections_rejected:" << stats->total_connections_rejected.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Memory section
   oss << "# Memory\r\n";
-  oss << "used_memory_human:unknown\r\n";
+  uint64_t used_memory = stats->used_memory_bytes.load(std::memory_order_relaxed);
+  if (used_memory > 0) {
+    oss << "used_memory:" << used_memory << "\r\n";
+    oss << "used_memory_human:" << FormatBytes(used_memory) << "\r\n";
+  } else {
+    oss << "used_memory:0\r\n";
+    oss << "used_memory_human:0B\r\n";
+  }
   oss << "\r\n";
 
   // Persistence section
@@ -61,6 +93,15 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
     oss << "enabled:no\r\n";
     oss << "last_save:0\r\n";
   }
+  oss << "\r\n";
+
+  // Stats section (NO SHARING architecture - from aggregated ServerStats)
+  oss << "# Stats\r\n";
+  oss << "total_commands_processed:" << stats->total_commands_processed.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_commands_failed:" << stats->total_commands_failed.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_hits:" << stats->keyspace_hits.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_misses:" << stats->keyspace_misses.load(std::memory_order_relaxed) << "\r\n";
+  oss << "slowlog_count:" << stats->slowlog_count.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Cluster section
@@ -92,6 +133,11 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
       }
     }
   }
+  oss << "\r\n";
+
+  // Command stats section (NO SHARING architecture - from aggregated ServerStats)
+  oss << "# Commandstats\r\n";
+  oss << stats->GetCommandStatsInfo();
   oss << "\r\n";
 
   RespValue response;
@@ -535,15 +581,15 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     // Return all commands in the format expected by redis-cli
     // Each command is an array: [name, arity, flags, first_key, last_key, step,
     // "", 0, [category]]
-    auto& registry = GetGlobalCommandRegistry();
-    auto command_names = registry.GetCommandNames();
+    auto* registry = context->GetCommandRegistry();
+    auto command_names = registry->GetCommandNames();
 
     ASTRADB_LOG_TRACE("HandleCommand: got {} command names",
                       command_names.size());
 
     std::vector<RespValue> result;
     for (const auto& name : command_names) {
-      const auto* info = registry.GetInfo(name);
+      const auto* info = registry->GetInfo(name);
       if (info) {
         std::vector<RespValue> cmd_array;
         BuildCommandInfoArrayHelper(cmd_array, info);
@@ -573,8 +619,8 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     const std::string& cmd_name = command[1].AsString();
     ASTRADB_LOG_TRACE("HandleCommand: DOCS for command '{}'", cmd_name);
 
-    auto& registry = GetGlobalCommandRegistry();
-    const auto* info = registry.GetInfo(cmd_name);
+    auto* registry = context->GetCommandRegistry();
+    const auto* info = registry->GetInfo(cmd_name);
 
     if (!info) {
       ASTRADB_LOG_TRACE("HandleCommand: DOCS - command '{}' not found",
@@ -703,8 +749,8 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
   } else if (upper_subcommand == "LIST") {
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch");
     // COMMAND LIST - return list of command names
-    auto& registry = GetGlobalCommandRegistry();
-    auto command_names = registry.GetCommandNames();
+    auto* registry = context->GetCommandRegistry();
+    auto command_names = registry->GetCommandNames();
 
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch, got {} command names",
                       command_names.size());
@@ -723,15 +769,15 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
   } else if (upper_subcommand == "INFO") {
     ASTRADB_LOG_TRACE("HandleCommand: INFO branch");
     // COMMAND INFO - return information about specific commands or all commands
-    auto& registry = GetGlobalCommandRegistry();
+    auto* registry = context->GetCommandRegistry();
 
     std::vector<RespValue> result;
 
     if (command.ArgCount() == 1) {
       // No command names specified, return info for all commands
-      auto command_names = registry.GetCommandNames();
+      auto command_names = registry->GetCommandNames();
       for (const auto& name : command_names) {
-        const auto* info = registry.GetInfo(name);
+        const auto* info = registry->GetInfo(name);
         if (info) {
           std::vector<RespValue> cmd_array;
           BuildCommandInfoArrayHelper(cmd_array, info);
@@ -742,7 +788,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
       // Get info for specified commands
       for (size_t i = 1; i < command.ArgCount(); ++i) {
         const std::string& cmd_name = command[i].AsString();
-        const auto* info = registry.GetInfo(cmd_name);
+        const auto* info = registry->GetInfo(cmd_name);
         if (info) {
           std::vector<RespValue> cmd_array;
           BuildCommandInfoArrayHelper(cmd_array, info);
@@ -1170,11 +1216,35 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 // BGSAVE - Background save (persistence)
 CommandResult HandleBgSave(const astra::protocol::Command& command,
                            CommandContext* context) {
-  // TODO: Implement actual background save
+  // Check if this is WorkerCommandContext (NO SHARING architecture)
+  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  if (!worker_ctx) {
+    return CommandResult(false, "ERR BGSAVE command requires WorkerCommandContext");
+  }
+
+  // Get RDB save callback
+  const auto& rdb_save_callback = worker_ctx->GetRdbSaveCallback();
+  if (!rdb_save_callback) {
+    return CommandResult(false, "ERR RDB save callback not configured");
+  }
+
+  // Call RDB save callback (background save)
+  // The callback should return "OK" on success, error message on failure
+  std::string result = rdb_save_callback(true);  // true = background save
+
   RespValue response;
-  response.SetString("Background saving started",
-                     protocol::RespType::kSimpleString);
-  return CommandResult(response);
+  if (result == "OK") {
+    response.SetString("Background saving started",
+                       protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else if (result == "ALREADY_IN_PROGRESS") {
+    response.SetString("Background save already in progress",
+                       protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else {
+    response.SetString(result, protocol::RespType::kError);
+    return CommandResult(false, result);
+  }
 }
 
 // LASTSAVE - Last save timestamp
@@ -1194,10 +1264,30 @@ CommandResult HandleLastSave(const astra::protocol::Command& command,
 // SAVE - Synchronous save (persistence)
 CommandResult HandleSave(const astra::protocol::Command& command,
                          CommandContext* context) {
-  // TODO: Implement actual save
+  // Check if this is WorkerCommandContext (NO SHARING architecture)
+  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  if (!worker_ctx) {
+    return CommandResult(false, "ERR SAVE command requires WorkerCommandContext");
+  }
+
+  // Get RDB save callback
+  const auto& rdb_save_callback = worker_ctx->GetRdbSaveCallback();
+  if (!rdb_save_callback) {
+    return CommandResult(false, "ERR RDB save callback not configured");
+  }
+
+  // Call RDB save callback (blocking save)
+  // The callback should return "OK" on success, error message on failure
+  std::string result = rdb_save_callback(false);  // false = not background
+
   RespValue response;
-  response.SetString("OK", protocol::RespType::kSimpleString);
-  return CommandResult(response);
+  if (result == "OK") {
+    response.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(response);
+  } else {
+    response.SetString(result, protocol::RespType::kError);
+    return CommandResult(false, result);
+  }
 }
 
 // MIGRATE - Migrate a key to another Redis instance

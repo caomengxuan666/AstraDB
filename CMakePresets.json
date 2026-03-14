@@ -236,6 +236,20 @@
       "generator": "Ninja"
     },
     {
+      "name": "linux-iouring",
+      "displayName": "Linux (io_uring enabled)",
+      "description": "Release build with io_uring backend on Linux",
+      "inherits": [
+        "package-common",
+        "base-clang"
+      ],
+      "binaryDir": "${sourceDir}/build-iouring",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "ASTRADB_ENABLE_IO_URING": "ON"
+      }
+    },
+    {
       "name": "macos-package-clang",
       "displayName": "macOS Package (Clang)",
       "description": "Release build for packaging on macOS with Clang",
@@ -301,6 +315,10 @@
     {
       "name": "linux-package-clang",
       "configurePreset": "linux-package-clang"
+    },
+    {
+      "name": "linux-iouring",
+      "configurePreset": "linux-iouring"
     },
     {
       "name": "macos-debug-clang",

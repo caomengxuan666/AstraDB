@@ -191,6 +191,8 @@ int main(int argc, char** argv) {
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
   server_config.use_async_commands = config.use_async_commands;
+  server_config.use_per_worker_io = config.use_per_worker_io;
+  server_config.use_so_reuseport = config.use_so_reuseport;
 
   // Copy persistence config
   server_config.persistence.enabled = config.persistence.enabled;
@@ -244,7 +246,12 @@ int main(int argc, char** argv) {
   g_server = std::make_unique<astra::server::Server>(server_config);
 
   try {
-    g_server->Run();
+    g_server->Start();
+
+    // Wait for server to stop (NO SHARING architecture - Start() is non-blocking)
+    while (g_server->IsRunning()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Server error: {}", e.what());
     return 1;

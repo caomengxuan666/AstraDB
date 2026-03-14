@@ -33,6 +33,14 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       if (server["thread_count"]) {
         config.thread_count = server["thread_count"].value_or<size_t>(0);
       }
+      if (server["use_per_worker_io"]) {
+        config.use_per_worker_io =
+            server["use_per_worker_io"].value_or<bool>(false);
+      }
+      if (server["use_so_reuseport"]) {
+        config.use_so_reuseport =
+            server["use_so_reuseport"].value_or<bool>(true);
+      }
     }
 
     // Database
@@ -96,6 +104,23 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
           persistence["cache_size"].value_or<size_t>(256 * 1024 * 1024);
       config.persistence.sync_writes =
           persistence["sync_writes"].value_or<bool>(false);
+    }
+
+    // AOF (NO SHARING architecture)
+    if (data["aof"]) {
+      auto aof = *data["aof"].as_table();
+      config.aof.enabled = aof["enabled"].value_or<bool>(false);
+      config.aof.path = aof["path"].value_or<std::string>("./data/aof/appendonly.aof");
+      config.aof.sync_everysec = aof["sync_everysec"].value_or<bool>(true);
+    }
+
+    // RDB (NO SHARING architecture)
+    if (data["rdb"]) {
+      auto rdb = *data["rdb"].as_table();
+      config.rdb.enabled = rdb["enabled"].value_or<bool>(true);
+      config.rdb.path = rdb["path"].value_or<std::string>("./data/dump.rdb");
+      config.rdb.auto_save = rdb["auto_save"].value_or<bool>(false);
+      config.rdb.save_interval = rdb["save_interval"].value_or<int>(300);
     }
 
     // Cluster

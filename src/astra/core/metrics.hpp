@@ -21,6 +21,7 @@
 #include <string>
 
 #include "astra/base/logging.hpp"
+#include "astra/core/server_stats.hpp"
 #include "metrics_flatbuffers.hpp"
 
 namespace astra::metrics {
@@ -46,6 +47,9 @@ class MetricsRegistry {
     if (initialized_.load(std::memory_order_acquire)) {
       return true;
     }
+
+    // Store enabled state atomically
+    enabled_.store(config.enabled, std::memory_order_release);
 
     if (!config.enabled) {
       ASTRADB_LOG_INFO("Prometheus metrics disabled");
@@ -105,11 +109,19 @@ class MetricsRegistry {
   MetricsRegistry() : registry_(std::make_shared<prometheus::Registry>()) {}
   ~MetricsRegistry() = default;
 
+  // Helper to check if metrics are enabled (fast path for zero-cost)
+  bool IsEnabled() const {
+    return enabled_.load(std::memory_order_acquire);
+  }
+
   MetricsRegistry(const MetricsRegistry&) = delete;
   MetricsRegistry& operator=(const MetricsRegistry&) = delete;
 
+  friend class AstraMetrics;  // Allow AstraMetrics to access private members
+
   std::shared_ptr<prometheus::Registry> registry_;
   std::atomic<bool> initialized_{false};
+  std::atomic<bool> enabled_{false};  // Can be toggled at runtime
 };
 
 // Pre-defined metrics for AstraDB
@@ -118,6 +130,19 @@ class AstraMetrics {
   static AstraMetrics& Instance() {
     static AstraMetrics instance;
     return instance;
+  }
+
+  // Dynamic enable/disable metrics (zero-cost when disabled)
+  void Enable() {
+    MetricsRegistry::Instance().enabled_.store(true, std::memory_order_release);
+  }
+
+  void Disable() {
+    MetricsRegistry::Instance().enabled_.store(false, std::memory_order_release);
+  }
+
+  bool IsEnabled() const {
+    return MetricsRegistry::Instance().IsEnabled();
   }
 
   void Init(const MetricsConfig& config) {
@@ -178,48 +203,262 @@ class AstraMetrics {
                              .Help("Persistence information")
                              .Register(*registry.GetRegistry());
 
+    // Server uptime
+    uptime_ = &prometheus::BuildGauge()
+                   .Name("astradb_uptime_seconds")
+                   .Help("Server uptime in seconds")
+                   .Register(*registry.GetRegistry());
+    uptime_current_ = &uptime_->Add({});
+
+    // Total connections
+    total_connections_ = &prometheus::BuildCounter()
+                             .Name("astradb_connections_received_total")
+                             .Help("Total connections received")
+                             .Register(*registry.GetRegistry());
+    total_connections_received_ = &total_connections_->Add({});
+
+    // Total commands
+    total_commands_ = &prometheus::BuildCounter()
+                          .Name("astradb_commands_total_all")
+                          .Help("Total commands processed")
+                          .Register(*registry.GetRegistry());
+    total_commands_processed_ = &total_commands_->Add({});
+
+    // Keys total
+    keys_total_ = &prometheus::BuildGauge()
+                      .Name("astradb_keys_total")
+                      .Help("Total number of keys")
+                      .Register(*registry.GetRegistry());
+    keys_total_current_ = &keys_total_->Add({});
+
+    // Network traffic
+    net_input_bytes_ = &prometheus::BuildCounter()
+                            .Name("astradb_network_input_bytes_total")
+                            .Help("Total network input bytes")
+                            .Register(*registry.GetRegistry());
+    net_input_bytes_current_ = &net_input_bytes_->Add({});
+
+    net_output_bytes_ = &prometheus::BuildCounter()
+                             .Name("astradb_network_output_bytes_total")
+                             .Help("Total network output bytes")
+                             .Register(*registry.GetRegistry());
+    net_output_bytes_current_ = &net_output_bytes_->Add({});
+
+    // Slow queries
+    slowlog_count_ = &prometheus::BuildCounter()
+                         .Name("astradb_slowlog_count_total")
+                         .Help("Total number of slow queries (> 10ms)")
+                         .Register(*registry.GetRegistry());
+    slowlog_count_current_ = &slowlog_count_->Add({});
+
+    // Keyspace stats
+    keyspace_hits_ = &prometheus::BuildCounter()
+                          .Name("astradb_keyspace_hits_total")
+                          .Help("Total keyspace hits")
+                          .Register(*registry.GetRegistry());
+    keyspace_hits_current_ = &keyspace_hits_->Add({});
+
+    keyspace_misses_ = &prometheus::BuildCounter()
+                            .Name("astradb_keyspace_misses_total")
+                            .Help("Total keyspace misses")
+                            .Register(*registry.GetRegistry());
+    keyspace_misses_current_ = &keyspace_misses_->Add({});
+
+    // Error counters
+    error_total_ = &prometheus::BuildCounter()
+                        .Name("astradb_errors_total")
+                        .Help("Total errors")
+                        .Register(*registry.GetRegistry());
+    error_total_current_ = &error_total_->Add({});
+
+    error_rejected_ = &prometheus::BuildCounter()
+                          .Name("astradb_errors_rejected_connections_total")
+                          .Help("Total rejected connections")
+                          .Register(*registry.GetRegistry());
+    error_rejected_current_ = &error_rejected_->Add({});
+
+    error_syntax_ = &prometheus::BuildCounter()
+                        .Name("astradb_errors_syntax_total")
+                        .Help("Total syntax errors")
+                        .Register(*registry.GetRegistry());
+    error_syntax_current_ = &error_syntax_->Add({});
+
+    error_protocol_ = &prometheus::BuildCounter()
+                          .Name("astradb_errors_protocol_total")
+                          .Help("Total protocol errors")
+                          .Register(*registry.GetRegistry());
+    error_protocol_current_ = &error_protocol_->Add({});
+
     initialized_ = true;
   }
 
-  // Record command execution
+  // Record command execution (also updates ServerStats)
   void RecordCommand(absl::string_view command, bool success,
                      double duration_seconds) {
-    if (!initialized_ || !config_.enabled) return;
+    // Always update ServerStats (even when Prometheus metrics are disabled)
+    // ServerStats is used by INFO command and other internal purposes
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    uint64_t usec = static_cast<uint64_t>(duration_seconds * 1000000);
+    stats->RecordCommand(std::string(command), success, usec);
+
+    // Record slow query (> 10ms)
+    if (duration_seconds > 0.01) {
+      stats->slowlog_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Only update Prometheus metrics if enabled
+    if (!IsEnabled()) {
+      return;
+    }
 
     std::string cmd(command);
     std::string status = success ? "success" : "error";
 
-    command_counter_->Add({{"command", cmd}, {"status", status}}).Increment();
-    command_duration_->Add({{"command", cmd}}, duration_buckets_)
-        .Observe(duration_seconds);
+    // Update Prometheus metrics
+    if (command_counter_) {
+      command_counter_->Add({{"command", cmd}, {"status", status}}).Increment();
+    }
+
+    if (total_commands_processed_) {
+      total_commands_processed_->Increment();
+    }
+
+    if (command_duration_) {
+      command_duration_->Add({{"command", cmd}}, duration_buckets_)
+          .Observe(duration_seconds);
+    }
   }
 
-  // Connection tracking
+  // Record network traffic
+  void RecordNetworkInput(size_t bytes) {
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->total_net_input_bytes.fetch_add(bytes, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (net_input_bytes_current_) {
+      net_input_bytes_current_->Increment(bytes);
+    }
+  }
+
+  void RecordNetworkOutput(size_t bytes) {
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->total_net_output_bytes.fetch_add(bytes, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (net_output_bytes_current_) {
+      net_output_bytes_current_->Increment(bytes);
+    }
+  }
+
+  // Record keyspace hit/miss
+  void RecordKeyspaceHit() {
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->keyspace_hits.fetch_add(1, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (keyspace_hits_current_) {
+      keyspace_hits_current_->Increment();
+    }
+  }
+
+  void RecordKeyspaceMiss() {
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->keyspace_misses.fetch_add(1, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (keyspace_misses_current_) {
+      keyspace_misses_current_->Increment();
+    }
+  }
+
+  // Record errors
+  void RecordError(const std::string& error_type) {
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->total_errors.fetch_add(1, std::memory_order_relaxed);
+
+    if (error_type == "rejected_connection") {
+      stats->error_rejected_connections.fetch_add(1, std::memory_order_relaxed);
+    } else if (error_type == "syntax") {
+      stats->error_syntax.fetch_add(1, std::memory_order_relaxed);
+    } else if (error_type == "protocol") {
+      stats->error_protocol.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+
+    if (error_total_current_) {
+      error_total_current_->Increment();
+    }
+
+    if (error_type == "rejected_connection" && error_rejected_current_) {
+      error_rejected_current_->Increment();
+    } else if (error_type == "syntax" && error_syntax_current_) {
+      error_syntax_current_->Increment();
+    } else if (error_type == "protocol" && error_protocol_current_) {
+      error_protocol_current_->Increment();
+    }
+  }
+
+  // Connection tracking (also updates ServerStats)
   void IncrementConnections() {
-    if (!initialized_ || !config_.enabled) return;
-    connections_current_->Increment();
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->connected_clients.fetch_add(1, std::memory_order_relaxed);
+    stats->total_connections_received.fetch_add(1, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (connections_current_) {
+      connections_current_->Increment();
+    }
   }
 
   void DecrementConnections() {
-    if (!initialized_ || !config_.enabled) return;
-    connections_current_->Decrement();
+    // Always update ServerStats
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->connected_clients.fetch_sub(1, std::memory_order_relaxed);
+
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (connections_current_) {
+      connections_current_->Decrement();
+    }
   }
 
-  // Memory tracking
+  // Memory tracking (also updates ServerStats)
   void SetMemoryUsed(double bytes) {
-    if (!initialized_ || !config_.enabled) return;
+    if (!IsEnabled()) return;
     memory_used_->Set(bytes);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->used_memory_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
   }
 
   void SetMemoryTotal(double bytes) {
-    if (!initialized_ || !config_.enabled) return;
+    if (!IsEnabled()) return;
     memory_total_->Set(bytes);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->used_memory_rss_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
   }
 
-  // Keys tracking
+  // Keys tracking (also updates ServerStats)
   void SetKeys(int db_index, double count) {
     if (!initialized_ || !config_.enabled) return;
     keys_->Add({{"db", absl::StrCat(db_index)}}).Set(count);
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+    stats->total_keys.store(static_cast<uint64_t>(count), std::memory_order_relaxed);
   }
 
   // Cluster status
@@ -333,6 +572,70 @@ class AstraMetrics {
                                                           instance, job);
   }
 
+  // Update Prometheus metrics from ServerStats (call this periodically)
+  void UpdateFromServerStats() {
+    if (!IsEnabled()) return;
+
+    auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+
+    // Update uptime
+    if (uptime_current_) {
+      uptime_current_->Set(stats->uptime_seconds.load(std::memory_order_relaxed));
+    }
+
+    // Update connections
+    if (connections_current_) {
+      connections_current_->Set(stats->connected_clients.load(std::memory_order_relaxed));
+    }
+    if (total_connections_received_) {
+      total_connections_received_->Increment(
+          stats->total_connections_received.load(std::memory_order_relaxed));
+    }
+
+    // Update memory
+    if (memory_used_) {
+      memory_used_->Set(stats->used_memory_bytes.load(std::memory_order_relaxed));
+    }
+    if (memory_total_) {
+      memory_total_->Set(stats->used_memory_rss_bytes.load(std::memory_order_relaxed));
+    }
+
+    // Update keys
+    if (keys_total_current_) {
+      keys_total_current_->Set(stats->total_keys.load(std::memory_order_relaxed));
+    }
+
+    // Update total commands (NO SHARING architecture: from aggregated ServerStats)
+    if (total_commands_processed_) {
+      auto current_value = stats->total_commands_processed.load(std::memory_order_relaxed);
+      // Increment by the difference to support aggregation
+      total_commands_processed_->Increment(current_value - last_commands_processed_);
+      last_commands_processed_ = current_value;
+    }
+
+    // Update cluster info
+
+    // Update cluster info
+    if (cluster_info_) {
+      cluster_info_->Add({{"enabled", stats->cluster_enabled.load() ? "true" : "false"}})
+          .Set(stats->cluster_enabled.load() ? 1 : 0);
+      cluster_info_->Add({{"metric", "slots_assigned"}})
+          .Set(stats->cluster_slots_assigned.load(std::memory_order_relaxed));
+    }
+
+    // Update persistence info
+    if (persistence_info_) {
+      persistence_info_->Add({{"aof_enabled", stats->aof_enabled.load() ? "true" : "false"}})
+          .Set(stats->aof_enabled.load() ? 1 : 0);
+      persistence_info_->Add({{"rdb_enabled", stats->rdb_enabled.load() ? "true" : "false"}})
+          .Set(stats->rdb_enabled.load() ? 1 : 0);
+      persistence_info_->Add({{"type", "aof_size"}})
+          .Set(stats->aof_size_bytes.load(std::memory_order_relaxed));
+      persistence_info_->Add({{"type", "rdb_last_save"}})
+          .Set(stats->rdb_last_save_time.load(std::memory_order_relaxed));
+    }
+  }
+
  private:
   AstraMetrics() = default;
   ~AstraMetrics() = default;
@@ -354,26 +657,43 @@ class AstraMetrics {
   prometheus::Family<prometheus::Gauge>* keys_ = nullptr;
   prometheus::Family<prometheus::Gauge>* cluster_info_ = nullptr;
   prometheus::Family<prometheus::Gauge>* persistence_info_ = nullptr;
-};
+  prometheus::Family<prometheus::Gauge>* uptime_ = nullptr;
+  prometheus::Gauge* uptime_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* total_connections_ = nullptr;
+  prometheus::Counter* total_connections_received_ = nullptr;
+  prometheus::Family<prometheus::Counter>* total_commands_ = nullptr;
+  prometheus::Counter* total_commands_processed_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* keys_total_ = nullptr;
+  prometheus::Gauge* keys_total_current_ = nullptr;
 
-// RAII timer for command duration
-class CommandTimer {
- public:
-  explicit CommandTimer(absl::string_view command)
-      : command_(command), start_(absl::Now()) {}
+  // Network traffic
+  prometheus::Family<prometheus::Counter>* net_input_bytes_ = nullptr;
+  prometheus::Counter* net_input_bytes_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* net_output_bytes_ = nullptr;
+  prometheus::Counter* net_output_bytes_current_ = nullptr;
 
-  ~CommandTimer() {
-    auto duration = absl::Now() - start_;
-    double seconds = absl::ToDoubleSeconds(duration);
-    AstraMetrics::Instance().RecordCommand(command_, true, seconds);
-  }
+  // Slow queries
+  prometheus::Family<prometheus::Counter>* slowlog_count_ = nullptr;
+  prometheus::Counter* slowlog_count_current_ = nullptr;
 
-  void SetError() { success_ = false; }
+  // Keyspace stats
+  prometheus::Family<prometheus::Counter>* keyspace_hits_ = nullptr;
+  prometheus::Counter* keyspace_hits_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* keyspace_misses_ = nullptr;
+  prometheus::Counter* keyspace_misses_current_ = nullptr;
 
- private:
-  std::string command_;
-  absl::Time start_;
-  bool success_ = true;
+  // Error counters
+  prometheus::Family<prometheus::Counter>* error_total_ = nullptr;
+  prometheus::Counter* error_total_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* error_rejected_ = nullptr;
+  prometheus::Counter* error_rejected_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* error_syntax_ = nullptr;
+  prometheus::Counter* error_syntax_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* error_protocol_ = nullptr;
+  prometheus::Counter* error_protocol_current_ = nullptr;
+
+  // Track last command count for incremental updates (NO SHARING architecture)
+  uint64_t last_commands_processed_ = 0;
 };
 
 }  // namespace astra::metrics

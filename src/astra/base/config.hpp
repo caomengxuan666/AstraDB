@@ -56,8 +56,29 @@ struct ServerConfig {
   // Async / Coroutine
   bool use_async_commands = true;
 
+  // Network Architecture
+  bool use_per_worker_io = false;  // Use per-worker IO architecture (SO_REUSEPORT)
+  bool use_so_reuseport = true;    // Enable SO_REUSEPORT for kernel load balancing
+
   // Persistence (LevelDB)
   PersistenceConfig persistence;
+
+  // AOF (NO SHARING architecture)
+  struct AofConfig {
+    bool enabled = false;
+    std::string path = "./data/aof/appendonly.aof";
+    bool sync_everysec = true;
+  };
+  AofConfig aof;
+
+  // RDB (NO SHARING architecture)
+  struct RdbConfig {
+    bool enabled = true;
+    std::string path = "./data/dump.rdb";
+    bool auto_save = false;
+    int save_interval = 300;  // seconds
+  };
+  RdbConfig rdb;
 
   // Cluster
   ClusterConfig cluster;

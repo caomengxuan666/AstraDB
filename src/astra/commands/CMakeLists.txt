@@ -73,7 +73,6 @@ target_link_libraries(
          absl::random_random
          leveldb
          prometheus-cpp::core
-         prometheus-cpp::pull
          concurrentqueue)
 
 # Link FlatBuffers
@@ -109,3 +108,7 @@ endif()
 add_library(astra_commands_whole INTERFACE)
 target_link_libraries(astra_commands_whole
                       INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,astra_commands>")
+# Link astra_network for Connection class
+if(TARGET astra_network)
+  target_link_libraries(astra_commands PUBLIC astra_network)
+endif()
