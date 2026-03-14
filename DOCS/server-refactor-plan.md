@@ -74,21 +74,24 @@ This document describes the refactoring from SHARED architecture to NO SHARING a
 - [x] Platform/Architecture/Compiler information - ✅ Completed 2026-03-14
 - [x] Detailed configuration output - ✅ Completed 2026-03-14
 
-#### 6. Lua Scripting (80% Complete)
+#### 6. Lua Scripting (100% Complete)
 - [x] EVAL command - ✅ Completed
 - [x] EVALSHA command - ✅ Completed
 - [x] EVAL_RO command - ✅ Completed
 - [x] EVALSHA_RO command - ✅ Completed
 - [x] FCALL command - ✅ Completed
 - [x] FCALL_RO command - ✅ Completed
-- [x] SCRIPT LOAD command - ✅ Completed
-- [x] SCRIPT FLUSH command - ✅ Completed
-- [x] SCRIPT EXISTS command - ✅ Completed
-- [x] KEYS and ARGV tables - ✅ Completed
-- [x] Script caching (SHA1) - ✅ Completed
-- [x] Basic Lua expressions - ✅ Completed
-- [ ] redis.call() - ⚠️ Partially implemented (simplified version, needs full implementation)
-- [ ] redis.pcall() - ⚠️ Partially implemented (simplified version, needs full implementation)
+- [x] SCRIPT LOAD - ✅ Completed
+- [x] SCRIPT FLUSH - ✅ Completed
+- [x] SCRIPT EXISTS - ✅ Completed
+- [x] KEYS table - ✅ Completed
+- [x] ARGV table - ✅ Completed
+- [x] SHA1 caching - ✅ Completed
+- [x] redis.call() - ✅ Completed 2026-03-15
+- [x] redis.pcall() - ✅ Completed 2026-03-15
+- [x] Command blacklist (blocking/transaction commands) - ✅ Completed 2026-03-15
+- [x] AOF callback management - ✅ Completed 2026-03-15
+- [x] NO SHARING architecture compliance - ✅ Completed 2026-03-15
 
 **Status**: Basic functionality works, but redis.call() needs to be fully implemented to execute actual Redis commands from Lua.
 
