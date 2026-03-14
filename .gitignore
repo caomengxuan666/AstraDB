@@ -90,6 +90,10 @@ astradb.log
 
 # Distribution packages
 dist/
+libgossip/
 
 # Paper markdown
 DOCS/PAPER
+
+# Auto-generated version information
+include/astra/base/version.hpp
