@@ -359,6 +359,33 @@ class MetricsManager {
         ASTRADB_LOG_INFO("MetricsManager: HTTP server thread exited");
       });
 
+      // Start periodic update thread
+      update_thread_ = std::thread([this]() {
+        ASTRADB_LOG_INFO("MetricsManager: Starting periodic update thread");
+
+        auto start_time = std::chrono::steady_clock::now();
+        while (running_.load()) {
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+
+          if (!running_.load()) break;
+
+          // Update uptime
+          auto now = std::chrono::steady_clock::now();
+          auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+          astra::server::ServerStatsAccessor::Instance().GetStats()->uptime_seconds.store(
+              uptime, std::memory_order_relaxed);
+
+          // Sync ServerStats to Prometheus
+          astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
+
+          // Update memory usage (placeholder)
+          // TODO: Implement actual memory tracking
+          // astra::metrics::AstraMetrics::Instance().SetMemoryUsed(...);
+        }
+
+        ASTRADB_LOG_INFO("MetricsManager: Periodic update thread exited");
+      });
+
       ASTRADB_LOG_INFO("MetricsManager: Initialized successfully with custom HTTP server");
       initialized_ = true;
       return true;
@@ -400,6 +427,9 @@ class MetricsManager {
 
   // Thread for running metrics io_context
   std::thread metrics_thread_;
+
+  // Thread for periodic updates
+  std::thread update_thread_;
 };
 
 }  // namespace astra::server

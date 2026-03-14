@@ -1,0 +1,203 @@
+[==========] Running 230 tests from 18 test suites.
+[----------] Global test environment set-up.
+[----------] 6 tests from DashMapTest
+[ RUN      ] DashMapTest.BasicOperations
+[       OK ] DashMapTest.BasicOperations (0 ms)
+[ RUN      ] DashMapTest.StringViewLookup
+[       OK ] DashMapTest.StringViewLookup (0 ms)
+[ RUN      ] DashMapTest.MultipleKeys
+[       OK ] DashMapTest.MultipleKeys (0 ms)
+[ RUN      ] DashMapTest.ConcurrentWrites
+[       OK ] DashMapTest.ConcurrentWrites (10 ms)
+[ RUN      ] DashMapTest.ConcurrentReadsAndWrites
+[       OK ] DashMapTest.ConcurrentReadsAndWrites (100 ms)
+[ RUN      ] DashMapTest.Clear
+[       OK ] DashMapTest.Clear (0 ms)
+[----------] 6 tests from DashMapTest (110 ms total)
+
+[----------] 1 test from DashSetTest
+[ RUN      ] DashSetTest.BasicOperations
+[       OK ] DashSetTest.BasicOperations (0 ms)
+[----------] 1 test from DashSetTest (0 ms total)
+
+[----------] 12 tests from ZSetTest
+[ RUN      ] ZSetTest.BasicOperations
+[       OK ] ZSetTest.BasicOperations (0 ms)
+[ RUN      ] ZSetTest.RankOperations
+[       OK ] ZSetTest.RankOperations (0 ms)
+[ RUN      ] ZSetTest.GetByRank
+[       OK ] ZSetTest.GetByRank (0 ms)
+[ RUN      ] ZSetTest.GetScoreByRank
+[       OK ] ZSetTest.GetScoreByRank (0 ms)
+[ RUN      ] ZSetTest.RangeByRank
+[       OK ] ZSetTest.RangeByRank (0 ms)
+[ RUN      ] ZSetTest.RangeByScore
+[       OK ] ZSetTest.RangeByScore (0 ms)
+[ RUN      ] ZSetTest.CountRange
+[       OK ] ZSetTest.CountRange (0 ms)
+[ RUN      ] ZSetTest.Remove
+[       OK ] ZSetTest.Remove (0 ms)
+[ RUN      ] ZSetTest.RemoveRangeByScore
+[       OK ] ZSetTest.RemoveRangeByScore (0 ms)
+[ RUN      ] ZSetTest.Clear
+[       OK ] ZSetTest.Clear (0 ms)
+[ RUN      ] ZSetTest.LargeDataset
+[       OK ] ZSetTest.LargeDataset (0 ms)
+[ RUN      ] ZSetTest.DuplicateScores
+[       OK ] ZSetTest.DuplicateScores (0 ms)
+[----------] 12 tests from ZSetTest (0 ms total)
+
+[----------] 15 tests from RespParserTest
+[ RUN      ] RespParserTest.ParseSimpleString
+[       OK ] RespParserTest.ParseSimpleString (0 ms)
+[ RUN      ] RespParserTest.ParseError
+[       OK ] RespParserTest.ParseError (0 ms)
+[ RUN      ] RespParserTest.ParseInteger
+[       OK ] RespParserTest.ParseInteger (0 ms)
+[ RUN      ] RespParserTest.ParseNegativeInteger
+[       OK ] RespParserTest.ParseNegativeInteger (0 ms)
+[ RUN      ] RespParserTest.ParseBulkString
+[       OK ] RespParserTest.ParseBulkString (0 ms)
+[ RUN      ] RespParserTest.ParseNullBulkString
+[       OK ] RespParserTest.ParseNullBulkString (0 ms)
+[ RUN      ] RespParserTest.ParseEmptyBulkString
+[       OK ] RespParserTest.ParseEmptyBulkString (0 ms)
+[ RUN      ] RespParserTest.ParseArray
+[       OK ] RespParserTest.ParseArray (0 ms)
+[ RUN      ] RespParserTest.ParseEmptyArray
+[       OK ] RespParserTest.ParseEmptyArray (0 ms)
+[ RUN      ] RespParserTest.ParseNullArray
+[       OK ] RespParserTest.ParseNullArray (0 ms)
+[ RUN      ] RespParserTest.ParseNestedArray
+[       OK ] RespParserTest.ParseNestedArray (0 ms)
+[ RUN      ] RespParserTest.ParseCommand
+[       OK ] RespParserTest.ParseCommand (0 ms)
+[ RUN      ] RespParserTest.ParseBoolean
+[       OK ] RespParserTest.ParseBoolean (0 ms)
+[ RUN      ] RespParserTest.ParseBooleanFalse
+[       OK ] RespParserTest.ParseBooleanFalse (0 ms)
+[ RUN      ] RespParserTest.ParseNull
+[       OK ] RespParserTest.ParseNull (0 ms)
+[----------] 15 tests from RespParserTest (0 ms total)
+
+[----------] 15 tests from RespBuilderTest
+[ RUN      ] RespBuilderTest.BuildSimpleString
+[       OK ] RespBuilderTest.BuildSimpleString (0 ms)
+[ RUN      ] RespBuilderTest.BuildError
+[       OK ] RespBuilderTest.BuildError (0 ms)
+[ RUN      ] RespBuilderTest.BuildInteger
+[       OK ] RespBuilderTest.BuildInteger (0 ms)
+[ RUN      ] RespBuilderTest.BuildBulkString
+[       OK ] RespBuilderTest.BuildBulkString (0 ms)
+[ RUN      ] RespBuilderTest.BuildNullBulkString
+[       OK ] RespBuilderTest.BuildNullBulkString (0 ms)
+[ RUN      ] RespBuilderTest.BuildArray
+[       OK ] RespBuilderTest.BuildArray (0 ms)
+[ RUN      ] RespBuilderTest.BuildStringArray
+[       OK ] RespBuilderTest.BuildStringArray (0 ms)
+[ RUN      ] RespBuilderTest.BuildOK
+[       OK ] RespBuilderTest.BuildOK (0 ms)
+[ RUN      ] RespBuilderTest.BuildNil
+[       OK ] RespBuilderTest.BuildNil (0 ms)
+[ RUN      ] RespBuilderTest.BuildPong
+[       OK ] RespBuilderTest.BuildPong (0 ms)
+[ RUN      ] RespBuilderTest.BuildBoolean
+[       OK ] RespBuilderTest.BuildBoolean (0 ms)
+[ RUN      ] RespBuilderTest.BuildNull
+[       OK ] RespBuilderTest.BuildNull (0 ms)
+[ RUN      ] RespBuilderTest.RoundTripSimpleString
+[       OK ] RespBuilderTest.RoundTripSimpleString (0 ms)
+[ RUN      ] RespBuilderTest.RoundTripBulkString
+[       OK ] RespBuilderTest.RoundTripBulkString (0 ms)
+[ RUN      ] RespBuilderTest.RoundTripArray
+[       OK ] RespBuilderTest.RoundTripArray (0 ms)
+[----------] 15 tests from RespBuilderTest (0 ms total)
+
+[----------] 32 tests from CommandHandlerTest
+[ RUN      ] CommandHandlerTest.GetSet
+[       OK ] CommandHandlerTest.GetSet (0 ms)
+[ RUN      ] CommandHandlerTest.GetNonExistentKey
+[       OK ] CommandHandlerTest.GetNonExistentKey (0 ms)
+[ RUN      ] CommandHandlerTest.SetWithNX
+[       OK ] CommandHandlerTest.SetWithNX (0 ms)
+[ RUN      ] CommandHandlerTest.SetWithXX
+[       OK ] CommandHandlerTest.SetWithXX (0 ms)
+[ RUN      ] CommandHandlerTest.SetWithEX
+[       OK ] CommandHandlerTest.SetWithEX (1100 ms)
+[ RUN      ] CommandHandlerTest.Del
+[       OK ] CommandHandlerTest.Del (0 ms)
+[ RUN      ] CommandHandlerTest.MGet
+[       OK ] CommandHandlerTest.MGet (0 ms)
+[ RUN      ] CommandHandlerTest.MSet
+[       OK ] CommandHandlerTest.MSet (0 ms)
+[ RUN      ] CommandHandlerTest.Exists
+[       OK ] CommandHandlerTest.Exists (0 ms)
+[ RUN      ] CommandHandlerTest.UnknownCommand
+[       OK ] CommandHandlerTest.UnknownCommand (0 ms)
+[ RUN      ] CommandHandlerTest.WrongArgumentCount
+[       OK ] CommandHandlerTest.WrongArgumentCount (0 ms)
+[ RUN      ] CommandHandlerTest.HSetHGet
+[       OK ] CommandHandlerTest.HSetHGet (0 ms)
+[ RUN      ] CommandHandlerTest.HSetUpdate
+[       OK ] CommandHandlerTest.HSetUpdate (0 ms)
+[ RUN      ] CommandHandlerTest.HDel
+[       OK ] CommandHandlerTest.HDel (0 ms)
+[ RUN      ] CommandHandlerTest.HExists
+[       OK ] CommandHandlerTest.HExists (0 ms)
+[ RUN      ] CommandHandlerTest.HLen
+[       OK ] CommandHandlerTest.HLen (0 ms)
+[ RUN      ] CommandHandlerTest.SAddSRem
+[       OK ] CommandHandlerTest.SAddSRem (0 ms)
+[ RUN      ] CommandHandlerTest.SIsMember
+[       OK ] CommandHandlerTest.SIsMember (0 ms)
+[ RUN      ] CommandHandlerTest.SCard
+[       OK ] CommandHandlerTest.SCard (0 ms)
+[ RUN      ] CommandHandlerTest.ZAddZRange
+[       OK ] CommandHandlerTest.ZAddZRange (1 ms)
+[ RUN      ] CommandHandlerTest.ZRem
+[       OK ] CommandHandlerTest.ZRem (0 ms)
+[ RUN      ] CommandHandlerTest.ZScore
+[       OK ] CommandHandlerTest.ZScore (0 ms)
+[ RUN      ] CommandHandlerTest.ZCard
+[       OK ] CommandHandlerTest.ZCard (0 ms)
+[ RUN      ] CommandHandlerTest.ZCount
+[       OK ] CommandHandlerTest.ZCount (0 ms)
+[ RUN      ] CommandHandlerTest.ZRangeWithScores
+[       OK ] CommandHandlerTest.ZRangeWithScores (0 ms)
+[ RUN      ] CommandHandlerTest.CommandInfoGet
+/home/cmx/codespace/AstraDB/tests/unit/commands/command_test.cpp:704: Failure
+Expected equality of these values:
+  get_info.size()
+    Which is: 0
+  10
+
+[  FAILED  ] CommandHandlerTest.CommandInfoGet (0 ms)
+[ RUN      ] CommandHandlerTest.CommandInfoSet
+/home/cmx/codespace/AstraDB/tests/unit/commands/command_test.cpp:755: Failure
+Expected equality of these values:
+  set_info.size()
+    Which is: 0
+  10
+
+[  FAILED  ] CommandHandlerTest.CommandInfoSet (0 ms)
+[ RUN      ] CommandHandlerTest.CommandInfoScan
+/home/cmx/codespace/AstraDB/tests/unit/commands/command_test.cpp:799: Failure
+Expected equality of these values:
+  scan_info.size()
+    Which is: 0
+  10
+
+[  FAILED  ] CommandHandlerTest.CommandInfoScan (0 ms)
+[ RUN      ] CommandHandlerTest.CommandList
+/home/cmx/codespace/AstraDB/tests/unit/commands/command_test.cpp:829: Failure
+Expected: (cmd_list.size()) > (0), actual: 0 vs 0
+
+[  FAILED  ] CommandHandlerTest.CommandList (0 ms)
+[ RUN      ] CommandHandlerTest.CommandCount
+[       OK ] CommandHandlerTest.CommandCount (0 ms)
+[ RUN      ] CommandHandlerTest.CommandNoArgs
+/home/cmx/codespace/AstraDB/tests/unit/commands/command_test.cpp:860: Failure
+Expected: (all_commands.size()) > (0), actual: 0 vs 0
+
+[  FAILED  ] CommandHandlerTest.CommandNoArgs (0 ms)
+[ RUN      ] CommandHandlerTest.CommandKeySpecs
