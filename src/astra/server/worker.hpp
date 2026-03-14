@@ -22,6 +22,7 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/commands/pubsub_commands.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
@@ -60,6 +61,22 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // Set replication manager (called by Worker after replication manager is initialized)
   void SetReplicationManager(class replication::ReplicationManager* replication_manager) {
     replication_manager_ = replication_manager;
+  }
+
+  // Get pubsub manager (for publish/subscribe commands)
+  commands::PubSubManager* GetPubSubManager() override { return pubsub_manager_; }
+
+  // Set pubsub manager (called by Worker after pubsub manager is initialized)
+  void SetPubSubManager(commands::PubSubManager* pubsub_manager) {
+    pubsub_manager_ = pubsub_manager;
+  }
+
+  // Get command registry (for COMMAND command - NO SHARING architecture)
+  class commands::CommandRegistry* GetCommandRegistry() override { return command_registry_; }
+
+  // Set command registry (called by Worker after command registry is initialized)
+  void SetCommandRegistry(class commands::CommandRegistry* command_registry) {
+    command_registry_ = command_registry;
   }
 
   // Get connection (for async response)
@@ -125,7 +142,9 @@ class WorkerCommandContext : public astra::commands::CommandContext {
  private:
   astra::commands::Database* db_;
   class commands::BlockingManager* blocking_manager_ = nullptr;
+  class commands::CommandRegistry* command_registry_ = nullptr;
   class replication::ReplicationManager* replication_manager_ = nullptr;
+  commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
   uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
@@ -176,11 +195,15 @@ class DataShard {
   // Get command context (for setting callbacks)
   WorkerCommandContext* GetCommandContext() { return &context_; }
 
+  // Get command registry (for COMMAND command - NO SHARING architecture)
+  astra::commands::CommandRegistry* GetCommandRegistry() { return &registry_; }
+
  private:
   size_t shard_id_;
   astra::commands::Database database_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
+
 };
 
 // Cross-worker request (forwarded from one worker to another)
@@ -233,6 +256,52 @@ struct BatchCrossWorkerResponse {
   std::vector<std::string> result;  // Result from this worker
 };
 
+// PubSub message (for cross-worker PUBLISH)
+struct PubSubMessage {
+  std::string channel;
+  std::string message;
+};
+
+// PubSub Manager - NO SHARING architecture
+// Each worker has its own PubSubManager to manage local subscriptions
+// Uses MPSC queues for cross-worker PUBLISH message broadcasting
+class PubSubManager : public commands::PubSubManager {
+ public:
+  PubSubManager(class Worker* worker, size_t worker_id)
+      : worker_(worker), worker_id_(worker_id) {}
+
+  void Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
+  void Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
+  void PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
+  void PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
+  size_t Publish(const std::string& channel, const std::string& message) override;
+  size_t GetSubscriptionCount(uint64_t conn_id) const override;
+  bool IsSubscribed(uint64_t conn_id) const override;
+  std::vector<std::string> GetActiveChannels(const std::string& pattern = "") const override;
+  size_t GetChannelSubscriberCount(const std::string& channel) const override;
+  size_t GetPatternSubscriptionCount() const override;
+
+  // Process incoming pubsub message from other workers
+  void ProcessPubSubMessage(const PubSubMessage& msg);
+
+ private:
+  class Worker* worker_;
+  size_t worker_id_;
+
+  // Local subscriptions (NO SHARING - each worker manages its own)
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> channel_subscribers_;
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> pattern_subscribers_;
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_channels_;
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_patterns_;
+
+  mutable std::mutex pubsub_mutex_;  // Protect subscription structures
+
+  // Helper methods
+  bool PatternMatches(const std::string& pattern, const std::string& channel) const;
+  void SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
+  void SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
+};
+
 // Command with connection ID
 struct CommandWithConnId {
   uint64_t conn_id;
@@ -251,6 +320,9 @@ struct ResponseWithConnId {
 // Each worker is a completely independent "mini server"
 class Worker {
  public:
+  // Friend classes (for NO SHARING architecture)
+  friend class PubSubManager;
+
   explicit Worker(size_t worker_id, const std::string& host, uint16_t port,
                  std::vector<Worker*> all_workers)
       : worker_id_(worker_id),
@@ -303,6 +375,15 @@ class Worker {
 
     // Initialize blocking manager
     blocking_manager_ = std::make_unique<commands::BlockingManager>(io_context_);
+
+    // Initialize pubsub manager
+    pubsub_manager_ = std::make_unique<PubSubManager>(this, worker_id_);
+
+    // Set pubsub manager in command context (required for PUBSUB commands)
+    data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
+
+    // Set command registry in command context (required for COMMAND command)
+    data_shard_.GetCommandContext()->SetCommandRegistry(data_shard_.GetCommandRegistry());
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
@@ -359,6 +440,9 @@ class Worker {
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() { return blocking_manager_.get(); }
 
+  // Get pubsub manager (for publish/subscribe commands)
+  PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
+
   // Get local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats& GetLocalStats() { return local_stats_; }
   const ServerStats& GetLocalStats() const { return local_stats_; }
@@ -369,6 +453,19 @@ class Worker {
 
   // Enqueue a client info response
   void EnqueueClientInfoResponse(const ClientInfoResponse& resp);
+
+  // Enqueue a pubsub message (for receiving PUBLISH from other workers)
+  void EnqueuePubSubMessage(const PubSubMessage& msg) {
+    pubsub_msg_queue_.enqueue(msg);
+  }
+
+  // Process pubsub messages (called from ExecutorLoop)
+  void ProcessPubSubMessages() {
+    PubSubMessage msg;
+    while (pubsub_msg_queue_.try_dequeue(msg)) {
+      pubsub_manager_->ProcessPubSubMessage(msg);
+    }
+  }
 
   // Enqueue a client info request (for sending to other workers)
   void EnqueueClientInfoRequest(const ClientInfoRequest& req);
@@ -474,6 +571,9 @@ class Worker {
 
         // Set blocking manager in command context
         data_shard_.GetCommandContext()->SetBlockingManager(blocking_manager_.get());
+
+        // Set pubsub manager in command context
+        data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
 
         ASTRADB_LOG_INFO("Worker {}: Persistence callbacks set successfully", worker_id_);
 
@@ -860,6 +960,9 @@ class Worker {
       // Process batch responses
       ProcessBatchResponses();
 
+      // Process pubsub messages from other workers
+      ProcessPubSubMessages();
+
       // Process batch requests from other workers
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
@@ -949,6 +1052,12 @@ class Worker {
 
   // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
   std::unique_ptr<commands::BlockingManager> blocking_manager_;
+
+  // PubSub manager for publish/subscribe commands (NO SHARING architecture)
+  std::unique_ptr<PubSubManager> pubsub_manager_;
+
+  // PubSub message queue for receiving PUBLISH messages from other workers
+  moodycamel::ConcurrentQueue<PubSubMessage> pubsub_msg_queue_;
 
   // Local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats local_stats_;
@@ -1256,6 +1365,299 @@ inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
   if (req.source_worker_id < all_workers_.size()) {
     all_workers_[req.source_worker_id]->EnqueueClientInfoResponse(resp);
   }
+}
+
+// ==============================================================================
+// PubSubManager Implementation (Inline)
+// ==============================================================================
+
+inline void PubSubManager::Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+
+  for (const auto& channel : channels) {
+    channel_subscribers_[channel].insert(conn_id);
+    conn_channels_[conn_id].insert(channel);
+
+    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    SendSubscribeReply(conn_id, channel, count);
+  }
+}
+
+inline void PubSubManager::Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+
+  auto it = conn_channels_.find(conn_id);
+  if (it == conn_channels_.end()) {
+    return;
+  }
+
+  std::vector<std::string> to_unsub = channels;
+  if (to_unsub.empty()) {
+    // Unsubscribe from all
+    to_unsub = std::vector<std::string>(it->second.begin(), it->second.end());
+  }
+
+  for (const auto& channel : to_unsub) {
+    auto& subscribers = channel_subscribers_[channel];
+    subscribers.erase(conn_id);
+    if (subscribers.empty()) {
+      channel_subscribers_.erase(channel);
+    }
+
+    it->second.erase(channel);
+
+    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    SendUnsubscribeReply(conn_id, channel, count);
+  }
+
+  if (it->second.empty()) {
+    conn_channels_.erase(conn_id);
+  }
+}
+
+inline void PubSubManager::PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+
+  for (const auto& pattern : patterns) {
+    pattern_subscribers_[pattern].insert(conn_id);
+    conn_patterns_[conn_id].insert(pattern);
+
+    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    SendSubscribeReply(conn_id, pattern, count);
+  }
+}
+
+inline void PubSubManager::PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+
+  auto it = conn_patterns_.find(conn_id);
+  if (it == conn_patterns_.end()) {
+    return;
+  }
+
+  std::vector<std::string> to_unsub = patterns;
+  if (to_unsub.empty()) {
+    to_unsub = std::vector<std::string>(it->second.begin(), it->second.end());
+  }
+
+  for (const auto& pattern : to_unsub) {
+    auto& subscribers = pattern_subscribers_[pattern];
+    subscribers.erase(conn_id);
+    if (subscribers.empty()) {
+      pattern_subscribers_.erase(pattern);
+    }
+
+    it->second.erase(pattern);
+
+    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    SendUnsubscribeReply(conn_id, pattern, count);
+  }
+
+  if (it->second.empty()) {
+    conn_patterns_.erase(conn_id);
+  }
+}
+
+inline size_t PubSubManager::Publish(const std::string& channel, const std::string& message) {
+  size_t subscriber_count = 0;
+
+  // Send to local channel subscribers
+  {
+    std::lock_guard<std::mutex> lock(pubsub_mutex_);
+    auto it = channel_subscribers_.find(channel);
+    if (it != channel_subscribers_.end()) {
+      // Build message: ["message", channel, message]
+      std::string resp_msg;
+      resp_msg += "*3\r\n";
+      resp_msg += "$7\r\nmessage\r\n";
+      resp_msg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+      resp_msg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+
+      for (uint64_t conn_id : it->second) {
+        // Send via worker's response queue
+        ResponseWithConnId resp{conn_id, resp_msg};
+        worker_->resp_queue_.enqueue(resp);
+        subscriber_count++;
+      }
+    }
+  }
+
+  // Send to local pattern subscribers
+  {
+    std::lock_guard<std::mutex> lock(pubsub_mutex_);
+    for (const auto& [pattern, subscribers] : pattern_subscribers_) {
+      if (PatternMatches(pattern, channel)) {
+        // Build pattern message: ["pmessage", pattern, channel, message]
+        std::string pmsg;
+        pmsg += "*4\r\n";
+        pmsg += "$8\r\npmessage\r\n";
+        pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
+        pmsg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+        pmsg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+
+        for (uint64_t conn_id : subscribers) {
+          ResponseWithConnId resp{conn_id, pmsg};
+          worker_->resp_queue_.enqueue(resp);
+          subscriber_count++;
+        }
+      }
+    }
+  }
+
+  // Broadcast to all other workers (NO SHARING architecture)
+  PubSubMessage pubsub_msg{channel, message};
+  for (auto* other_worker : worker_->all_workers_) {
+    if (other_worker->worker_id_ != worker_id_) {
+      other_worker->EnqueuePubSubMessage(pubsub_msg);
+    }
+  }
+
+  return subscriber_count;
+}
+
+inline void PubSubManager::ProcessPubSubMessage(const PubSubMessage& msg) {
+  // Send to local channel subscribers
+  {
+    std::lock_guard<std::mutex> lock(pubsub_mutex_);
+    auto it = channel_subscribers_.find(msg.channel);
+    if (it != channel_subscribers_.end()) {
+      // Build message: ["message", channel, message]
+      std::string resp_msg;
+      resp_msg += "*3\r\n";
+      resp_msg += "$7\r\nmessage\r\n";
+      resp_msg += "$" + std::to_string(msg.channel.size()) + "\r\n" + msg.channel + "\r\n";
+      resp_msg += "$" + std::to_string(msg.message.size()) + "\r\n" + msg.message + "\r\n";
+
+      for (uint64_t conn_id : it->second) {
+        ResponseWithConnId resp{conn_id, resp_msg};
+        worker_->resp_queue_.enqueue(resp);
+      }
+    }
+  }
+
+  // Send to local pattern subscribers
+  {
+    std::lock_guard<std::mutex> lock(pubsub_mutex_);
+    for (const auto& [pattern, subscribers] : pattern_subscribers_) {
+      if (PatternMatches(pattern, msg.channel)) {
+        // Build pattern message: ["pmessage", pattern, channel, message]
+        std::string pmsg;
+        pmsg += "*4\r\n";
+        pmsg += "$8\r\npmessage\r\n";
+        pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
+        pmsg += "$" + std::to_string(msg.channel.size()) + "\r\n" + msg.channel + "\r\n";
+        pmsg += "$" + std::to_string(msg.message.size()) + "\r\n" + msg.message + "\r\n";
+
+        for (uint64_t conn_id : subscribers) {
+          ResponseWithConnId resp{conn_id, pmsg};
+          worker_->resp_queue_.enqueue(resp);
+        }
+      }
+    }
+  }
+}
+
+inline size_t PubSubManager::GetSubscriptionCount(uint64_t conn_id) const {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+  size_t count = 0;
+  auto it_channels = conn_channels_.find(conn_id);
+  if (it_channels != conn_channels_.end()) {
+    count += it_channels->second.size();
+  }
+  auto it_patterns = conn_patterns_.find(conn_id);
+  if (it_patterns != conn_patterns_.end()) {
+    count += it_patterns->second.size();
+  }
+  return count;
+}
+
+inline bool PubSubManager::IsSubscribed(uint64_t conn_id) const {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+  return conn_channels_.find(conn_id) != conn_channels_.end() ||
+         conn_patterns_.find(conn_id) != conn_patterns_.end();
+}
+
+inline std::vector<std::string> PubSubManager::GetActiveChannels(const std::string& pattern) const {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+  std::vector<std::string> channels;
+  for (const auto& [channel, _] : channel_subscribers_) {
+    if (pattern.empty() || PatternMatches(pattern, channel)) {
+      channels.push_back(channel);
+    }
+  }
+  return channels;
+}
+
+inline size_t PubSubManager::GetChannelSubscriberCount(const std::string& channel) const {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+  auto it = channel_subscribers_.find(channel);
+  if (it != channel_subscribers_.end()) {
+    return it->second.size();
+  }
+  return 0;
+}
+
+inline size_t PubSubManager::GetPatternSubscriptionCount() const {
+  std::lock_guard<std::mutex> lock(pubsub_mutex_);
+  return pattern_subscribers_.size();
+}
+
+inline bool PubSubManager::PatternMatches(const std::string& pattern, const std::string& channel) const {
+  // Simple glob pattern matching (supports * and ?)
+  if (pattern == "*") {
+    return true;
+  } else if (pattern.find('*') == std::string::npos && pattern.find('?') == std::string::npos) {
+    // No wildcards, exact match
+    return channel == pattern;
+  } else {
+    // Simple prefix/suffix matching for common patterns like "news:*"
+    size_t star_pos = pattern.find('*');
+    if (star_pos != std::string::npos && pattern.find('*', star_pos + 1) == std::string::npos) {
+      // Single * wildcard
+      std::string prefix = pattern.substr(0, star_pos);
+      std::string suffix = pattern.substr(star_pos + 1);
+      if (star_pos == 0) {
+        // Pattern like "*suffix"
+        return channel.size() >= suffix.size() &&
+               channel.substr(channel.size() - suffix.size()) == suffix;
+      } else if (star_pos == pattern.size() - 1) {
+        // Pattern like "prefix*"
+        return channel.substr(0, prefix.size()) == prefix;
+      } else {
+        // Pattern like "prefix*suffix"
+        return channel.size() >= prefix.size() + suffix.size() &&
+               channel.substr(0, prefix.size()) == prefix &&
+               channel.substr(channel.size() - suffix.size()) == suffix;
+      }
+    } else {
+      // Fallback to simple contains check
+      return channel.find(pattern.substr(0, pattern.find_first_of("*?"))) != std::string::npos;
+    }
+  }
+}
+
+inline void PubSubManager::SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+  // Build subscribe reply: ["subscribe", channel, count]
+  std::string reply;
+  reply += "*3\r\n";
+  reply += "$9\r\nsubscribe\r\n";
+  reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+  reply += ":" + std::to_string(count) + "\r\n";
+
+  ResponseWithConnId resp{conn_id, reply};
+  worker_->resp_queue_.enqueue(resp);
+}
+
+inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+  // Build unsubscribe reply: ["unsubscribe", channel, count]
+  std::string reply;
+  reply += "*3\r\n";
+  reply += "$11\r\nunsubscribe\r\n";
+  reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+  reply += ":" + std::to_string(count) + "\r\n";
+
+  ResponseWithConnId resp{conn_id, reply};
+  worker_->resp_queue_.enqueue(resp);
 }
 
 }  // namespace astra::server

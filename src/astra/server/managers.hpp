@@ -388,23 +388,6 @@ class ClusterManager {
   }
 };
 
-// Simple Pub/Sub manager stub
-// TODO: Implement full Pub/Sub with cross-worker communication
-class PubSubManager {
- public:
-  PubSubManager() = default;
-  ~PubSubManager() = default;
-
-  bool Init() {
-    ASTRADB_LOG_INFO("PubSubManager: Init");
-    return true;
-  }
-
-  void Shutdown() {
-    ASTRADB_LOG_INFO("PubSubManager: Shutdown");
-  }
-};
-
 // Metrics Manager - Prometheus metrics collection and HTTP server
 // Uses prometheus-cpp built-in Exposer for NO SHARING architecture
 // Metrics Manager - Prometheus metrics collection with custom ASIO HTTP server
