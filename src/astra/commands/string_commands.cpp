@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "astra/core/metrics.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "command_auto_register.hpp"
 
@@ -39,8 +40,10 @@ CommandResult HandleGet(const astra::protocol::Command& command,
   auto value = db->Get(key);
 
   if (value.has_value()) {
+    astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
     return CommandResult(RespValue(std::string(value->value)));
   } else {
+    astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 }

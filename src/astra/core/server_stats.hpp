@@ -34,10 +34,25 @@ struct ServerStats {
   std::atomic<uint64_t> total_commands_processed{0}; // Total commands processed
   std::atomic<uint64_t> total_commands_failed{0};    // Total commands failed
   std::atomic<uint64_t> instantaneous_ops_per_sec{0}; // Current ops/sec
+  std::atomic<uint64_t> slowlog_count{0};            // Number of slow queries (> 10ms)
 
   // ===== Keys Information =====
   std::atomic<uint64_t> total_keys{0};               // Total keys across all databases
   std::atomic<uint64_t> keys_with_expiration{0};     // Keys with TTL
+  std::atomic<uint64_t> keyspace_hits{0};            // Keyspace hits (GET key found)
+  std::atomic<uint64_t> keyspace_misses{0};          // Keyspace misses (GET key not found)
+
+  // ===== Network Statistics =====
+  std::atomic<uint64_t> total_net_input_bytes{0};    // Total network input bytes
+  std::atomic<uint64_t> total_net_output_bytes{0};   // Total network output bytes
+  std::atomic<uint64_t> instantaneous_input_kbps{0}; // Current input Kbps
+  std::atomic<uint64_t> instantaneous_output_kbps{0}; // Current output Kbps
+
+  // ===== Error Statistics =====
+  std::atomic<uint64_t> total_errors{0};             // Total errors
+  std::atomic<uint64_t> error_rejected_connections{0}; // Rejected connections
+  std::atomic<uint64_t> error_syntax{0};              // Syntax errors
+  std::atomic<uint64_t> error_protocol{0};            // Protocol errors
 
   // ===== Persistence Information =====
   std::atomic<uint64_t> aof_size_bytes{0};           // AOF file size
