@@ -25,7 +25,7 @@ namespace astra::commands {
 // Lua script context
 class LuaScriptContext {
  public:
-  LuaScriptContext(Database* db);
+  LuaScriptContext(Database* db, CommandRegistry* registry, CommandContext* context);
   ~LuaScriptContext();
 
   // Execute Lua script
@@ -37,10 +37,18 @@ class LuaScriptContext {
   Database* GetDatabase() { return db_; }
 
  private:
+  // Lua C functions
   static int LuaCall(lua_State* L);
   static int LuaPcall(lua_State* L);
 
+  // Helper functions
+  static void PushRespValueToLua(lua_State* L, const RespValue& value);
+  static bool CheckCommandBlacklist(const std::string& cmd_name);
+
+  // Members
   Database* db_;
+  CommandRegistry* command_registry_;
+  CommandContext* command_context_;
   lua_State* lua_state_;
 };
 
