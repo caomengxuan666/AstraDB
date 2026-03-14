@@ -133,6 +133,12 @@ void Server::Start() {
     }
     worker_scheduler_ = std::make_unique<WorkerScheduler>(worker_ptrs);
     ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
+
+    // Set worker scheduler for all workers (for SCRIPT KILL command)
+    for (auto& worker : workers_) {
+      worker->SetWorkerScheduler(worker_scheduler_.get());
+    }
+    ASTRADB_LOG_INFO("Worker scheduler set for all workers");
   }
 
   running_ = true;
