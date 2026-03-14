@@ -17,6 +17,8 @@
 #include "astra/base/logging.hpp"
 #include "asio/awaitable.hpp"
 
+#include "astra/server/worker.hpp"
+
 namespace astra::server {
 
 class Worker;
@@ -66,6 +68,7 @@ class WorkerScheduler {
       ASTRADB_LOG_ERROR("WorkerScheduler: Invalid worker_id {}", worker_id);
       return false;
     }
+    ASTRADB_LOG_DEBUG("WorkerScheduler: Adding task to worker {}", worker_id);
     workers_[worker_id]->AddTask(std::forward<F>(func));
     return true;
   }
