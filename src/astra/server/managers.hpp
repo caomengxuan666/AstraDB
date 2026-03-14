@@ -13,6 +13,7 @@
 #include "astra/base/logging.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/persistence/aof_writer.hpp"
+#include "astra/persistence/rdb_reader.hpp"
 #include "astra/persistence/rdb_writer.hpp"
 #include "astra/storage/key_metadata.hpp"
 
@@ -47,11 +48,12 @@ class PersistenceManager {
 
     // Initialize RDB writer if enabled
     if (rdb_enabled_) {
-      persistence::RdbOptions rdb_options;
-      rdb_options.save_path = rdb_path;
-      rdb_options.checksum = true;
+      options_.save_path = rdb_path;
+      options_.compress = true;
+      options_.compression_level = 6;
+      options_.checksum = true;
 
-      if (!rdb_writer_.Init(rdb_options)) {
+      if (!rdb_writer_.Init(options_)) {
         ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
         return false;
       }
@@ -152,27 +154,8 @@ class PersistenceManager {
           }
 
           // Write key-value pair based on type
-          switch (type) {
-            case astra::storage::KeyType::kString:
-              writer.WriteKv(astra::persistence::RDB_TYPE_STRING, key, value, expire_ms);
-              break;
-            case astra::storage::KeyType::kHash:
-              writer.WriteKv(astra::persistence::RDB_TYPE_HASH, key, value, expire_ms);
-              break;
-            case astra::storage::KeyType::kList:
-              writer.WriteKv(astra::persistence::RDB_TYPE_LIST, key, value, expire_ms);
-              break;
-            case astra::storage::KeyType::kSet:
-              writer.WriteKv(astra::persistence::RDB_TYPE_SET, key, value, expire_ms);
-              break;
-            case astra::storage::KeyType::kZSet:
-              writer.WriteKv(astra::persistence::RDB_TYPE_ZSET, key, value, expire_ms);
-              break;
-            default:
-              ASTRADB_LOG_WARN("PersistenceManager: Unknown type {} for key {}",
-                               static_cast<int>(type), key);
-              break;
-          }
+          uint8_t rdb_type = astra::persistence::KeyTypeToRdbType(type);
+          writer.WriteKv(rdb_type, key, value, expire_ms);
         }
       }
     };
@@ -214,6 +197,110 @@ class PersistenceManager {
 
   // Check if background RDB save is in progress
   bool IsBgSaveInProgress() const { return bg_save_in_progress_; }
+
+  // Load RDB file and distribute data to workers
+  template <typename WorkerCollection>
+  bool LoadRdb(const WorkerCollection& workers) {
+    if (!rdb_enabled_) {
+      ASTRADB_LOG_WARN("PersistenceManager: RDB is disabled");
+      return false;
+    }
+
+    ASTRADB_LOG_INFO("PersistenceManager: Starting RDB load");
+
+    if (!rdb_reader_.Init(options_.save_path, true)) {
+      ASTRADB_LOG_ERROR("PersistenceManager: Failed to initialize RDB reader");
+      return false;
+    }
+
+    size_t num_workers = 0;
+    for (const auto& w : workers) {
+      (void)w;  // Suppress unused warning
+      num_workers++;
+    }
+
+    // Load key-value pairs from RDB file into workers
+    auto load_callback = [&workers, num_workers](int db_num, const persistence::RdbKeyValue& kv) {
+      // Calculate target worker based on key hash (consistent with NO SHARING architecture)
+      size_t hash = std::hash<std::string>{}(kv.key);
+      size_t target_worker = hash % num_workers;
+
+      // Get target worker
+      size_t idx = 0;
+      typename std::decay_t<decltype(workers)>::value_type target_worker_ptr = nullptr;
+      for (const auto& w : workers) {
+        if (idx == target_worker) {
+          target_worker_ptr = w;
+          break;
+        }
+        idx++;
+      }
+
+      if (target_worker_ptr) {
+        // Load key-value into target worker's database
+        auto& db = target_worker_ptr->GetDataShard().GetDatabase();
+        
+        // Calculate TTL
+        int64_t ttl_ms = -1;
+        if (kv.expire_ms > 0) {
+          auto now = absl::Now();
+          auto expire_time = absl::FromUnixMillis(kv.expire_ms);
+          auto ttl = expire_time - now;
+          ttl_ms = absl::ToInt64Milliseconds(ttl);
+          
+          // Skip expired keys
+          if (ttl_ms <= 0) {
+            return;
+          }
+        }
+
+        // Load based on type
+        switch (kv.type) {
+          case persistence::RDB_TYPE_STRING:
+            db.Set(kv.key, kv.value);
+            if (ttl_ms > 0) {
+              db.SetExpireMs(kv.key, ttl_ms);
+            }
+            break;
+          case persistence::RDB_TYPE_HASH:
+            // TODO: Parse field-value pairs from serialized value
+            ASTRADB_LOG_WARN("PersistenceManager: Hash type not fully supported yet for key {}", kv.key);
+            break;
+          case persistence::RDB_TYPE_LIST:
+            db.LPush(kv.key, kv.value);  // Simplified: single value
+            if (ttl_ms > 0) {
+              db.SetExpireMs(kv.key, ttl_ms);
+            }
+            break;
+          case persistence::RDB_TYPE_SET:
+            db.SAdd(kv.key, kv.value);  // Simplified: single member
+            if (ttl_ms > 0) {
+              db.SetExpireMs(kv.key, ttl_ms);
+            }
+            break;
+          case persistence::RDB_TYPE_ZSET:
+            db.ZAdd(kv.key, 1.0, kv.value);  // Simplified: score=1.0
+            if (ttl_ms > 0) {
+              db.SetExpireMs(kv.key, ttl_ms);
+            }
+            break;
+          default:
+            ASTRADB_LOG_WARN("PersistenceManager: Unknown type {} for key {}",
+                             static_cast<int>(kv.type), kv.key);
+            break;
+        }
+      }
+    };
+
+    bool success = rdb_reader_.Load(load_callback);
+    if (success) {
+      ASTRADB_LOG_INFO("PersistenceManager: RDB load completed");
+    } else {
+      ASTRADB_LOG_ERROR("PersistenceManager: RDB load failed");
+    }
+
+    return success;
+  }
 
  private:
   // Background thread to process commands and write to AOF
@@ -266,6 +353,12 @@ class PersistenceManager {
 
   // RDB writer
   persistence::RdbWriter rdb_writer_;
+
+  // RDB reader
+  persistence::RdbReader rdb_reader_;
+
+  // RDB options
+  persistence::RdbOptions options_;
 
   // MPSC queue for commands from all workers
   moodycamel::ConcurrentQueue<std::string> command_queue_;
@@ -359,6 +452,33 @@ class MetricsManager {
         ASTRADB_LOG_INFO("MetricsManager: HTTP server thread exited");
       });
 
+      // Start periodic update thread
+      update_thread_ = std::thread([this]() {
+        ASTRADB_LOG_INFO("MetricsManager: Starting periodic update thread");
+
+        auto start_time = std::chrono::steady_clock::now();
+        while (running_.load()) {
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+
+          if (!running_.load()) break;
+
+          // Update uptime
+          auto now = std::chrono::steady_clock::now();
+          auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+          astra::server::ServerStatsAccessor::Instance().GetStats()->uptime_seconds.store(
+              uptime, std::memory_order_relaxed);
+
+          // Sync ServerStats to Prometheus
+          astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
+
+          // Update memory usage (placeholder)
+          // TODO: Implement actual memory tracking
+          // astra::metrics::AstraMetrics::Instance().SetMemoryUsed(...);
+        }
+
+        ASTRADB_LOG_INFO("MetricsManager: Periodic update thread exited");
+      });
+
       ASTRADB_LOG_INFO("MetricsManager: Initialized successfully with custom HTTP server");
       initialized_ = true;
       return true;
@@ -400,6 +520,9 @@ class MetricsManager {
 
   // Thread for running metrics io_context
   std::thread metrics_thread_;
+
+  // Thread for periodic updates
+  std::thread update_thread_;
 };
 
 }  // namespace astra::server
