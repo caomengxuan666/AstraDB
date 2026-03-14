@@ -605,9 +605,13 @@ class AstraMetrics {
       keys_total_current_->Set(stats->total_keys.load(std::memory_order_relaxed));
     }
 
-    // Note: We don't update total_commands_processed_ from ServerStats
-    // because CommandTimer already increments it directly.
-    // Same for total_connections_received_ - IncrementConnections() handles it.
+    // Update total commands (NO SHARING architecture: from aggregated ServerStats)
+    if (total_commands_processed_) {
+      auto current_value = stats->total_commands_processed.load(std::memory_order_relaxed);
+      // Increment by the difference to support aggregation
+      total_commands_processed_->Increment(current_value - last_commands_processed_);
+      last_commands_processed_ = current_value;
+    }
 
     // Update cluster info
 
@@ -687,26 +691,9 @@ class AstraMetrics {
   prometheus::Counter* error_syntax_current_ = nullptr;
   prometheus::Family<prometheus::Counter>* error_protocol_ = nullptr;
   prometheus::Counter* error_protocol_current_ = nullptr;
-};
 
-// RAII timer for command duration
-class CommandTimer {
- public:
-  explicit CommandTimer(absl::string_view command)
-      : command_(command), start_(absl::Now()) {}
-
-  ~CommandTimer() {
-    auto duration = absl::Now() - start_;
-    double seconds = absl::ToDoubleSeconds(duration);
-    astra::metrics::AstraMetrics::Instance().RecordCommand(command_, success_, seconds);
-  }
-
-  void SetError() { success_ = false; }
-
- private:
-  std::string command_;
-  absl::Time start_;
-  bool success_ = true;
+  // Track last command count for incremental updates (NO SHARING architecture)
+  uint64_t last_commands_processed_ = 0;
 };
 
 }  // namespace astra::metrics

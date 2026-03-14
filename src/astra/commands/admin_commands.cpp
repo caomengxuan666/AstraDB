@@ -18,11 +18,28 @@
 #include "astra/base/logging.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
+#include "astra/core/server_stats.hpp"
 #include "astra/storage/key_metadata.hpp"
 #include "command_auto_register.hpp"
 #include "scan_manager.hpp"
 
 namespace astra::commands {
+
+// Helper function to format bytes to human readable format
+static std::string FormatBytes(uint64_t bytes) {
+  const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+  int unit_index = 0;
+  double size = static_cast<double>(bytes);
+
+  while (size >= 1024.0 && unit_index < 4) {
+    size /= 1024.0;
+    unit_index++;
+  }
+
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(2) << size << units[unit_index];
+  return oss.str();
+}
 
 // PING
 CommandResult HandlePing(const astra::protocol::Command& command,
@@ -37,21 +54,34 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
                          CommandContext* context) {
   std::ostringstream oss;
 
+  // Get server stats (NO SHARING architecture - aggregated stats)
+  auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+
   // Server section
   oss << "# Server\r\n";
   oss << "redis_version:7.0.0\r\n";
   oss << "os:Linux\r\n";
   oss << "arch_bits:64\r\n";
+  oss << "uptime_in_seconds:" << stats->uptime_seconds.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Clients section
   oss << "# Clients\r\n";
-  oss << "connected_clients:1\r\n";
+  oss << "connected_clients:" << stats->connected_clients.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_connections_received:" << stats->total_connections_received.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_connections_rejected:" << stats->total_connections_rejected.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Memory section
   oss << "# Memory\r\n";
-  oss << "used_memory_human:unknown\r\n";
+  uint64_t used_memory = stats->used_memory_bytes.load(std::memory_order_relaxed);
+  if (used_memory > 0) {
+    oss << "used_memory:" << used_memory << "\r\n";
+    oss << "used_memory_human:" << FormatBytes(used_memory) << "\r\n";
+  } else {
+    oss << "used_memory:0\r\n";
+    oss << "used_memory_human:0B\r\n";
+  }
   oss << "\r\n";
 
   // Persistence section
@@ -63,6 +93,15 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
     oss << "enabled:no\r\n";
     oss << "last_save:0\r\n";
   }
+  oss << "\r\n";
+
+  // Stats section (NO SHARING architecture - from aggregated ServerStats)
+  oss << "# Stats\r\n";
+  oss << "total_commands_processed:" << stats->total_commands_processed.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_commands_failed:" << stats->total_commands_failed.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_hits:" << stats->keyspace_hits.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_misses:" << stats->keyspace_misses.load(std::memory_order_relaxed) << "\r\n";
+  oss << "slowlog_count:" << stats->slowlog_count.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Cluster section
@@ -94,6 +133,11 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
       }
     }
   }
+  oss << "\r\n";
+
+  // Command stats section (NO SHARING architecture - from aggregated ServerStats)
+  oss << "# Commandstats\r\n";
+  oss << stats->GetCommandStatsInfo();
   oss << "\r\n";
 
   RespValue response;

@@ -71,6 +71,15 @@ struct ServerConfig {
   };
   AofConfig aof;
 
+  // RDB (NO SHARING architecture)
+  struct RdbConfig {
+    bool enabled = true;
+    std::string path = "./data/dump.rdb";
+    bool auto_save = false;
+    int save_interval = 300;  // seconds
+  };
+  RdbConfig rdb;
+
   // Cluster
   ClusterConfig cluster;
 
