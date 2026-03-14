@@ -54,6 +54,14 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     blocking_manager_ = blocking_manager;
   }
 
+  // Get replication manager (for replication commands)
+  class replication::ReplicationManager* GetReplicationManager() override { return replication_manager_; }
+
+  // Set replication manager (called by Worker after replication manager is initialized)
+  void SetReplicationManager(class replication::ReplicationManager* replication_manager) {
+    replication_manager_ = replication_manager;
+  }
+
   // Get connection (for async response)
   astra::network::Connection* GetConnection() const override { 
     return static_cast<astra::network::Connection*>(connection_); 
@@ -117,6 +125,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
  private:
   astra::commands::Database* db_;
   class commands::BlockingManager* blocking_manager_ = nullptr;
+  class replication::ReplicationManager* replication_manager_ = nullptr;
   void* connection_ = nullptr;
   uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
