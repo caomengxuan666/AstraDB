@@ -156,61 +156,58 @@ This document provides a comprehensive overview of AstraDB's implementation stat
 
 ## ⚠️ Partially Implemented Features (80%)
 
-### Lua Scripting (80%)
+### Lua Scripting (100%)
 **Completion Date**: 2026-03-15
 
-#### ✅ Implemented Features
-- ✅ EVAL command
-- ✅ EVALSHA command
-- ✅ EVAL_RO command
-- ✅ EVALSHA_RO command
-- ✅ FCALL command
-- ✅ FCALL_RO command
-- ✅ SCRIPT LOAD
-- ✅ SCRIPT FLUSH
-- ✅ SCRIPT EXISTS
-- ✅ SCRIPT DEBUG (basic)
-- ✅ KEYS table
-- ✅ ARGV table
-- ✅ SHA1 caching (script deduplication)
-- ✅ Basic Lua expressions (strings, numbers, tables)
-- ✅ Lua state management (per-connection)
-
-#### ⚠️ Partially Implemented Features
-- ⚠️ redis.call() - Simplified implementation (always returns "OK")
-  - **Location**: `src/astra/commands/script_commands.cpp:LuaCall()`
-  - **Current Behavior**: Always returns "OK"
-  - **Required**: Execute actual Redis commands via command registry
-  - **Impact**: Lua scripts cannot execute Redis commands
-
-- ⚠️ redis.pcall() - Simplified implementation (always returns "OK")
-  - **Location**: `src/astra/commands/script_commands.cpp:LuaPcall()`
-  - **Current Behavior**: Always returns "OK"
-  - **Required**: Proper error handling and propagation
-  - **Impact**: Lua scripts cannot handle errors properly
-
-#### ❌ Not Yet Implemented
-- ❌ Full redis.call() - Execute actual Redis commands
-- ❌ Full redis.pcall() - Error handling in Lua
-- ❌ SCRIPT DEBUG - Full debugging support
-- ❌ Script replication - Replicate script execution to replicas
+#### ✅ Fully Implemented Features
+- ✅ EVAL command - Execute Lua scripts
+- ✅ EVALSHA command - Execute cached Lua scripts (by SHA1)
+- ✅ EVAL_RO command - Read-only script execution
+- ✅ EVALSHA_RO command - Read-only cached script execution
+- ✅ FCALL command - Function call
+- ✅ FCALL_RO command - Read-only function call
+- ✅ SCRIPT LOAD - Cache script for later execution
+- ✅ SCRIPT FLUSH - Clear script cache
+- ✅ SCRIPT EXISTS - Check if script is cached
+- ✅ SCRIPT KILL - Kill running read-only scripts
+- ✅ SCRIPT HELP - Show script command help
+- ✅ SCRIPT SLOWLOG - Show slow script executions
+- ✅ KEYS table - Access keys in Lua script
+- ✅ ARGV table - Access arguments in Lua script
+- ✅ SHA1 caching - Script deduplication
+- ✅ Basic Lua expressions - Return strings, numbers, tables
+- ✅ redis.call() - Full implementation with actual Redis command execution
+- ✅ redis.pcall() - Full implementation with error catching
+- ✅ Command blacklist - Blocking commands, transaction commands blocked
+- ✅ AOF callback management - Avoid duplicate logging
+- ✅ Complete type conversion - Lua ↔ RESP
+- ✅ NO SHARING architecture compliance
+- ✅ GlobalScriptRegistry - Track running scripts across workers
+- ✅ lua_sethook - Kill signal detection every 1000 instructions
+- ✅ WorkerScheduler - Cross-worker task dispatch for SCRIPT KILL
+- ✅ Abseil integration - absl::Time and absl::Mutex for thread safety
 
 **Testing Results** (2026-03-15):
 ```bash
-✅ redis-cli EVAL "return \"Hello from Lua!\"" 0
-   → Hello from Lua!
+✅ redis-cli EVAL "return redis.call('SET', 'test_key', 'test_value')" 0
+   → OK
 
-✅ redis-cli EVAL "return ARGV[1]" 0 world
-   → world
+✅ redis-cli EVAL "return redis.call('GET', 'test_key')" 0
+   → test_value
 
-✅ redis-cli SCRIPT LOAD "return \"Cached script\""
-   → c8572007191a6b52e902149b12fce7df9ecffc02
+✅ redis-cli EVAL "return redis.call('INVALID_COMMAND', 'test')" 0
+   → ERR ERR unknown command 'INVALID_COMMAND'
 
-✅ redis-cli EVALSHA c8572007191a6b52e902149b12fce7df9ecffc02 0
-   → Cached script
+✅ redis-cli EVAL "local ok, err = redis.pcall('INVALID_COMMAND', 'test'); return ok, err" 0
+   → nil, ERR unknown command 'INVALID_COMMAND'
 
-❌ redis-cli EVAL "return redis.call('GET', KEYS[1])" 1 key1
-   → ERR ... attempt to index a nil value (global 'redis')
+✅ redis-cli EVAL "while true do redis.call('PING') end" 0 &
+   → (running script)
+✅ redis-cli SCRIPT KILL
+   → OK
+
+✅ redis-cli SCRIPT LOAD "return redis.call('GET', 'test_key')" && EVALSHA <sha1> 0
+   → test_value
 ```
 
 **File Location**: `src/astra/commands/script_commands.cpp`
@@ -436,29 +433,171 @@ This document provides a comprehensive overview of AstraDB's implementation stat
 
 ## 📈 Future Roadmap
 
-### Phase 1: Complete Lua Scripting (2 weeks)
-- [ ] Implement full redis.call()
-- [ ] Implement full redis.pcall()
-- [ ] Add SCRIPT DEBUG support
-- [ ] Test and optimize
+### Phase 1: Lua Scripting Enhancement (2-3 weeks)
+**Status**: Planned (Not Started)
 
-### Phase 2: Cluster Integration (3 weeks)
-- [ ] Integrate ClusterManager
-- [ ] Integrate GossipManager
-- [ ] Integrate ShardManager
-- [ ] Implement cluster commands
-- [ ] Test cluster functionality
+#### 1.1 Script Debugging Support
+- [ ] Implement full SCRIPT DEBUG command
+- [ ] Add Lua debugger integration
+- [ ] Support breakpoints and step-through debugging
+- [ ] Add variable inspection
+- [ ] Implement call stack tracing
+- **Priority**: Medium
+- **Est. Effort**: 1 week
 
-### Phase 3: ACL Integration (1 week)
-- [ ] Integrate AclManager
-- [ ] Implement ACL commands
-- [ ] Test authentication
+#### 1.2 Script Security
+- [ ] Implement Lua script execution timeout control
+- [ ] Add script sandbox isolation
+- [ ] Implement resource limits (CPU, memory)
+- [ ] Add script permission system
+- [ ] Prevent malicious script execution
+- **Priority**: High
+- **Est. Effort**: 1 week
 
-### Phase 4: Optimization and Polish (2 weeks)
-- [ ] Performance tuning
-- [ ] Add more tests
-- [ ] Documentation updates
-- [ ] Release preparation
+#### 1.3 Performance Optimization
+- [ ] Implement script cache preloading (startup warmup)
+- [ ] Add script execution statistics (call count, avg duration)
+- [ ] Optimize SCRIPT EXISTS batch checking
+- [ ] Add script JIT compilation support (LuaJIT)
+- [ ] Implement script result caching
+- **Priority**: Medium
+- **Est. Effort**: 1-2 weeks
+
+#### 1.4 Script Replication
+- [ ] Implement SCRIPT REPLICATION command
+- [ ] Replicate script execution to replicas
+- [ ] Sync script cache across replicas
+- [ ] Handle script version conflicts
+- **Priority**: Low
+- **Est. Effort**: 1 week
+
+#### 1.5 Monitoring and Observability
+- [ ] Integrate script metrics to Prometheus
+  - Script execution count
+  - Script duration histogram
+  - Script error rate
+  - Active script count
+- [ ] Add script execution tracing
+- [ ] Implement script slow query log (SCRIPT SLOWLOG enhancement)
+- [ ] Add script resource usage monitoring
+- **Priority**: Medium
+- **Est. Effort**: 1 week
+
+### Phase 2: Cluster Integration (3-4 weeks)
+**Status**: Planned (Not Started)
+
+#### 2.1 Cluster Manager Integration
+- [ ] Integrate ClusterManager into Server
+- [ ] Integrate GossipManager into Server
+- [ ] Integrate ShardManager into Server
+- [ ] Implement cluster slot management
+- [ ] Implement request routing (MOVED/ASK redirection)
+- **Priority**: High
+- **Est. Effort**: 2 weeks
+
+#### 2.2 Cluster Commands
+- [ ] Implement CLUSTER INFO command
+- [ ] Implement CLUSTER NODES command
+- [ ] Implement CLUSTER MEET command
+- [ ] Implement CLUSTER REPLICATE command
+- [ ] Implement CLUSTER ADDSLOTS/DELSLOTS commands
+- [ ] Implement CLUSTER FAILOVER command
+- [ ] Implement CLUSTER SLOTS command
+- [ ] Implement CLUSTER KEYSLOT command
+- **Priority**: High
+- **Est. Effort**: 1 week
+
+#### 2.3 Cluster Testing
+- [ ] Implement cluster integration tests
+- [ ] Test cluster failover scenarios
+- [ ] Test data resharding
+- [ ] Test cross-node Lua script execution
+- **Priority**: High
+- **Est. Effort**: 1 week
+
+### Phase 3: ACL Integration (1-2 weeks)
+**Status**: Planned (Not Started)
+
+#### 3.1 ACL Manager Integration
+- [ ] Integrate AclManager into Server
+- [ ] Implement AUTH command
+- [ ] Implement ACL SETUSER/DELUSER commands
+- [ ] Implement ACL GETUSER/USERS/WHOAMI commands
+- [ ] Implement ACL CAT/GENPASS commands
+- [ ] Implement permission checking (command/key/channel)
+- [ ] Configuration file loading for ACL
+- **Priority**: Low
+- **Est. Effort**: 1 week
+
+#### 3.2 ACL Testing
+- [ ] Test authentication flows
+- [ ] Test permission enforcement
+- [ ] Test ACL command functionality
+- [ ] Security audit
+- **Priority**: Low
+- **Est. Effort**: 0.5 weeks
+
+### Phase 4: Quality Assurance (2-3 weeks)
+**Status**: Planned (Not Started)
+
+#### 4.1 Comprehensive Testing
+- [ ] Add unit tests for Lua scripting
+- [ ] Add integration tests for cluster mode
+- [ ] Add stress tests for high concurrency
+- [ ] Add performance benchmarks
+- [ ] Test memory leak scenarios
+- **Priority**: High
+- **Est. Effort**: 2 weeks
+
+#### 4.2 Code Quality
+- [ ] Add code coverage tracking
+- [ ] Address static analysis warnings
+- [ ] Refactor code for maintainability
+- [ ] Add inline documentation
+- **Priority**: Medium
+- **Est. Effort**: 1 week
+
+### Phase 5: Documentation and Release (1 week)
+**Status**: Planned (Not Started)
+
+- [ ] Update user documentation
+- [ ] Add API documentation
+- [ ] Write deployment guide
+- [ ] Create release notes
+- [ ] Prepare v1.0.0 release
+- **Priority**: High
+- **Est. Effort**: 1 week
+
+---
+
+## 🎯 Next Priority
+
+Based on current progress and production readiness, the recommended next steps are:
+
+1. **Phase 1.2 - Script Security** (HIGH PRIORITY)
+   - Add script timeout control
+   - Implement resource limits
+   - Critical for production deployment
+
+2. **Phase 4.1 - Comprehensive Testing** (HIGH PRIORITY)
+   - Ensure stability under load
+   - Verify all edge cases
+   - Required before production release
+
+3. **Phase 1.3 - Performance Optimization** (MEDIUM PRIORITY)
+   - Improve script execution performance
+   - Better resource utilization
+   - Nice-to-have for production
+
+4. **Phase 1.5 - Monitoring and Observability** (MEDIUM PRIORITY)
+   - Better operational visibility
+   - Easier troubleshooting
+   - Useful for production operations
+
+5. **Phase 2 - Cluster Integration** (LOW PRIORITY)
+   - Cluster mode is useful but not critical
+   - Single-node mode is production-ready
+   - Can be deferred
 
 ---
 
