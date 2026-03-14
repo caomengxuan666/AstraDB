@@ -18,6 +18,7 @@
 
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
+#include "astra/commands/blocking_manager.hpp"
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
@@ -44,6 +45,28 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   void SetDBIndex(int index) override { (void)index; }
   bool IsAuthenticated() const override { return true; }
   void SetAuthenticated(bool auth) override { (void)auth; }
+
+  // Get blocking manager (for blocking commands)
+  class commands::BlockingManager* GetBlockingManager() override { return blocking_manager_; }
+
+  // Set blocking manager (called by Worker after blocking manager is initialized)
+  void SetBlockingManager(class commands::BlockingManager* blocking_manager) {
+    blocking_manager_ = blocking_manager;
+  }
+
+  // Get connection (for async response)
+  astra::network::Connection* GetConnection() const override { 
+    return static_cast<astra::network::Connection*>(connection_); 
+  }
+
+  // Set connection (called when processing a command)
+  void SetConnection(void* connection) { connection_ = connection; }
+
+  // Get connection ID (for blocking manager)
+  uint64_t GetConnectionId() const override { return connection_id_; }
+
+  // Set connection ID (called when processing a command)
+  void SetConnectionId(uint64_t connection_id) { connection_id_ = connection_id; }
 
   // Set AOF callback (for persistence)
   void SetAofCallbackString(std::function<void(const std::string&)> callback) {
@@ -93,6 +116,9 @@ class WorkerCommandContext : public astra::commands::CommandContext {
 
  private:
   astra::commands::Database* db_;
+  class commands::BlockingManager* blocking_manager_ = nullptr;
+  void* connection_ = nullptr;
+  uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
   std::function<std::string(bool)> rdb_save_callback_;  // bool = background save
 };
@@ -244,6 +270,9 @@ class Worker {
           return SendBatchRequest(cmd_type, keys, args);
         });
 
+    // Initialize blocking manager
+    blocking_manager_ = std::make_unique<commands::BlockingManager>(io_context_);
+
     // Start IO thread
     io_thread_ = std::thread([this]() {
       ASTRADB_LOG_INFO("Worker {}: IO thread started", worker_id_);
@@ -295,6 +324,9 @@ class Worker {
 
   // Get worker ID
   size_t GetWorkerId() const { return worker_id_; }
+
+  // Get blocking manager (for blocking commands)
+  commands::BlockingManager* GetBlockingManager() { return blocking_manager_.get(); }
 
   // Get local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats& GetLocalStats() { return local_stats_; }
@@ -390,6 +422,9 @@ class Worker {
         });
 
   
+
+        // Set blocking manager in command context
+        data_shard_.GetCommandContext()->SetBlockingManager(blocking_manager_.get());
 
         ASTRADB_LOG_INFO("Worker {}: Persistence callbacks set successfully", worker_id_);
 
@@ -694,6 +729,14 @@ class Worker {
           if (target_worker == worker_id_) {
             // Handle locally
             LocalCommandTimer timer(cmd.command.name, &local_stats_);
+
+            // Set connection and connection ID in command context for blocking commands
+            auto conn_it = connections_.find(cmd.conn_id);
+            if (conn_it != connections_.end()) {
+              data_shard_.GetCommandContext()->SetConnection(conn_it->second.get());
+              data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
+            }
+
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
@@ -798,6 +841,9 @@ class Worker {
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> next_conn_id_{0};
   std::mutex batch_mutex_;  // For pending_batch_reqs_ access
+
+  // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
+  std::unique_ptr<commands::BlockingManager> blocking_manager_;
 
   // Local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats local_stats_;
