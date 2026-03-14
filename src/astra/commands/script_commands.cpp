@@ -72,6 +72,60 @@
 
 namespace astra::commands {
 
+// Slow log entry for Lua scripts
+struct SlowLogEntry {
+  std::string script_sha1;       // SHA1 of the script (empty for inline scripts)
+  std::string script_preview;    // First 100 chars of the script
+  std::chrono::steady_clock::time_point timestamp;  // When the script executed
+  int64_t execution_time_us;     // Execution time in microseconds
+  int num_keys;                  // Number of KEYS
+  int num_args;                  // Number of ARGV
+};
+
+// Global slow log storage
+class SlowLog {
+ public:
+  static SlowLog& Instance() {
+    static SlowLog instance;
+    return instance;
+  }
+
+  // Add entry to slow log
+  void AddEntry(const SlowLogEntry& entry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.push_front(entry);
+    // Keep only the last 128 entries
+    if (entries_.size() > 128) {
+      entries_.pop_back();
+    }
+  }
+
+  // Get all entries
+  std::vector<SlowLogEntry> GetAll() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::vector<SlowLogEntry>(entries_.begin(), entries_.end());
+  }
+
+  // Clear slow log
+  void Clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+  }
+
+  // Get size
+  size_t Size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+  }
+
+ private:
+  SlowLog() = default;
+  ~SlowLog() = default;
+
+  std::deque<SlowLogEntry> entries_;
+  mutable std::mutex mutex_;
+};
+
 // SHA1 hash function using vog/sha1 library
 static std::string ComputeSHA1(const std::string& input) {
   ::SHA1 sha1;
@@ -381,6 +435,9 @@ void LuaScriptContext::PushRespValueToLua(lua_State* L, const RespValue& value) 
 CommandResult LuaScriptContext::Execute(const std::string& script,
                                         const std::vector<std::string>& keys,
                                         const std::vector<std::string>& args) {
+  // Record start time for slow log
+  auto start_time = std::chrono::steady_clock::now();
+
   // Save original AOF callback to avoid duplicate logging
   // (EVAL command logs the entire script, so internal commands should not log again)
   if (command_context_) {
@@ -391,6 +448,26 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   // Store context in registry
   lua_pushlightuserdata(lua_state_, this);
   lua_setfield(lua_state_, LUA_REGISTRYINDEX, "astra_context");
+
+  // Helper function to check and record slow log
+  auto check_slow_log = [&](const std::string& sha1) {
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        end_time - start_time).count();
+    
+    // Log scripts that take longer than 10ms
+    const int64_t slow_log_threshold_us = 10000;
+    if (duration_us >= slow_log_threshold_us) {
+      SlowLogEntry entry;
+      entry.script_sha1 = sha1;
+      entry.script_preview = script.substr(0, 100);
+      entry.timestamp = start_time;
+      entry.execution_time_us = duration_us;
+      entry.num_keys = static_cast<int>(keys.size());
+      entry.num_args = static_cast<int>(args.size());
+      SlowLog::Instance().AddEntry(entry);
+    }
+  };
 
   // Set up KEYS and ARGV tables
   lua_newtable(lua_state_);  // KEYS
@@ -412,6 +489,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   if (load_result != LUA_OK) {
     std::string error = "ERR " + std::string(lua_tostring(lua_state_, -1));
     lua_pop(lua_state_, 1);
+    check_slow_log("");  // Empty SHA1 for error cases
     return CommandResult(false, error);
   }
 
@@ -419,12 +497,14 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   if (call_result != LUA_OK) {
     std::string error = "ERR " + std::string(lua_tostring(lua_state_, -1));
     lua_pop(lua_state_, 1);
+    check_slow_log("");  // Empty SHA1 for error cases
     return CommandResult(false, error);
   }
 
   // Get return values
   int num_returns = lua_gettop(lua_state_);
   if (num_returns == 0) {
+    check_slow_log("");  // Empty SHA1 for inline scripts
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 
@@ -464,10 +544,13 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
     lua_pop(lua_state_, 1);  // Pop the table
 
     if (results.empty()) {
+      check_slow_log("");
       return CommandResult(RespValue(std::vector<RespValue>()));
     } else if (results.size() == 1) {
+      check_slow_log("");
       return CommandResult(std::move(results[0]));
     } else {
+      check_slow_log("");
       return CommandResult(
           RespValue(std::vector<RespValue>(results.begin(), results.end())));
     }
@@ -500,8 +583,10 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   lua_pop(lua_state_, num_returns);
 
   if (results.size() == 1) {
+    check_slow_log("");
     return CommandResult(std::move(results[0]));
   } else {
+    check_slow_log("");
     return CommandResult(
         RespValue(std::vector<RespValue>(results.begin(), results.end())));
   }
@@ -753,6 +838,70 @@ CommandResult HandleScript(const astra::protocol::Command& command,
     std::string sha1 = ComputeSHA1(script);
     GetGlobalScriptCache().Cache(sha1, script);
     return CommandResult(RespValue(sha1));
+  } else if (subcommand == "HELP") {
+    // SCRIPT HELP - Display available SCRIPT subcommands
+    std::string help_text =
+        "SCRIPT <subcommand> [<arg> [value] [opt] ...]. Subcommands are:\n"
+        "DEBUG (ASYNC|SYNC|NO) - Start a new debug session\n"
+        "EXISTS <sha1> [<sha1> ...] - Return info about script existence\n"
+        "FLUSH [ASYNC|SYNC] - Flush the scripts cache\n"
+        "KILL - Kill the script currently in execution\n"
+        "LOAD <script> - Load a script into the scripts cache\n"
+        "HELP - Display this help\n"
+        "SLOWLOG - Display slow script executions\n"
+        "Note: DEBUG and KILL are implemented but require proper setup";
+    return CommandResult(RespValue(help_text));
+  } else if (subcommand == "SLOWLOG") {
+    // SCRIPT SLOWLOG [RESET]
+    bool reset = false;
+    if (command.ArgCount() > 1) {
+      const auto& mode_arg = command[1];
+      if (mode_arg.IsBulkString()) {
+        std::string mode = mode_arg.AsString();
+        if (mode == "RESET") {
+          reset = true;
+        }
+      }
+    }
+
+    if (reset) {
+      SlowLog::Instance().Clear();
+      RespValue flush_resp;
+      flush_resp.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(flush_resp);
+    }
+
+    // Return slow log entries
+    auto entries = SlowLog::Instance().GetAll();
+    absl::InlinedVector<RespValue, 16> result;
+
+    for (const auto& entry : entries) {
+      absl::InlinedVector<RespValue, 8> entry_array;
+      
+      // 1. Timestamp (converted to string)
+      auto timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+          entry.timestamp.time_since_epoch()).count();
+      entry_array.push_back(RespValue(static_cast<int64_t>(timestamp_us)));
+      
+      // 2. Execution time in microseconds
+      entry_array.push_back(RespValue(entry.execution_time_us));
+      
+      // 3. Number of keys
+      entry_array.push_back(RespValue(static_cast<int64_t>(entry.num_keys)));
+      
+      // 4. Number of args
+      entry_array.push_back(RespValue(static_cast<int64_t>(entry.num_args)));
+      
+      // 5. Script SHA1 (or empty for inline scripts)
+      entry_array.push_back(RespValue(entry.script_sha1));
+      
+      // 6. Script preview
+      entry_array.push_back(RespValue(entry.script_preview));
+
+      result.push_back(RespValue(std::vector<RespValue>(entry_array.begin(), entry_array.end())));
+    }
+
+    return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
   } else {
     return CommandResult(false,
                          "ERR unknown SCRIPT subcommand '" + subcommand + "'");
