@@ -121,6 +121,7 @@ class Server {
   class PersistenceManager* GetPersistenceManager() { return persistence_manager_.get(); }
   class ClusterManager* GetClusterManager() { return cluster_manager_.get(); }
   class PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
+  ::astra::replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
 
  private:
   // Initialize persistence
@@ -136,10 +137,18 @@ class Server {
   bool InitACL() noexcept;
 
   // Initialize metrics
-  bool InitMetrics() noexcept;
 
+    bool InitMetrics() noexcept;
 
-  // Stats aggregation (NO SHARING architecture - aggregates per-worker stats)
+  
+
+    // Initialize replication
+
+    bool InitReplication() noexcept;
+
+  
+
+    // Stats aggregation (NO SHARING architecture - aggregates per-worker stats)
   void StartStatsAggregation();
   void StopStatsAggregation();
   void AggregateStats();
@@ -155,6 +164,7 @@ class Server {
   std::unique_ptr<PubSubManager> pubsub_manager_;
   std::unique_ptr<::astra::security::AclManager> acl_manager_;
   std::unique_ptr<MetricsManager> metrics_manager_;
+  std::unique_ptr<::astra::replication::ReplicationManager> replication_manager_;
 
   // Server state
   std::atomic<bool> running_{false};

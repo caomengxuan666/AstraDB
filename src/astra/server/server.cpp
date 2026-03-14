@@ -61,6 +61,14 @@ void Server::Start() {
       }
       ASTRADB_LOG_INFO("Persistence manager set for all workers");
       
+      // Set replication manager for all workers
+      if (replication_manager_) {
+        for (auto& worker : workers_) {
+          worker->GetDataShard().GetCommandContext()->SetReplicationManager(replication_manager_.get());
+        }
+        ASTRADB_LOG_INFO("Replication manager set for all workers");
+      }
+      
       // Load RDB data if RDB is enabled
       if (config_.rdb.enabled) {
         ASTRADB_LOG_INFO("Loading RDB data if available");
@@ -93,6 +101,11 @@ void Server::Start() {
     if (!InitMetrics()) {
       ASTRADB_LOG_WARN("Metrics initialization failed, running without metrics");
     }
+  }
+
+  // Initialize replication
+  if (!InitReplication()) {
+    ASTRADB_LOG_WARN("Replication initialization failed, running without replication");
   }
 
   // Start all workers
@@ -272,7 +285,30 @@ bool Server::InitMetrics() noexcept {
   }
 }
 
-
+bool Server::InitReplication() noexcept {
+  try {
+    ASTRADB_LOG_INFO("Initializing replication...");
+    
+    // Create replication manager
+    replication_manager_ = std::make_unique<::astra::replication::ReplicationManager>();
+    
+    // Initialize with role (default to master)
+    ::astra::replication::ReplicationConfig config;
+    config.role = ::astra::replication::ReplicationRole::kMaster;
+    if (!replication_manager_->Init(config)) {
+      ASTRADB_LOG_ERROR("Failed to initialize replication manager");
+      replication_manager_.reset();
+      return false;
+    }
+    
+    ASTRADB_LOG_INFO("Replication initialized successfully");
+    return true;
+  } catch (const std::exception& e) {
+    ASTRADB_LOG_ERROR("Replication initialization exception: {}", e.what());
+    replication_manager_.reset();
+    return false;
+  }
+}
 
 // Stats aggregation methods (NO SHARING architecture)
 void Server::StartStatsAggregation() {
