@@ -3,16 +3,16 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
-#include <chrono>
-#include <thread>
 #include "astra/base/config.hpp"
 #include "astra/base/logging.hpp"
-#include "worker.hpp"
 #include "managers.hpp"  // Manager class definitions
+#include "worker.hpp"
 
 namespace astra::server {
 
@@ -32,7 +32,7 @@ class PubSubManager;
 namespace astra::security {
 class AclManager;
 enum class AclPermission;
-}
+}  // namespace astra::security
 
 namespace astra::core {
 class MetricsManager;
@@ -43,8 +43,9 @@ class MetricsManager;
 struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   // NO SHARING architecture settings
   size_t num_workers = 2;  // Number of workers (each has IO + Executor threads)
-  bool use_so_reuseport = true;  // Enable SO_REUSEPORT for kernel load balancing
-  
+  bool use_so_reuseport =
+      true;  // Enable SO_REUSEPORT for kernel load balancing
+
   // Cluster
   bool cluster_enabled = false;
   std::string cluster_node_id;
@@ -52,12 +53,12 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   uint16_t cluster_gossip_port = 7946;
   std::vector<std::string> cluster_seeds;
   uint32_t cluster_shard_count = 256;
-  
+
   // ACL
   bool acl_enabled = true;
   std::string acl_default_user = "default";
   std::string acl_default_password = "";
-  
+
   // Metrics
   bool metrics_enabled = true;
   std::string metrics_bind_addr = "0.0.0.0";
@@ -67,10 +68,10 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   static NoSharingServerConfig LoadFromFile(const std::string& config_file) {
     // Load base configuration
     auto base_config = ::astra::base::ServerConfig::LoadFromFile(config_file);
-    
+
     // Convert to NoSharingServerConfig
     NoSharingServerConfig config;
-    
+
     // Copy base fields
     config.host = base_config.host;
     config.port = base_config.port;
@@ -90,10 +91,10 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.persistence = base_config.persistence;
     config.cluster = base_config.cluster;
     config.metrics = base_config.metrics;
-    
+
     // Copy AOF configuration
     config.aof = base_config.aof;
-    
+
     return config;
   }
 };
@@ -118,13 +119,17 @@ class Server {
   bool IsRunning() const { return running_; }
 
   // Getters for managers (for command handlers)
-  class PersistenceManager* GetPersistenceManager() { return persistence_manager_.get(); }
+  class PersistenceManager* GetPersistenceManager() {
+    return persistence_manager_.get();
+  }
   class ClusterManager* GetClusterManager() { return cluster_manager_.get(); }
-  class PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
-  ::astra::replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
+  ::astra::replication::ReplicationManager* GetReplicationManager() {
+    return replication_manager_.get();
+  }
 
   // Get connection info for CLIENT LIST command
-  std::vector<std::tuple<uint64_t, std::string, std::string, int>> GetConnectionInfo() {
+  std::vector<std::tuple<uint64_t, std::string, std::string, int>>
+  GetConnectionInfo() {
     std::vector<std::tuple<uint64_t, std::string, std::string, int>> all_info;
     for (auto& worker : workers_) {
       auto worker_info = worker->GetConnectionInfo();
@@ -158,17 +163,13 @@ class Server {
 
   // Initialize metrics
 
-    bool InitMetrics() noexcept;
+  bool InitMetrics() noexcept;
 
-  
+  // Initialize replication
 
-    // Initialize replication
+  bool InitReplication() noexcept;
 
-    bool InitReplication() noexcept;
-
-  
-
-    // Stats aggregation (NO SHARING architecture - aggregates per-worker stats)
+  // Stats aggregation (NO SHARING architecture - aggregates per-worker stats)
   void StartStatsAggregation();
   void StopStatsAggregation();
   void AggregateStats();
@@ -181,10 +182,10 @@ class Server {
   // Server-level managers (shared by all workers via MPSC if needed)
   std::unique_ptr<PersistenceManager> persistence_manager_;
   std::unique_ptr<ClusterManager> cluster_manager_;
-  std::unique_ptr<PubSubManager> pubsub_manager_;
   std::unique_ptr<::astra::security::AclManager> acl_manager_;
   std::unique_ptr<MetricsManager> metrics_manager_;
-  std::unique_ptr<::astra::replication::ReplicationManager> replication_manager_;
+  std::unique_ptr<::astra::replication::ReplicationManager>
+      replication_manager_;
 
   // Server state
   std::atomic<bool> running_{false};
