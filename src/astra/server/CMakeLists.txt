@@ -11,7 +11,10 @@ target_include_directories(astra_server PUBLIC
 
 target_sources(astra_server PRIVATE
   server.cpp
+  server.hpp
   worker.hpp
+  worker_scheduler.hpp
+  worker_scheduler.cpp
 )
 
 target_link_libraries(astra_server PUBLIC

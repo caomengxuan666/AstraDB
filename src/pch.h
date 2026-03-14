@@ -7,6 +7,10 @@
 
 #pragma once
 
+// C library headers
+#include <stdio.h>
+#include <stdlib.h>
+
 // C++ Standard Library - Most Common Headers (>100 times used)
 #include <algorithm>
 #include <array>
@@ -36,10 +40,14 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include <filesystem>
+#include <fstream>
+
 
 // Abseil Library - Core Components
 #include <absl/container/flat_hash_map.h>
@@ -61,10 +69,16 @@
 #include <asio.hpp>
 
 // SPDLOG
+#include <spdlog/spdlog.h>
+#include <spdlog/common.h>                
+#include <spdlog/details/null_mutex.h>       
+#include <spdlog/details/os.h>                  
+#include <spdlog/sinks/base_sink.h>             
+#include <spdlog/details/synchronous_factory.h> 
+#include <spdlog/details/log_msg.h>              
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
 
 // fmt
 #include <fmt/format.h>
@@ -80,6 +94,14 @@
 // Project Headers - Core Infrastructure
 // ==============================================================================
 #include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
+#include "astra/base/simd_utils.hpp"
+#include "astra/base/concurrentqueue_wrapper.hpp"
+
+#include "astra/commands/database.hpp"
+#include "astra/commands/command_handler.hpp"
+#include "astra/protocol/resp/resp_types.hpp"
+#include "astra/protocol/resp/resp_builder.hpp"
 
 // ==============================================================================
 // Platform-specific includes
@@ -88,49 +110,3 @@
 // io_uring is Linux-only
 #include <liburing.h>
 #endif
-
-// ==============================================================================
-// Common inline functions
-// ==============================================================================
-
-namespace astra {
-
-// Common string utilities
-inline std::string ToLower(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  return s;
-}
-
-inline std::string ToUpper(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return std::toupper(c); });
-  return s;
-}
-
-inline bool Contains(const std::string& str, const std::string& substr) {
-  return str.find(substr) != std::string::npos;
-}
-
-// Common numeric utilities
-template <typename T>
-inline constexpr bool IsPowerOfTwo(T v) {
-  return v && ((v & (v - 1)) == 0);
-}
-
-template <typename T>
-inline constexpr T RoundUpToPowerOfTwo(T v) {
-  v--;
-  v |= v >> 1;
-  v |= v >> 2;
-  v |= v >> 4;
-  v |= v >> 8;
-  v |= v >> 16;
-  if constexpr (sizeof(T) > 4) {
-    v |= v >> 32;
-  }
-  v++;
-  return v;
-}
-
-}  // namespace astra
