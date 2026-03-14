@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <chrono>
+#include <thread>
 #include "astra/base/config.hpp"
 #include "astra/base/logging.hpp"
 #include "worker.hpp"
@@ -124,6 +126,9 @@ class Server {
   // Initialize persistence
   bool InitPersistence() noexcept;
 
+  // Initialize RDB
+  bool InitRdb() noexcept;
+
   // Initialize cluster
   bool InitCluster() noexcept;
 
@@ -133,6 +138,11 @@ class Server {
   // Initialize metrics
   bool InitMetrics() noexcept;
 
+
+  // Stats aggregation (NO SHARING architecture - aggregates per-worker stats)
+  void StartStatsAggregation();
+  void StopStatsAggregation();
+  void AggregateStats();
   // Configuration
   ServerConfig config_;
 
@@ -148,6 +158,10 @@ class Server {
 
   // Server state
   std::atomic<bool> running_{false};
+
+  // Stats aggregation thread (NO SHARING architecture)
+  std::thread stats_aggregation_thread_;
+  std::atomic<bool> stats_aggregation_running_{false};
 
   // Disable copy and move
   Server(const Server&) = delete;

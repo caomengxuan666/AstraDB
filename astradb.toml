@@ -73,6 +73,19 @@ path = "./data/aof/appendonly.aof"
 sync_everysec = true
 
 # =============================================================================
+# RDB Configuration (NO SHARING Architecture)
+# =============================================================================
+[rdb]
+# Enable RDB (Redis Database) persistence
+enabled = true
+# RDB file path
+path = "./data/dump.rdb"
+# Auto-save (not implemented yet)
+auto_save = false
+# Save interval in seconds (not implemented yet)
+save_interval = 300
+
+# =============================================================================
 # Prometheus Metrics Configuration
 # =============================================================================
 [metrics]
