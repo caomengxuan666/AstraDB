@@ -196,6 +196,28 @@ struct CrossWorkerResponse {
   std::string response;     // Response data
 };
 
+// Client info request (for CLIENT LIST command)
+struct ClientInfoRequest {
+  size_t source_worker_id;
+  uint64_t req_id;  // Unique request ID
+};
+
+// Client info response (for CLIENT LIST command)
+struct ClientInfoResponse {
+  uint64_t req_id;
+  std::vector<std::string> client_info_list;  // List of client info strings
+};
+
+// Pending client info request (for CLIENT LIST command)
+struct PendingClientInfoReq {
+  uint64_t req_id;
+  uint64_t conn_id;  // Original client connection ID
+  size_t responses_received = 0;
+  size_t expected_responses = 0;
+  std::vector<ClientInfoResponse> responses;
+  std::chrono::steady_clock::time_point start_time;
+};
+
 // Batch cross-worker request for multi-key commands
 struct BatchCrossWorkerRequest {
   uint64_t req_id;  // Unique request ID for matching responses
@@ -344,6 +366,24 @@ class Worker {
   // Get data shard (for RDB loading)
   DataShard& GetDataShard() { return data_shard_; }
   const DataShard& GetDataShard() const { return data_shard_; }
+
+  // Enqueue a client info response
+  void EnqueueClientInfoResponse(const ClientInfoResponse& resp);
+
+  // Enqueue a client info request (for sending to other workers)
+  void EnqueueClientInfoRequest(const ClientInfoRequest& req);
+
+  // Send client info request to all workers (for CLIENT LIST command)
+  uint64_t SendClientInfoRequest(uint64_t conn_id);
+
+  // Get connection info (for CLIENT LIST command)
+  std::vector<std::tuple<uint64_t, std::string, std::string, int>> GetConnectionInfo() const;
+
+  // Kill a connection by ID (for CLIENT KILL command)
+  bool KillConnection(uint64_t conn_id);
+
+  // Process a client info request (for CLIENT LIST command)
+  void ProcessClientInfoRequest(const ClientInfoRequest& req);
 
   // Set all workers reference (called by Server after all workers are created)
   void SetAllWorkers(const std::vector<Worker*>& all_workers) {
@@ -609,6 +649,40 @@ class Worker {
       }
     }
 
+    void Close() {
+      asio::error_code ec;
+      socket_.close(ec);
+      if (ec) {
+        ASTRADB_LOG_WARN("Worker {}: Connection {} close error: {}",
+                         worker_id_, conn_id_, ec.message());
+      }
+    }
+
+    bool IsConnected() const {
+      return socket_.is_open();
+    }
+
+    std::string GetRemoteAddress() const {
+      try {
+        auto endpoint = socket_.remote_endpoint();
+        return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+      } catch (...) {
+        return "unknown";
+      }
+    }
+
+    void SetClientName(const std::string& name) {
+      client_name_ = name;
+    }
+
+    std::string GetClientName() const {
+      return client_name_;
+    }
+
+    int GetProtocolVersion() const {
+      return 3;  // Default to RESP3
+    }
+
    private:
     asio::awaitable<void> DoRead() {
       // Get the executor for this coroutine
@@ -697,6 +771,7 @@ class Worker {
 
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
+    std::string client_name_;
   };
 
   // Calculate which worker should handle this key (consistent hashing)
@@ -771,6 +846,17 @@ class Worker {
         resp_queue_.enqueue(resp);
       }
 
+      // Process client info responses (for CLIENT LIST command)
+      ClientInfoResponse client_info_resp;
+      while (client_info_resp_queue_.try_dequeue(client_info_resp)) {
+        // Store the response in pending requests map
+        std::lock_guard<std::mutex> lock(batch_mutex_);
+        auto it = pending_client_info_reqs_.find(client_info_resp.req_id);
+        if (it != pending_client_info_reqs_.end()) {
+          it->second->responses.push_back(client_info_resp);
+        }
+      }
+
       // Process batch responses
       ProcessBatchResponses();
 
@@ -778,6 +864,12 @@ class Worker {
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
         ProcessBatchRequest(batch_req);
+      }
+
+      // Process client info requests from other workers
+      ClientInfoRequest client_info_req;
+      while (client_info_req_queue_.try_dequeue(client_info_req)) {
+        ProcessClientInfoRequest(client_info_req);
       }
 
       // Yield if no work
@@ -829,6 +921,8 @@ class Worker {
   
   // Cross-worker communication queues (MPSC)
   moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
+  moodycamel::ConcurrentQueue<ClientInfoRequest> client_info_req_queue_;
+  moodycamel::ConcurrentQueue<ClientInfoResponse> client_info_resp_queue_;
   
   // Batch request queues (for multi-key commands)
   moodycamel::ConcurrentQueue<BatchCrossWorkerRequest> batch_req_queue_;
@@ -836,7 +930,9 @@ class Worker {
   
   // Pending batch requests (for matching responses)
   std::unordered_map<uint64_t, std::shared_ptr<BatchCrossWorkerRequest>> pending_batch_reqs_;
+  std::unordered_map<uint64_t, std::shared_ptr<PendingClientInfoReq>> pending_client_info_reqs_;
   std::atomic<uint64_t> next_batch_req_id_{1};
+  std::atomic<uint64_t> next_client_info_req_id_{1};
 
   absl::flat_hash_map<uint64_t, std::shared_ptr<Connection>> connections_;
 
@@ -1047,6 +1143,118 @@ inline void Worker::ProcessBatchResponses() {
     } else {
       ASTRADB_LOG_ERROR("Worker {}: Received response for unknown request {}", worker_id_, resp.req_id);
     }
+  }
+}
+
+// Enqueue a client info response
+inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
+  client_info_resp_queue_.enqueue(resp);
+}
+
+// Send client info request to all workers (for CLIENT LIST command)
+inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
+  uint64_t req_id = next_client_info_req_id_.fetch_add(1, std::memory_order_relaxed);
+  
+  // Create pending request
+  auto pending_req = std::make_shared<PendingClientInfoReq>();
+  pending_req->req_id = req_id;
+  pending_req->conn_id = conn_id;
+  pending_req->responses_received = 0;
+  pending_req->expected_responses = all_workers_.size();
+  pending_req->start_time = std::chrono::steady_clock::now();
+  
+  {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    pending_client_info_reqs_[req_id] = pending_req;
+  }
+  
+  // Send request to all workers (including self)
+  for (auto& worker : all_workers_) {
+    ClientInfoRequest req;
+    req.source_worker_id = worker_id_;
+    req.req_id = req_id;
+    worker->EnqueueClientInfoRequest(req);
+  }
+  
+  return req_id;
+}
+
+// Get connection info for CLIENT LIST command
+inline std::vector<std::tuple<uint64_t, std::string, std::string, int>> Worker::GetConnectionInfo() const {
+  std::vector<std::tuple<uint64_t, std::string, std::string, int>> info;
+  for (const auto& [id, conn] : connections_) {
+    if (conn && conn->IsConnected()) {
+      info.emplace_back(id, conn->GetRemoteAddress(), conn->GetClientName(), conn->GetProtocolVersion());
+    }
+  }
+  return info;
+}
+
+// Kill a connection by ID (for CLIENT KILL command)
+inline bool Worker::KillConnection(uint64_t conn_id) {
+  auto it = connections_.find(conn_id);
+  if (it != connections_.end() && it->second) {
+    it->second->Close();
+    connections_.erase(it);
+    return true;
+  }
+  return false;
+}
+
+// Process a client info request (for CLIENT LIST command)
+inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
+  // Get connection info from this worker
+  auto info = GetConnectionInfo();
+  
+  // Build response
+  ClientInfoResponse resp;
+  resp.req_id = req.req_id;
+  
+  // Convert tuple to string format
+  for (const auto& [id, addr, name, resp_version] : info) {
+    // Parse address to get IP and port
+    std::string ip = "unknown";
+    uint16_t port = 0;
+    size_t colon_pos = addr.find(':');
+    if (colon_pos != std::string::npos) {
+      ip = addr.substr(0, colon_pos);
+      try {
+        port = static_cast<uint16_t>(std::stoul(addr.substr(colon_pos + 1)));
+      } catch (...) {
+        port = 0;
+      }
+    }
+
+    // Build client info string (Redis format)
+    std::ostringstream info_str;
+    info_str << "id=" << id << " "
+             << "addr=" << ip << ":" << port << " "
+             << "fd=-1 "  // Socket fd not tracked
+             << "name=" << name << " "
+             << "age=0 "  // Age not tracked
+             << "idle=0 "  // Idle time not tracked
+             << "db=0 "  // Current database
+             << "sub=0 "  // Number of subscriptions
+             << "psub=0 "  // Number of pattern subscriptions
+             << "multi=-1 "  // Multi flag
+             << "qbuf=0 "  // Query buffer size
+             << "qbuf-free=0 "  // Query buffer free space
+             << "obl=0 "  // Output buffer size
+             << "oll=0 "  // Output list length
+             << "omem=0 "  // Output memory
+             << "events=r "  // Events
+             << "cmd=client "  // Last command
+             << "user=default "  // User name
+             << "redir=-1 "  // Redirect
+             << "resp=" << resp_version  // RESP version
+             << "\n";
+    
+    resp.client_info_list.push_back(info_str.str());
+  }
+  
+  // Send response back to source worker
+  if (req.source_worker_id < all_workers_.size()) {
+    all_workers_[req.source_worker_id]->EnqueueClientInfoResponse(resp);
   }
 }
 
