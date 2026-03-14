@@ -229,27 +229,4 @@ void CommandRegistry::EvictLRUCacheEntry() const noexcept {
   command_cache_.erase(lru_it);
   cache_eviction_count_++;
 }
-
-// Static pointer to the global registry (initialized to nullptr)
-static CommandRegistry* g_global_registry = nullptr;
-
-CommandRegistry& GetGlobalCommandRegistry() {
-  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: g_global_registry={}",
-                    g_global_registry != nullptr ? "set" : "nullptr");
-
-  if (g_global_registry != nullptr) {
-    ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning global registry");
-    return *g_global_registry;
-  }
-
-  static CommandRegistry fallback_registry;
-  ASTRADB_LOG_TRACE("GetGlobalCommandRegistry: returning fallback registry");
-  return fallback_registry;
-}
-
-// Set the global registry instance (called by Server)
-void SetGlobalCommandRegistry(CommandRegistry* registry) {
-  g_global_registry = registry;
-}
-
 }  // namespace astra::commands
