@@ -41,6 +41,12 @@ testdb/
 *.db
 *.log
 dump.rdb
+data/
+test_results/
+coroutine_test_output.txt
+gdb_attach.txt
+gdb_debug.txt
+gdb_run.txt
 
 # OS
 .DS_Store
