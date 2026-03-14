@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "astra/container/dash_map.hpp"
+
 namespace astra::storage {
 
 // Key type enumeration

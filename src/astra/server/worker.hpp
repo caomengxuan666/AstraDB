@@ -15,7 +15,6 @@
 #include "absl/container/inlined_vector.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/commands/blocking_manager.hpp"
@@ -25,8 +24,8 @@
 #include "astra/commands/pubsub_commands.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
-#include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "managers.hpp"
 
@@ -48,23 +47,32 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   void SetAuthenticated(bool auth) override { (void)auth; }
 
   // Get blocking manager (for blocking commands)
-  class commands::BlockingManager* GetBlockingManager() override { return blocking_manager_; }
+  class commands::BlockingManager* GetBlockingManager() override {
+    return blocking_manager_;
+  }
 
-  // Set blocking manager (called by Worker after blocking manager is initialized)
+  // Set blocking manager (called by Worker after blocking manager is
+  // initialized)
   void SetBlockingManager(class commands::BlockingManager* blocking_manager) {
     blocking_manager_ = blocking_manager;
   }
 
   // Get replication manager (for replication commands)
-  class replication::ReplicationManager* GetReplicationManager() override { return replication_manager_; }
+  class replication::ReplicationManager* GetReplicationManager() override {
+    return replication_manager_;
+  }
 
-  // Set replication manager (called by Worker after replication manager is initialized)
-  void SetReplicationManager(class replication::ReplicationManager* replication_manager) {
+  // Set replication manager (called by Worker after replication manager is
+  // initialized)
+  void SetReplicationManager(
+      class replication::ReplicationManager* replication_manager) {
     replication_manager_ = replication_manager;
   }
 
   // Get pubsub manager (for publish/subscribe commands)
-  commands::PubSubManager* GetPubSubManager() override { return pubsub_manager_; }
+  commands::PubSubManager* GetPubSubManager() override {
+    return pubsub_manager_;
+  }
 
   // Set pubsub manager (called by Worker after pubsub manager is initialized)
   void SetPubSubManager(commands::PubSubManager* pubsub_manager) {
@@ -72,16 +80,19 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   }
 
   // Get command registry (for COMMAND command - NO SHARING architecture)
-  class commands::CommandRegistry* GetCommandRegistry() override { return command_registry_; }
+  class commands::CommandRegistry* GetCommandRegistry() override {
+    return command_registry_;
+  }
 
-  // Set command registry (called by Worker after command registry is initialized)
+  // Set command registry (called by Worker after command registry is
+  // initialized)
   void SetCommandRegistry(class commands::CommandRegistry* command_registry) {
     command_registry_ = command_registry;
   }
 
   // Get connection (for async response)
-  astra::network::Connection* GetConnection() const override { 
-    return static_cast<astra::network::Connection*>(connection_); 
+  astra::network::Connection* GetConnection() const override {
+    return static_cast<astra::network::Connection*>(connection_);
   }
 
   // Set connection (called when processing a command)
@@ -91,7 +102,9 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   uint64_t GetConnectionId() const override { return connection_id_; }
 
   // Set connection ID (called when processing a command)
-  void SetConnectionId(uint64_t connection_id) { connection_id_ = connection_id; }
+  void SetConnectionId(uint64_t connection_id) {
+    connection_id_ = connection_id;
+  }
 
   // Set AOF callback (for persistence)
   void SetAofCallbackString(std::function<void(const std::string&)> callback) {
@@ -109,8 +122,10 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   }
 
   // Log command to AOF
-  void LogToAof(absl::string_view command, absl::Span<const absl::string_view> args) override {
-    ASTRADB_LOG_DEBUG("LogToAof called: command={}, args={}", command, args.size());
+  void LogToAof(absl::string_view command,
+                absl::Span<const absl::string_view> args) override {
+    ASTRADB_LOG_DEBUG("LogToAof called: command={}, args={}", command,
+                      args.size());
     if (aof_callback_) {
       // Build RESP command string
       std::string cmd_str;
@@ -131,7 +146,8 @@ class WorkerCommandContext : public astra::commands::CommandContext {
         cmd_str += "\r\n";
       }
 
-      ASTRADB_LOG_DEBUG("LogToAof calling callback, cmd_str size={}", cmd_str.size());
+      ASTRADB_LOG_DEBUG("LogToAof calling callback, cmd_str size={}",
+                        cmd_str.size());
       aof_callback_(cmd_str);
       ASTRADB_LOG_DEBUG("LogToAof callback completed");
     } else {
@@ -148,40 +164,52 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   void* connection_ = nullptr;
   uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
-  std::function<std::string(bool)> rdb_save_callback_;  // bool = background save
+  std::function<std::string(bool)>
+      rdb_save_callback_;  // bool = background save
 };
 
 // DataShard - Contains a full Database instance
 class DataShard {
  public:
-  explicit DataShard(size_t shard_id) : shard_id_(shard_id), context_(&database_) {
+  explicit DataShard(size_t shard_id)
+      : shard_id_(shard_id), context_(&database_) {
     // Initialize command registry
-    auto cmd_count = astra::commands::RuntimeCommandRegistry::Instance().GetCommandCount();
-    ASTRADB_LOG_INFO("Shard {}: RuntimeCommandRegistry has {} commands", shard_id_, cmd_count);
+    auto cmd_count =
+        astra::commands::RuntimeCommandRegistry::Instance().GetCommandCount();
+    ASTRADB_LOG_DEBUG("Shard {}: RuntimeCommandRegistry has {} commands",
+                      shard_id_, cmd_count);
 
-    astra::commands::RuntimeCommandRegistry::Instance().ApplyToRegistry(registry_);
+    astra::commands::RuntimeCommandRegistry::Instance().ApplyToRegistry(
+        registry_);
 
     auto registry_size = registry_.Size();
-    ASTRADB_LOG_INFO("Shard {}: CommandRegistry now has {} commands", shard_id_, registry_size);
+    ASTRADB_LOG_DEBUG("Shard {}: CommandRegistry now has {} commands", shard_id_,
+                      registry_size);
   }
 
   // Execute a command using the command registry
   std::string Execute(const astra::protocol::Command& command) {
-    ASTRADB_LOG_DEBUG("Shard {}: Executing command: {}", shard_id_, command.name);
-    ASTRADB_LOG_DEBUG("Shard {}: Command args count: {}", shard_id_, command.args.size());
+    ASTRADB_LOG_DEBUG("Shard {}: Executing command: {}", shard_id_,
+                      command.name);
+    ASTRADB_LOG_DEBUG("Shard {}: Command args count: {}", shard_id_,
+                      command.args.size());
 
     auto result = registry_.Execute(command, &context_);
     ASTRADB_LOG_DEBUG("Shard {}: Registry::Execute completed", shard_id_);
-    ASTRADB_LOG_DEBUG("Shard {}: Command result success={}, type={}", shard_id_, result.success, static_cast<int>(result.response.GetType()));
+    ASTRADB_LOG_DEBUG("Shard {}: Command result success={}, type={}", shard_id_,
+                      result.success,
+                      static_cast<int>(result.response.GetType()));
 
     if (!result.success) {
-      ASTRADB_LOG_ERROR("Shard {}: Command failed: {}", shard_id_, result.error);
+      ASTRADB_LOG_ERROR("Shard {}: Command failed: {}", shard_id_,
+                        result.error);
       return astra::protocol::RespBuilder::BuildError(result.error);
     }
 
     ASTRADB_LOG_DEBUG("Shard {}: Calling RespBuilder::Build", shard_id_);
     auto response = astra::protocol::RespBuilder::Build(result.response);
-    ASTRADB_LOG_DEBUG("Shard {}: RespBuilder::Build completed, len={}", shard_id_, response.size());
+    ASTRADB_LOG_DEBUG("Shard {}: RespBuilder::Build completed, len={}",
+                      shard_id_, response.size());
 
     return response;
   }
@@ -203,7 +231,6 @@ class DataShard {
   astra::commands::Database database_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
-
 };
 
 // Cross-worker request (forwarded from one worker to another)
@@ -215,8 +242,8 @@ struct CrossWorkerRequest {
 
 // Cross-worker response (sent back to source worker)
 struct CrossWorkerResponse {
-  uint64_t conn_id;         // Connection ID on source worker
-  std::string response;     // Response data
+  uint64_t conn_id;      // Connection ID on source worker
+  std::string response;  // Response data
 };
 
 // Client info request (for CLIENT LIST command)
@@ -245,14 +272,16 @@ struct PendingClientInfoReq {
 struct BatchCrossWorkerRequest {
   uint64_t req_id;  // Unique request ID for matching responses
   size_t source_worker_id;
-  std::string cmd_type;  // "SINTER", "SUNION", "ZUNIONSTORE", etc.
+  std::string cmd_type;           // "SINTER", "SUNION", "ZUNIONSTORE", etc.
   std::vector<std::string> keys;  // Keys this worker should process
-  std::vector<std::string> args;  // Additional arguments (weights, aggregate, etc.)
-  std::shared_ptr<std::promise<std::vector<std::string>>> result_promise;  // For async response
+  std::vector<std::string>
+      args;  // Additional arguments (weights, aggregate, etc.)
+  std::shared_ptr<std::promise<std::vector<std::string>>>
+      result_promise;  // For async response
 };
 
 struct BatchCrossWorkerResponse {
-  uint64_t req_id;  // Matching request ID
+  uint64_t req_id;                  // Matching request ID
   std::vector<std::string> result;  // Result from this worker
 };
 
@@ -270,14 +299,20 @@ class PubSubManager : public commands::PubSubManager {
   PubSubManager(class Worker* worker, size_t worker_id)
       : worker_(worker), worker_id_(worker_id) {}
 
-  void Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
-  void Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) override;
-  void PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
-  void PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) override;
-  size_t Publish(const std::string& channel, const std::string& message) override;
+  void Subscribe(uint64_t conn_id,
+                 const std::vector<std::string>& channels) override;
+  void Unsubscribe(uint64_t conn_id,
+                   const std::vector<std::string>& channels) override;
+  void PSubscribe(uint64_t conn_id,
+                  const std::vector<std::string>& patterns) override;
+  void PUnsubscribe(uint64_t conn_id,
+                    const std::vector<std::string>& patterns) override;
+  size_t Publish(const std::string& channel,
+                 const std::string& message) override;
   size_t GetSubscriptionCount(uint64_t conn_id) const override;
   bool IsSubscribed(uint64_t conn_id) const override;
-  std::vector<std::string> GetActiveChannels(const std::string& pattern = "") const override;
+  std::vector<std::string> GetActiveChannels(
+      const std::string& pattern = "") const override;
   size_t GetChannelSubscriberCount(const std::string& channel) const override;
   size_t GetPatternSubscriptionCount() const override;
 
@@ -289,17 +324,24 @@ class PubSubManager : public commands::PubSubManager {
   size_t worker_id_;
 
   // Local subscriptions (NO SHARING - each worker manages its own)
-  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> channel_subscribers_;
-  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>> pattern_subscribers_;
-  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_channels_;
-  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>> conn_patterns_;
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>>
+      channel_subscribers_;
+  absl::flat_hash_map<std::string, absl::flat_hash_set<uint64_t>>
+      pattern_subscribers_;
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>>
+      conn_channels_;
+  absl::flat_hash_map<uint64_t, absl::flat_hash_set<std::string>>
+      conn_patterns_;
 
   mutable std::mutex pubsub_mutex_;  // Protect subscription structures
 
   // Helper methods
-  bool PatternMatches(const std::string& pattern, const std::string& channel) const;
-  void SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
-  void SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count);
+  bool PatternMatches(const std::string& pattern,
+                      const std::string& channel) const;
+  void SendSubscribeReply(uint64_t conn_id, const std::string& channel,
+                          size_t count);
+  void SendUnsubscribeReply(uint64_t conn_id, const std::string& channel,
+                            size_t count);
 };
 
 // Command with connection ID
@@ -307,7 +349,8 @@ struct CommandWithConnId {
   uint64_t conn_id;
   astra::protocol::Command command;
   bool is_forwarded;  // True if this is a forwarded command from another worker
-  size_t source_worker_id;  // Which worker sent this forwarded command (only valid if is_forwarded=true)
+  size_t source_worker_id;  // Which worker sent this forwarded command (only
+                            // valid if is_forwarded=true)
 };
 
 // Response with connection ID
@@ -324,33 +367,33 @@ class Worker {
   friend class PubSubManager;
 
   explicit Worker(size_t worker_id, const std::string& host, uint16_t port,
-                 std::vector<Worker*> all_workers)
+                  std::vector<Worker*> all_workers)
       : worker_id_(worker_id),
         io_context_(),
         acceptor_(io_context_),
         data_shard_(worker_id),
         all_workers_(std::move(all_workers)),
         running_(false) {
-    
     ASTRADB_LOG_INFO("Worker {}: Creating", worker_id_);
-    
+
     // Setup acceptor
     asio::ip::tcp::endpoint endpoint(asio::ip::make_address(host), port);
-    
+
     acceptor_.open(endpoint.protocol());
     acceptor_.set_option(asio::socket_base::reuse_address(true));
-    
-    // Enable SO_REUSEPORT
-    #ifdef SO_REUSEPORT
+
+// Enable SO_REUSEPORT
+#ifdef SO_REUSEPORT
     int reuseport = 1;
-    setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT,
-               &reuseport, sizeof(reuseport));
-    #endif
-    
+    setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT, &reuseport,
+               sizeof(reuseport));
+#endif
+
     acceptor_.bind(endpoint);
     acceptor_.listen(asio::socket_base::max_listen_connections);
-    
-    ASTRADB_LOG_INFO("Worker {}: Acceptor created on {}:{}", worker_id_, host, port);
+
+    ASTRADB_LOG_INFO("Worker {}: Acceptor created on {}:{}", worker_id_, host,
+                     port);
   }
 
   ~Worker() { Stop(); }
@@ -367,14 +410,15 @@ class Worker {
 
     // Set batch request callback in database
     data_shard_.GetDatabase().SetBatchRequestCallback(
-        [this](const std::string& cmd_type,
-               const std::vector<std::string>& keys,
-               const std::vector<std::string>& args) -> std::vector<std::string> {
+        [this](
+            const std::string& cmd_type, const std::vector<std::string>& keys,
+            const std::vector<std::string>& args) -> std::vector<std::string> {
           return SendBatchRequest(cmd_type, keys, args);
         });
 
     // Initialize blocking manager
-    blocking_manager_ = std::make_unique<commands::BlockingManager>(io_context_);
+    blocking_manager_ =
+        std::make_unique<commands::BlockingManager>(io_context_);
 
     // Initialize pubsub manager
     pubsub_manager_ = std::make_unique<PubSubManager>(this, worker_id_);
@@ -383,22 +427,23 @@ class Worker {
     data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
 
     // Set command registry in command context (required for COMMAND command)
-    data_shard_.GetCommandContext()->SetCommandRegistry(data_shard_.GetCommandRegistry());
+    data_shard_.GetCommandContext()->SetCommandRegistry(
+        data_shard_.GetCommandRegistry());
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
-      ASTRADB_LOG_INFO("Worker {}: IO thread started", worker_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: IO thread started", worker_id_);
       DoAccept();
       ProcessResponseQueue();  // Start response queue processing
       io_context_.run();
-      ASTRADB_LOG_INFO("Worker {}: IO thread exited", worker_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: IO thread exited", worker_id_);
     });
 
     // Start executor thread
     exec_thread_ = std::thread([this]() {
-      ASTRADB_LOG_INFO("Worker {}: Executor thread started", worker_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: Executor thread started", worker_id_);
       ExecutorLoop();
-      ASTRADB_LOG_INFO("Worker {}: Executor thread exited", worker_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: Executor thread exited", worker_id_);
     });
   }
 
@@ -438,7 +483,9 @@ class Worker {
   size_t GetWorkerId() const { return worker_id_; }
 
   // Get blocking manager (for blocking commands)
-  commands::BlockingManager* GetBlockingManager() { return blocking_manager_.get(); }
+  commands::BlockingManager* GetBlockingManager() {
+    return blocking_manager_.get();
+  }
 
   // Get pubsub manager (for publish/subscribe commands)
   PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
@@ -474,7 +521,8 @@ class Worker {
   uint64_t SendClientInfoRequest(uint64_t conn_id);
 
   // Get connection info (for CLIENT LIST command)
-  std::vector<std::tuple<uint64_t, std::string, std::string, int>> GetConnectionInfo() const;
+  std::vector<std::tuple<uint64_t, std::string, std::string, int>>
+  GetConnectionInfo() const;
 
   // Kill a connection by ID (for CLIENT KILL command)
   bool KillConnection(uint64_t conn_id);
@@ -489,106 +537,88 @@ class Worker {
 
   // Set persistence manager (called by Server after persistence is initialized)
 
-    void SetPersistenceManager(void* persistence_manager) {
+  void SetPersistenceManager(void* persistence_manager) {
+    ASTRADB_LOG_DEBUG("Worker {}: SetPersistenceManager called with ptr={}",
+                      worker_id_, persistence_manager);
 
-      ASTRADB_LOG_INFO("Worker {}: SetPersistenceManager called with ptr={}", worker_id_, persistence_manager);
+    if (persistence_manager) {
+      auto* pm = static_cast<PersistenceManager*>(persistence_manager);
 
-  
+      // Set AOF callback
 
-      if (persistence_manager) {
+      data_shard_.GetCommandContext()->SetAofCallbackString(
+          [pm](const std::string& command) {
+            ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}",
+                              command.size());
 
-        auto* pm = static_cast<PersistenceManager*>(persistence_manager);
+            pm->AppendCommand(command);
 
-  
+            ASTRADB_LOG_DEBUG("AOF callback completed");
+          });
 
-        // Set AOF callback
+      // Set RDB save callback
 
-        data_shard_.GetCommandContext()->SetAofCallbackString([pm](const std::string& command) {
+            data_shard_.GetCommandContext()->SetRdbSaveCallback(
 
-          ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}", command.size());
+                [this, pm](bool background) -> std::string {
 
-          pm->AppendCommand(command);
+                  ASTRADB_LOG_DEBUG("Worker {}: RDB save requested, background={}",
 
-          ASTRADB_LOG_DEBUG("AOF callback completed");
+                                    worker_id_, background);
 
-        });
+            if (background) {
+              // Background save
 
-  
+              bool success = pm->BackgroundSaveRdb(all_workers_);
 
-        // Set RDB save callback
+              if (success) {
+                return "OK";
 
-        data_shard_.GetCommandContext()->SetRdbSaveCallback([this, pm](bool background) -> std::string {
+              } else {
+                // Check if already in progress
 
-          ASTRADB_LOG_INFO("Worker {}: RDB save requested, background={}", worker_id_, background);
+                if (pm->IsBgSaveInProgress()) {
+                  return "ALREADY_IN_PROGRESS";
+                }
 
-  
-
-          if (background) {
-
-            // Background save
-
-            bool success = pm->BackgroundSaveRdb(all_workers_);
-
-            if (success) {
-
-              return "OK";
-
-            } else {
-
-              // Check if already in progress
-
-              if (pm->IsBgSaveInProgress()) {
-
-                return "ALREADY_IN_PROGRESS";
-
+                return "ERR Background save failed";
               }
 
-              return "ERR Background save failed";
-
-            }
-
-          } else {
-
-            // Synchronous save
-
-            bool success = pm->SaveRdb(all_workers_);
-
-            if (success) {
-
-              return "OK";
-
             } else {
+              // Synchronous save
 
-              return "ERR Save failed";
+              bool success = pm->SaveRdb(all_workers_);
 
+              if (success) {
+                return "OK";
+
+              } else {
+                return "ERR Save failed";
+              }
             }
+          });
 
-          }
+      // Set blocking manager in command context
+      data_shard_.GetCommandContext()->SetBlockingManager(
+          blocking_manager_.get());
 
-        });
+      // Set pubsub manager in command context
+      data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
 
-  
+      ASTRADB_LOG_DEBUG("Worker {}: Persistence callbacks set successfully",
+                        worker_id_);
 
-        // Set blocking manager in command context
-        data_shard_.GetCommandContext()->SetBlockingManager(blocking_manager_.get());
-
-        // Set pubsub manager in command context
-        data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
-
-        ASTRADB_LOG_INFO("Worker {}: Persistence callbacks set successfully", worker_id_);
-
-      } else {
-
-        ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr", worker_id_);
-
-      }
-
+    } else {
+      ASTRADB_LOG_WARN("Worker {}: SetPersistenceManager called with null ptr",
+                       worker_id_);
     }
+  }
 
   // Process a cross-worker request (MPSC queue entry point)
   void ProcessCrossWorkerRequest(const CrossWorkerRequest& req) {
-    ASTRADB_LOG_DEBUG("Worker {}: Processing cross-worker request from Worker {}",
-                     worker_id_, req.source_worker_id);
+    ASTRADB_LOG_DEBUG(
+        "Worker {}: Processing cross-worker request from Worker {}", worker_id_,
+        req.source_worker_id);
 
     // Execute command on this worker's data shard
     std::string response = data_shard_.Execute(req.command);
@@ -596,7 +626,8 @@ class Worker {
     // Send response back to source worker
     if (req.source_worker_id < all_workers_.size()) {
       CrossWorkerResponse cross_resp{req.conn_id, response};
-      all_workers_[req.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
+      all_workers_[req.source_worker_id]->EnqueueCrossWorkerResponse(
+          cross_resp);
     }
   }
 
@@ -608,16 +639,16 @@ class Worker {
   // Enqueue a cross-worker request (called by other workers)
   void EnqueueCrossWorkerRequest(const CrossWorkerRequest& req) {
     // Create a command with connection ID for the request
-    CommandWithConnId cmd{req.conn_id, req.command, true, req.source_worker_id};  // Mark as forwarded
+    CommandWithConnId cmd{req.conn_id, req.command, true,
+                          req.source_worker_id};  // Mark as forwarded
     cmd_queue_.enqueue(cmd);
   }
-  
+
   // Send batch request to multiple workers (for multi-key commands)
   std::vector<std::string> SendBatchRequest(
-      const std::string& cmd_type,
-      const std::vector<std::string>& keys,
+      const std::string& cmd_type, const std::vector<std::string>& keys,
       const std::vector<std::string>& args = {});
-  
+
   // Enqueue batch response
   void EnqueueBatchResponse(const BatchCrossWorkerResponse& resp) {
     batch_resp_queue_.enqueue(resp);
@@ -627,10 +658,10 @@ class Worker {
   void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
     batch_req_queue_.enqueue(req);
   }
-  
+
   // Process batch request from another worker
   void ProcessBatchRequest(const BatchCrossWorkerRequest& req);
-  
+
   // Process batch responses (called in executor loop)
   void ProcessBatchResponses();
 
@@ -638,18 +669,19 @@ class Worker {
 
   // Serialize worker's data to RDB format
   // Returns a vector of (key, type, value, ttl_ms) tuples
-  std::vector<std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>>
+  std::vector<
+      std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>>
   GetRdbData() const {
-    std::vector<std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>> data;
+    std::vector<
+        std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>>
+        data;
 
     // Iterate through all keys in the database
-    data_shard_.GetDatabase().ForEachKey([&data](
-        const std::string& key,
-        astra::storage::KeyType type,
-        const std::string& value,
-        int64_t ttl_ms) {
-      data.emplace_back(key, type, value, ttl_ms);
-    });
+    data_shard_.GetDatabase().ForEachKey(
+        [&data](const std::string& key, astra::storage::KeyType type,
+                const std::string& value, int64_t ttl_ms) {
+          data.emplace_back(key, type, value, ttl_ms);
+        });
 
     return data;
   }
@@ -670,10 +702,11 @@ class Worker {
       return;
     }
 
-    acceptor_.async_accept([this](asio::error_code ec, asio::ip::tcp::socket socket) {
+    acceptor_.async_accept([this](asio::error_code ec,
+                                  asio::ip::tcp::socket socket) {
       if (!ec && running_) {
-        ASTRADB_LOG_INFO("Worker {}: Accepted connection, fd: {}", worker_id_,
-                         socket.native_handle());
+        ASTRADB_LOG_DEBUG("Worker {}: Accepted connection, fd: {}", worker_id_,
+                          socket.native_handle());
 
         // Create connection ID
         uint64_t conn_id = next_conn_id_++;
@@ -688,8 +721,9 @@ class Worker {
         // Record connection in metrics
         astra::metrics::AstraMetrics::Instance().IncrementConnections();
 
-        ASTRADB_LOG_INFO("Worker {}: Connection {} started, total connections: {}",
-                         worker_id_, conn_id, connections_.size());
+        ASTRADB_LOG_INFO(
+            "Worker {}: Connection {} started, total connections: {}",
+            worker_id_, conn_id, connections_.size());
       }
 
       // Continue accepting
@@ -708,30 +742,36 @@ class Worker {
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue) {
-      ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_, conn_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_,
+                        conn_id_);
     }
 
     ~Connection() {
-      ASTRADB_LOG_DEBUG("Worker {}: Connection {} destroyed", worker_id_, conn_id_);
+      ASTRADB_LOG_DEBUG("Worker {}: Connection {} destroyed", worker_id_,
+                        conn_id_);
       // Record connection in metrics
       astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
 
     void Start() {
-      ASTRADB_LOG_DEBUG("Worker {}: Connection {} starting", worker_id_, conn_id_);
-      // Spawn coroutine for reading (similar to Dragonfly's Fiber per connection)
-      asio::co_spawn(socket_.get_executor(), [self = shared_from_this()]() -> asio::awaitable<void> {
-        co_await self->DoRead();
-      }, asio::detached);
+      ASTRADB_LOG_DEBUG("Worker {}: Connection {} starting", worker_id_,
+                        conn_id_);
+      // Spawn coroutine for reading (similar to Dragonfly's Fiber per
+      // connection)
+      asio::co_spawn(
+          socket_.get_executor(),
+          [self = shared_from_this()]() -> asio::awaitable<void> {
+            co_await self->DoRead();
+          },
+          asio::detached);
     }
 
-    asio::ip::tcp::socket& GetSocket() {
-      return socket_;
-    }
+    asio::ip::tcp::socket& GetSocket() { return socket_; }
 
     asio::awaitable<void> Send(const std::string& response) {
-      ASTRADB_LOG_DEBUG("Worker {}: Connection {} sending response: {} (len={})",
-                       worker_id_, conn_id_, response, response.size());
+      ASTRADB_LOG_DEBUG(
+          "Worker {}: Connection {} sending response: {} (len={})", worker_id_,
+          conn_id_, response, response.size());
 
       asio::error_code ec;
       size_t bytes_written = co_await asio::async_write(
@@ -740,9 +780,10 @@ class Worker {
 
       if (!ec) {
         ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
-                         worker_id_, conn_id_, bytes_written);
+                          worker_id_, conn_id_, bytes_written);
         // Record network output traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(bytes_written);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
+            bytes_written);
       } else {
         ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
                           worker_id_, conn_id_, ec.message());
@@ -753,31 +794,26 @@ class Worker {
       asio::error_code ec;
       socket_.close(ec);
       if (ec) {
-        ASTRADB_LOG_WARN("Worker {}: Connection {} close error: {}",
-                         worker_id_, conn_id_, ec.message());
+        ASTRADB_LOG_WARN("Worker {}: Connection {} close error: {}", worker_id_,
+                         conn_id_, ec.message());
       }
     }
 
-    bool IsConnected() const {
-      return socket_.is_open();
-    }
+    bool IsConnected() const { return socket_.is_open(); }
 
     std::string GetRemoteAddress() const {
       try {
         auto endpoint = socket_.remote_endpoint();
-        return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+        return endpoint.address().to_string() + ":" +
+               std::to_string(endpoint.port());
       } catch (...) {
         return "unknown";
       }
     }
 
-    void SetClientName(const std::string& name) {
-      client_name_ = name;
-    }
+    void SetClientName(const std::string& name) { client_name_ = name; }
 
-    std::string GetClientName() const {
-      return client_name_;
-    }
+    std::string GetClientName() const { return client_name_; }
 
     int GetProtocolVersion() const {
       return 3;  // Default to RESP3
@@ -796,25 +832,26 @@ class Worker {
 
         if (ec) {
           ASTRADB_LOG_ERROR("Worker {}: Connection {} read error: {}",
-                           worker_id_, conn_id_, ec.message());
+                            worker_id_, conn_id_, ec.message());
           break;
         }
 
         ASTRADB_LOG_DEBUG("Worker {}: Connection {} received {} bytes",
-                         worker_id_, conn_id_, bytes_transferred);
+                          worker_id_, conn_id_, bytes_transferred);
 
         // Append to receive buffer
         receive_buffer_.append(buffer_.data(), bytes_transferred);
 
         // Record network input traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(bytes_transferred);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(
+            bytes_transferred);
 
         // Process commands (minimal parsing only)
         ProcessCommands();
       }
 
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} read loop terminated",
-                       worker_id_, conn_id_);
+                        worker_id_, conn_id_);
     }
 
     void ProcessCommands() {
@@ -830,7 +867,7 @@ class Worker {
 
         if (!value_opt) {
           ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse RESP",
-                           worker_id_, conn_id_);
+                            worker_id_, conn_id_);
           astra::metrics::AstraMetrics::Instance().RecordError("protocol");
           // Send error via response queue
           SendResponseViaQueue("ERR invalid RESP protocol");
@@ -842,17 +879,19 @@ class Worker {
         receive_buffer_.erase(0, consumed);
 
         // Parse command from RESP value
-        auto command_opt = astra::protocol::RespParser::ParseCommand(*value_opt);
+        auto command_opt =
+            astra::protocol::RespParser::ParseCommand(*value_opt);
         if (!command_opt) {
           ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse command",
-                           worker_id_, conn_id_);
+                            worker_id_, conn_id_);
           astra::metrics::AstraMetrics::Instance().RecordError("syntax");
           SendResponseViaQueue("ERR invalid command format");
           continue;
         }
 
         // Enqueue command to executor thread (within same worker!)
-        CommandWithConnId cmd{conn_id_, *command_opt, false, worker_id_};  // Not forwarded, source is self
+        CommandWithConnId cmd{conn_id_, *command_opt, false,
+                              worker_id_};  // Not forwarded, source is self
         cmd_queue_->enqueue(cmd);
       }
     }
@@ -889,8 +928,10 @@ class Worker {
       // Process local commands first
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
-        ASTRADB_LOG_DEBUG("Worker {}: Executor processing command: {} for conn {} (forwarded={})",
-                         worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
+        ASTRADB_LOG_DEBUG(
+            "Worker {}: Executor processing command: {} for conn {} "
+            "(forwarded={})",
+            worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
         if (cmd.is_forwarded) {
           // This is a forwarded command from another worker
@@ -898,14 +939,16 @@ class Worker {
           LocalCommandTimer timer(cmd.command.name, &local_stats_);
           std::string response = data_shard_.Execute(cmd.command);
           CrossWorkerResponse cross_resp{cmd.conn_id, response};
-          all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(cross_resp);
+          all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
+              cross_resp);
         } else {
           // This is a new command from a client
           // Determine if this command should be forwarded to another worker
           // Check if command has a key argument
           size_t target_worker = worker_id_;
-          if (!cmd.command.args.empty() && 
-              (cmd.command.args[0].IsBulkString() || cmd.command.args[0].IsSimpleString())) {
+          if (!cmd.command.args.empty() &&
+              (cmd.command.args[0].IsBulkString() ||
+               cmd.command.args[0].IsSimpleString())) {
             std::string key = cmd.command.args[0].AsString();
             target_worker = RouteToWorker(key);
           }
@@ -914,10 +957,12 @@ class Worker {
             // Handle locally
             LocalCommandTimer timer(cmd.command.name, &local_stats_);
 
-            // Set connection and connection ID in command context for blocking commands
+            // Set connection and connection ID in command context for blocking
+            // commands
             auto conn_it = connections_.find(cmd.conn_id);
             if (conn_it != connections_.end()) {
-              data_shard_.GetCommandContext()->SetConnection(conn_it->second.get());
+              data_shard_.GetCommandContext()->SetConnection(
+                  conn_it->second.get());
               data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
             }
 
@@ -927,13 +972,11 @@ class Worker {
           } else {
             // Forward to target worker (enqueue to avoid blocking)
             ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
-                             worker_id_, target_worker);
-            CrossWorkerRequest cross_req{
-              worker_id_,  // source worker
-              cmd.conn_id,
-              cmd.command
-            };
-            // Enqueue to target worker to avoid blocking this worker's ExecutorLoop
+                              worker_id_, target_worker);
+            CrossWorkerRequest cross_req{worker_id_,  // source worker
+                                         cmd.conn_id, cmd.command};
+            // Enqueue to target worker to avoid blocking this worker's
+            // ExecutorLoop
             all_workers_[target_worker]->EnqueueCrossWorkerRequest(cross_req);
           }
         }
@@ -994,9 +1037,8 @@ class Worker {
           // Spawn coroutine to send response (non-blocking)
           asio::co_spawn(
               it->second->GetSocket().get_executor(),
-              [conn = it->second, response = resp.response]() -> asio::awaitable<void> {
-                co_await conn->Send(response);
-              },
+              [conn = it->second, response = resp.response]()
+                  -> asio::awaitable<void> { co_await conn->Send(response); },
               asio::detached);
         }
       } else {
@@ -1021,19 +1063,21 @@ class Worker {
   // Worker's private queues (no sharing!)
   moodycamel::ConcurrentQueue<CommandWithConnId> cmd_queue_;
   moodycamel::ConcurrentQueue<ResponseWithConnId> resp_queue_;
-  
+
   // Cross-worker communication queues (MPSC)
   moodycamel::ConcurrentQueue<CrossWorkerResponse> cross_worker_resp_queue_;
   moodycamel::ConcurrentQueue<ClientInfoRequest> client_info_req_queue_;
   moodycamel::ConcurrentQueue<ClientInfoResponse> client_info_resp_queue_;
-  
+
   // Batch request queues (for multi-key commands)
   moodycamel::ConcurrentQueue<BatchCrossWorkerRequest> batch_req_queue_;
   moodycamel::ConcurrentQueue<BatchCrossWorkerResponse> batch_resp_queue_;
-  
+
   // Pending batch requests (for matching responses)
-  std::unordered_map<uint64_t, std::shared_ptr<BatchCrossWorkerRequest>> pending_batch_reqs_;
-  std::unordered_map<uint64_t, std::shared_ptr<PendingClientInfoReq>> pending_client_info_reqs_;
+  std::unordered_map<uint64_t, std::shared_ptr<BatchCrossWorkerRequest>>
+      pending_batch_reqs_;
+  std::unordered_map<uint64_t, std::shared_ptr<PendingClientInfoReq>>
+      pending_client_info_reqs_;
   std::atomic<uint64_t> next_batch_req_id_{1};
   std::atomic<uint64_t> next_client_info_req_id_{1};
 
@@ -1042,7 +1086,8 @@ class Worker {
   // Reference to all workers for cross-worker communication
   std::vector<Worker*> all_workers_;
 
-  asio::steady_timer response_timer_{io_context_};  // Timer for checking response queue
+  asio::steady_timer response_timer_{
+      io_context_};  // Timer for checking response queue
 
   std::thread io_thread_;
   std::thread exec_thread_;
@@ -1062,7 +1107,8 @@ class Worker {
   // Local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats local_stats_;
 
-  // RAII timer for command duration (NO SHARING architecture - uses local stats)
+  // RAII timer for command duration (NO SHARING architecture - uses local
+  // stats)
   class LocalCommandTimer {
    public:
     explicit LocalCommandTimer(absl::string_view command, ServerStats* stats)
@@ -1091,8 +1137,7 @@ class Worker {
 // ==============================================================================
 
 inline std::vector<std::string> Worker::SendBatchRequest(
-    const std::string& cmd_type,
-    const std::vector<std::string>& keys,
+    const std::string& cmd_type, const std::vector<std::string>& keys,
     const std::vector<std::string>& args) {
   // Group keys by worker ID
   absl::flat_hash_map<size_t, std::vector<std::string>> worker_keys;
@@ -1109,7 +1154,7 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     return {};
   }
 
-// For cross-worker requests, send requests and wait for responses
+  // For cross-worker requests, send requests and wait for responses
   absl::InlinedVector<std::vector<std::string>, 4> all_results;
   absl::InlinedVector<std::future<std::vector<std::string>>, 4> futures;
 
@@ -1129,7 +1174,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
       req->cmd_type = cmd_type;
       req->keys = sub_keys;
       req->args = args;
-      req->result_promise = std::make_shared<std::promise<std::vector<std::string>>>();
+      req->result_promise =
+          std::make_shared<std::promise<std::vector<std::string>>>();
 
       // Store the request in pending map
       {
@@ -1141,25 +1187,29 @@ inline std::vector<std::string> Worker::SendBatchRequest(
       futures.push_back(req->result_promise->get_future());
 
       // Send request to target worker
-      ASTRADB_LOG_DEBUG("Worker {}: Enqueueing batch request {} to Worker {} (keys: {})",
-                       worker_id_, req_id, target_worker_id, sub_keys.size());
+      ASTRADB_LOG_DEBUG(
+          "Worker {}: Enqueueing batch request {} to Worker {} (keys: {})",
+          worker_id_, req_id, target_worker_id, sub_keys.size());
       all_workers_[target_worker_id]->EnqueueBatchRequest(*req);
     }
   }
 
   // Wait for all cross-worker responses with timeout
-  // Note: This is still blocking, but we call ProcessBatchResponses periodically
+  // Note: This is still blocking, but we call ProcessBatchResponses
+  // periodically
   auto start_time = absl::Now();
   size_t completed = 0;
 
   while (completed < futures.size()) {
-    // Process batch responses (this is called from ExecutorLoop, so we need to do it here)
+    // Process batch responses (this is called from ExecutorLoop, so we need to
+    // do it here)
     ProcessBatchResponses();
 
     // Check if any future is ready
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
-        auto status = futures[i].wait_for(absl::ToChronoMilliseconds(absl::Milliseconds(1)));
+        auto status = futures[i].wait_for(
+            absl::ToChronoMilliseconds(absl::Milliseconds(1)));
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
@@ -1171,7 +1221,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     // Check timeout
     auto elapsed = absl::Now() - start_time;
     if (elapsed > absl::Seconds(5)) {
-      ASTRADB_LOG_ERROR("Worker {}: Batch request timeout after 5 seconds", worker_id_);
+      ASTRADB_LOG_ERROR("Worker {}: Batch request timeout after 5 seconds",
+                        worker_id_);
       // Add empty results for any remaining futures
       for (size_t i = 0; i < futures.size(); ++i) {
         if (futures[i].valid()) {
@@ -1190,9 +1241,11 @@ inline std::vector<std::string> Worker::SendBatchRequest(
   if (cmd_type == "SINTER") {
     if (!all_results.empty()) {
       // Compute intersection of all results
-      final_result = absl::InlinedVector<std::string, 8>(all_results[0].begin(), all_results[0].end());
+      final_result = absl::InlinedVector<std::string, 8>(all_results[0].begin(),
+                                                         all_results[0].end());
       for (size_t i = 1; i < all_results.size(); ++i) {
-        absl::flat_hash_set<std::string> current_set(all_results[i].begin(), all_results[i].end());
+        absl::flat_hash_set<std::string> current_set(all_results[i].begin(),
+                                                     all_results[i].end());
         absl::InlinedVector<std::string, 8> temp;
         for (const auto& member : final_result) {
           if (current_set.find(member) != current_set.end()) {
@@ -1212,45 +1265,56 @@ inline std::vector<std::string> Worker::SendBatchRequest(
 
 inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
   ASTRADB_LOG_DEBUG("Worker {}: Processing batch request {} from Worker {}",
-                   worker_id_, req.req_id, req.source_worker_id);
+                    worker_id_, req.req_id, req.source_worker_id);
 
   std::vector<std::string> result;
 
   // Execute command on this worker's database
   if (req.cmd_type == "SINTER") {
-    ASTRADB_LOG_DEBUG("Worker {}: Calling SInterLocal with {} keys", worker_id_, req.keys.size());
+    ASTRADB_LOG_DEBUG("Worker {}: Calling SInterLocal with {} keys", worker_id_,
+                      req.keys.size());
     result = data_shard_.GetDatabase().SInterLocal(req.keys);
-    ASTRADB_LOG_DEBUG("Worker {}: SInterLocal returned {} results", worker_id_, result.size());
+    ASTRADB_LOG_DEBUG("Worker {}: SInterLocal returned {} results", worker_id_,
+                      result.size());
   }
   // Add other command types as needed
 
   // Send response back
-  ASTRADB_LOG_DEBUG("Worker {}: Creating batch response for request {}", worker_id_, req.req_id);
+  ASTRADB_LOG_DEBUG("Worker {}: Creating batch response for request {}",
+                    worker_id_, req.req_id);
   BatchCrossWorkerResponse resp{req.req_id, std::move(result)};
   if (req.source_worker_id < all_workers_.size()) {
-    ASTRADB_LOG_DEBUG("Worker {}: Enqueueing batch response to Worker {}", worker_id_, req.source_worker_id);
+    ASTRADB_LOG_DEBUG("Worker {}: Enqueueing batch response to Worker {}",
+                      worker_id_, req.source_worker_id);
     all_workers_[req.source_worker_id]->EnqueueBatchResponse(resp);
-    ASTRADB_LOG_DEBUG("Worker {}: Batch response enqueued successfully", worker_id_);
+    ASTRADB_LOG_DEBUG("Worker {}: Batch response enqueued successfully",
+                      worker_id_);
   } else {
-    ASTRADB_LOG_ERROR("Worker {}: Invalid source worker ID: {}", worker_id_, req.source_worker_id);
+    ASTRADB_LOG_ERROR("Worker {}: Invalid source worker ID: {}", worker_id_,
+                      req.source_worker_id);
   }
 }
 
 inline void Worker::ProcessBatchResponses() {
   BatchCrossWorkerResponse resp;
   while (batch_resp_queue_.try_dequeue(resp)) {
-    ASTRADB_LOG_DEBUG("Worker {}: Received batch response for request {}", worker_id_, resp.req_id);
+    ASTRADB_LOG_DEBUG("Worker {}: Received batch response for request {}",
+                      worker_id_, resp.req_id);
     std::lock_guard<std::mutex> lock(batch_mutex_);
     auto it = pending_batch_reqs_.find(resp.req_id);
     if (it != pending_batch_reqs_.end()) {
-      ASTRADB_LOG_DEBUG("Worker {}: Setting promise for request {} with {} results", worker_id_, resp.req_id, resp.result.size());
+      ASTRADB_LOG_DEBUG(
+          "Worker {}: Setting promise for request {} with {} results",
+          worker_id_, resp.req_id, resp.result.size());
       // Set the promise value with the received result
       it->second->result_promise->set_value(std::move(resp.result));
       // Remove from pending map
       pending_batch_reqs_.erase(it);
-      ASTRADB_LOG_DEBUG("Worker {}: Request {} removed from pending map", worker_id_, resp.req_id);
+      ASTRADB_LOG_DEBUG("Worker {}: Request {} removed from pending map",
+                        worker_id_, resp.req_id);
     } else {
-      ASTRADB_LOG_ERROR("Worker {}: Received response for unknown request {}", worker_id_, resp.req_id);
+      ASTRADB_LOG_ERROR("Worker {}: Received response for unknown request {}",
+                        worker_id_, resp.req_id);
     }
   }
 }
@@ -1262,8 +1326,9 @@ inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
 
 // Send client info request to all workers (for CLIENT LIST command)
 inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
-  uint64_t req_id = next_client_info_req_id_.fetch_add(1, std::memory_order_relaxed);
-  
+  uint64_t req_id =
+      next_client_info_req_id_.fetch_add(1, std::memory_order_relaxed);
+
   // Create pending request
   auto pending_req = std::make_shared<PendingClientInfoReq>();
   pending_req->req_id = req_id;
@@ -1271,12 +1336,12 @@ inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
   pending_req->responses_received = 0;
   pending_req->expected_responses = all_workers_.size();
   pending_req->start_time = std::chrono::steady_clock::now();
-  
+
   {
     std::lock_guard<std::mutex> lock(batch_mutex_);
     pending_client_info_reqs_[req_id] = pending_req;
   }
-  
+
   // Send request to all workers (including self)
   for (auto& worker : all_workers_) {
     ClientInfoRequest req;
@@ -1284,16 +1349,18 @@ inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
     req.req_id = req_id;
     worker->EnqueueClientInfoRequest(req);
   }
-  
+
   return req_id;
 }
 
 // Get connection info for CLIENT LIST command
-inline std::vector<std::tuple<uint64_t, std::string, std::string, int>> Worker::GetConnectionInfo() const {
+inline std::vector<std::tuple<uint64_t, std::string, std::string, int>>
+Worker::GetConnectionInfo() const {
   std::vector<std::tuple<uint64_t, std::string, std::string, int>> info;
   for (const auto& [id, conn] : connections_) {
     if (conn && conn->IsConnected()) {
-      info.emplace_back(id, conn->GetRemoteAddress(), conn->GetClientName(), conn->GetProtocolVersion());
+      info.emplace_back(id, conn->GetRemoteAddress(), conn->GetClientName(),
+                        conn->GetProtocolVersion());
     }
   }
   return info;
@@ -1314,11 +1381,11 @@ inline bool Worker::KillConnection(uint64_t conn_id) {
 inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
   // Get connection info from this worker
   auto info = GetConnectionInfo();
-  
+
   // Build response
   ClientInfoResponse resp;
   resp.req_id = req.req_id;
-  
+
   // Convert tuple to string format
   for (const auto& [id, addr, name, resp_version] : info) {
     // Parse address to get IP and port
@@ -1336,31 +1403,29 @@ inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
 
     // Build client info string (Redis format)
     std::ostringstream info_str;
-    info_str << "id=" << id << " "
-             << "addr=" << ip << ":" << port << " "
-             << "fd=-1 "  // Socket fd not tracked
-             << "name=" << name << " "
-             << "age=0 "  // Age not tracked
-             << "idle=0 "  // Idle time not tracked
-             << "db=0 "  // Current database
-             << "sub=0 "  // Number of subscriptions
-             << "psub=0 "  // Number of pattern subscriptions
-             << "multi=-1 "  // Multi flag
-             << "qbuf=0 "  // Query buffer size
-             << "qbuf-free=0 "  // Query buffer free space
-             << "obl=0 "  // Output buffer size
-             << "oll=0 "  // Output list length
-             << "omem=0 "  // Output memory
-             << "events=r "  // Events
-             << "cmd=client "  // Last command
-             << "user=default "  // User name
-             << "redir=-1 "  // Redirect
+    info_str << "id=" << id << " " << "addr=" << ip << ":" << port << " "
+             << "fd=-1 "                            // Socket fd not tracked
+             << "name=" << name << " " << "age=0 "  // Age not tracked
+             << "idle=0 "                           // Idle time not tracked
+             << "db=0 "                             // Current database
+             << "sub=0 "                            // Number of subscriptions
+             << "psub=0 "                // Number of pattern subscriptions
+             << "multi=-1 "              // Multi flag
+             << "qbuf=0 "                // Query buffer size
+             << "qbuf-free=0 "           // Query buffer free space
+             << "obl=0 "                 // Output buffer size
+             << "oll=0 "                 // Output list length
+             << "omem=0 "                // Output memory
+             << "events=r "              // Events
+             << "cmd=client "            // Last command
+             << "user=default "          // User name
+             << "redir=-1 "              // Redirect
              << "resp=" << resp_version  // RESP version
              << "\n";
-    
+
     resp.client_info_list.push_back(info_str.str());
   }
-  
+
   // Send response back to source worker
   if (req.source_worker_id < all_workers_.size()) {
     all_workers_[req.source_worker_id]->EnqueueClientInfoResponse(resp);
@@ -1371,19 +1436,22 @@ inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
 // PubSubManager Implementation (Inline)
 // ==============================================================================
 
-inline void PubSubManager::Subscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+inline void PubSubManager::Subscribe(uint64_t conn_id,
+                                     const std::vector<std::string>& channels) {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
 
   for (const auto& channel : channels) {
     channel_subscribers_[channel].insert(conn_id);
     conn_channels_[conn_id].insert(channel);
 
-    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    size_t count =
+        conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
     SendSubscribeReply(conn_id, channel, count);
   }
 }
 
-inline void PubSubManager::Unsubscribe(uint64_t conn_id, const std::vector<std::string>& channels) {
+inline void PubSubManager::Unsubscribe(
+    uint64_t conn_id, const std::vector<std::string>& channels) {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
 
   auto it = conn_channels_.find(conn_id);
@@ -1406,7 +1474,8 @@ inline void PubSubManager::Unsubscribe(uint64_t conn_id, const std::vector<std::
 
     it->second.erase(channel);
 
-    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    size_t count =
+        conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
     SendUnsubscribeReply(conn_id, channel, count);
   }
 
@@ -1415,19 +1484,22 @@ inline void PubSubManager::Unsubscribe(uint64_t conn_id, const std::vector<std::
   }
 }
 
-inline void PubSubManager::PSubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+inline void PubSubManager::PSubscribe(
+    uint64_t conn_id, const std::vector<std::string>& patterns) {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
 
   for (const auto& pattern : patterns) {
     pattern_subscribers_[pattern].insert(conn_id);
     conn_patterns_[conn_id].insert(pattern);
 
-    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    size_t count =
+        conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
     SendSubscribeReply(conn_id, pattern, count);
   }
 }
 
-inline void PubSubManager::PUnsubscribe(uint64_t conn_id, const std::vector<std::string>& patterns) {
+inline void PubSubManager::PUnsubscribe(
+    uint64_t conn_id, const std::vector<std::string>& patterns) {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
 
   auto it = conn_patterns_.find(conn_id);
@@ -1449,7 +1521,8 @@ inline void PubSubManager::PUnsubscribe(uint64_t conn_id, const std::vector<std:
 
     it->second.erase(pattern);
 
-    size_t count = conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
+    size_t count =
+        conn_channels_[conn_id].size() + conn_patterns_[conn_id].size();
     SendUnsubscribeReply(conn_id, pattern, count);
   }
 
@@ -1458,7 +1531,8 @@ inline void PubSubManager::PUnsubscribe(uint64_t conn_id, const std::vector<std:
   }
 }
 
-inline size_t PubSubManager::Publish(const std::string& channel, const std::string& message) {
+inline size_t PubSubManager::Publish(const std::string& channel,
+                                     const std::string& message) {
   size_t subscriber_count = 0;
 
   // Send to local channel subscribers
@@ -1470,8 +1544,10 @@ inline size_t PubSubManager::Publish(const std::string& channel, const std::stri
       std::string resp_msg;
       resp_msg += "*3\r\n";
       resp_msg += "$7\r\nmessage\r\n";
-      resp_msg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-      resp_msg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+      resp_msg +=
+          "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+      resp_msg +=
+          "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
 
       for (uint64_t conn_id : it->second) {
         // Send via worker's response queue
@@ -1491,9 +1567,12 @@ inline size_t PubSubManager::Publish(const std::string& channel, const std::stri
         std::string pmsg;
         pmsg += "*4\r\n";
         pmsg += "$8\r\npmessage\r\n";
-        pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
-        pmsg += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
-        pmsg += "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
+        pmsg +=
+            "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
+        pmsg +=
+            "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
+        pmsg +=
+            "$" + std::to_string(message.size()) + "\r\n" + message + "\r\n";
 
         for (uint64_t conn_id : subscribers) {
           ResponseWithConnId resp{conn_id, pmsg};
@@ -1525,8 +1604,10 @@ inline void PubSubManager::ProcessPubSubMessage(const PubSubMessage& msg) {
       std::string resp_msg;
       resp_msg += "*3\r\n";
       resp_msg += "$7\r\nmessage\r\n";
-      resp_msg += "$" + std::to_string(msg.channel.size()) + "\r\n" + msg.channel + "\r\n";
-      resp_msg += "$" + std::to_string(msg.message.size()) + "\r\n" + msg.message + "\r\n";
+      resp_msg += "$" + std::to_string(msg.channel.size()) + "\r\n" +
+                  msg.channel + "\r\n";
+      resp_msg += "$" + std::to_string(msg.message.size()) + "\r\n" +
+                  msg.message + "\r\n";
 
       for (uint64_t conn_id : it->second) {
         ResponseWithConnId resp{conn_id, resp_msg};
@@ -1544,9 +1625,12 @@ inline void PubSubManager::ProcessPubSubMessage(const PubSubMessage& msg) {
         std::string pmsg;
         pmsg += "*4\r\n";
         pmsg += "$8\r\npmessage\r\n";
-        pmsg += "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
-        pmsg += "$" + std::to_string(msg.channel.size()) + "\r\n" + msg.channel + "\r\n";
-        pmsg += "$" + std::to_string(msg.message.size()) + "\r\n" + msg.message + "\r\n";
+        pmsg +=
+            "$" + std::to_string(pattern.size()) + "\r\n" + pattern + "\r\n";
+        pmsg += "$" + std::to_string(msg.channel.size()) + "\r\n" +
+                msg.channel + "\r\n";
+        pmsg += "$" + std::to_string(msg.message.size()) + "\r\n" +
+                msg.message + "\r\n";
 
         for (uint64_t conn_id : subscribers) {
           ResponseWithConnId resp{conn_id, pmsg};
@@ -1577,7 +1661,8 @@ inline bool PubSubManager::IsSubscribed(uint64_t conn_id) const {
          conn_patterns_.find(conn_id) != conn_patterns_.end();
 }
 
-inline std::vector<std::string> PubSubManager::GetActiveChannels(const std::string& pattern) const {
+inline std::vector<std::string> PubSubManager::GetActiveChannels(
+    const std::string& pattern) const {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
   std::vector<std::string> channels;
   for (const auto& [channel, _] : channel_subscribers_) {
@@ -1588,7 +1673,8 @@ inline std::vector<std::string> PubSubManager::GetActiveChannels(const std::stri
   return channels;
 }
 
-inline size_t PubSubManager::GetChannelSubscriberCount(const std::string& channel) const {
+inline size_t PubSubManager::GetChannelSubscriberCount(
+    const std::string& channel) const {
   std::lock_guard<std::mutex> lock(pubsub_mutex_);
   auto it = channel_subscribers_.find(channel);
   if (it != channel_subscribers_.end()) {
@@ -1602,17 +1688,20 @@ inline size_t PubSubManager::GetPatternSubscriptionCount() const {
   return pattern_subscribers_.size();
 }
 
-inline bool PubSubManager::PatternMatches(const std::string& pattern, const std::string& channel) const {
+inline bool PubSubManager::PatternMatches(const std::string& pattern,
+                                          const std::string& channel) const {
   // Simple glob pattern matching (supports * and ?)
   if (pattern == "*") {
     return true;
-  } else if (pattern.find('*') == std::string::npos && pattern.find('?') == std::string::npos) {
+  } else if (pattern.find('*') == std::string::npos &&
+             pattern.find('?') == std::string::npos) {
     // No wildcards, exact match
     return channel == pattern;
   } else {
     // Simple prefix/suffix matching for common patterns like "news:*"
     size_t star_pos = pattern.find('*');
-    if (star_pos != std::string::npos && pattern.find('*', star_pos + 1) == std::string::npos) {
+    if (star_pos != std::string::npos &&
+        pattern.find('*', star_pos + 1) == std::string::npos) {
       // Single * wildcard
       std::string prefix = pattern.substr(0, star_pos);
       std::string suffix = pattern.substr(star_pos + 1);
@@ -1631,12 +1720,15 @@ inline bool PubSubManager::PatternMatches(const std::string& pattern, const std:
       }
     } else {
       // Fallback to simple contains check
-      return channel.find(pattern.substr(0, pattern.find_first_of("*?"))) != std::string::npos;
+      return channel.find(pattern.substr(0, pattern.find_first_of("*?"))) !=
+             std::string::npos;
     }
   }
 }
 
-inline void PubSubManager::SendSubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+inline void PubSubManager::SendSubscribeReply(uint64_t conn_id,
+                                              const std::string& channel,
+                                              size_t count) {
   // Build subscribe reply: ["subscribe", channel, count]
   std::string reply;
   reply += "*3\r\n";
@@ -1648,7 +1740,9 @@ inline void PubSubManager::SendSubscribeReply(uint64_t conn_id, const std::strin
   worker_->resp_queue_.enqueue(resp);
 }
 
-inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id, const std::string& channel, size_t count) {
+inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id,
+                                                const std::string& channel,
+                                                size_t count) {
   // Build unsubscribe reply: ["unsubscribe", channel, count]
   std::string reply;
   reply += "*3\r\n";
