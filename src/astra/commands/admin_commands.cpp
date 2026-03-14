@@ -581,15 +581,15 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     // Return all commands in the format expected by redis-cli
     // Each command is an array: [name, arity, flags, first_key, last_key, step,
     // "", 0, [category]]
-    auto& registry = GetGlobalCommandRegistry();
-    auto command_names = registry.GetCommandNames();
+    auto* registry = context->GetCommandRegistry();
+    auto command_names = registry->GetCommandNames();
 
     ASTRADB_LOG_TRACE("HandleCommand: got {} command names",
                       command_names.size());
 
     std::vector<RespValue> result;
     for (const auto& name : command_names) {
-      const auto* info = registry.GetInfo(name);
+      const auto* info = registry->GetInfo(name);
       if (info) {
         std::vector<RespValue> cmd_array;
         BuildCommandInfoArrayHelper(cmd_array, info);
@@ -619,8 +619,8 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     const std::string& cmd_name = command[1].AsString();
     ASTRADB_LOG_TRACE("HandleCommand: DOCS for command '{}'", cmd_name);
 
-    auto& registry = GetGlobalCommandRegistry();
-    const auto* info = registry.GetInfo(cmd_name);
+    auto* registry = context->GetCommandRegistry();
+    const auto* info = registry->GetInfo(cmd_name);
 
     if (!info) {
       ASTRADB_LOG_TRACE("HandleCommand: DOCS - command '{}' not found",
@@ -749,8 +749,8 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
   } else if (upper_subcommand == "LIST") {
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch");
     // COMMAND LIST - return list of command names
-    auto& registry = GetGlobalCommandRegistry();
-    auto command_names = registry.GetCommandNames();
+    auto* registry = context->GetCommandRegistry();
+    auto command_names = registry->GetCommandNames();
 
     ASTRADB_LOG_TRACE("HandleCommand: LIST branch, got {} command names",
                       command_names.size());
@@ -769,15 +769,15 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
   } else if (upper_subcommand == "INFO") {
     ASTRADB_LOG_TRACE("HandleCommand: INFO branch");
     // COMMAND INFO - return information about specific commands or all commands
-    auto& registry = GetGlobalCommandRegistry();
+    auto* registry = context->GetCommandRegistry();
 
     std::vector<RespValue> result;
 
     if (command.ArgCount() == 1) {
       // No command names specified, return info for all commands
-      auto command_names = registry.GetCommandNames();
+      auto command_names = registry->GetCommandNames();
       for (const auto& name : command_names) {
-        const auto* info = registry.GetInfo(name);
+        const auto* info = registry->GetInfo(name);
         if (info) {
           std::vector<RespValue> cmd_array;
           BuildCommandInfoArrayHelper(cmd_array, info);
@@ -788,7 +788,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
       // Get info for specified commands
       for (size_t i = 1; i < command.ArgCount(); ++i) {
         const std::string& cmd_name = command[i].AsString();
-        const auto* info = registry.GetInfo(cmd_name);
+        const auto* info = registry->GetInfo(cmd_name);
         if (info) {
           std::vector<RespValue> cmd_array;
           BuildCommandInfoArrayHelper(cmd_array, info);

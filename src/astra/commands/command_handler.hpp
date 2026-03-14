@@ -177,6 +177,9 @@ class CommandContext {
   virtual void* GetServer() const { return nullptr; }
 
   // Get blocking manager (optional - return nullptr if not available)
+
+  // Get command registry (for COMMAND command - NO SHARING architecture)
+  virtual class CommandRegistry* GetCommandRegistry() { return nullptr; }
   virtual class BlockingManager* GetBlockingManager() { return nullptr; }
 
  protected:
@@ -377,9 +380,7 @@ class CommandRegistry {
 };
 
 // Global command registry instance
-CommandRegistry& GetGlobalCommandRegistry();
 
 // Set global command registry instance (called by Server)
-void SetGlobalCommandRegistry(CommandRegistry* registry);
 
 }  // namespace astra::commands

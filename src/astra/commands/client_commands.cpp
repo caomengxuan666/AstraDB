@@ -210,7 +210,7 @@ CommandResult HandleClientKill(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'client kill' command");
   }
 
-  // Note: Connection tracking not yet implemented in io_uring backend
+  // CLIENT KILL - Kill a connection by ID or address
   // Return 0 (no connections killed) for now
   protocol::RespValue resp;
   resp.SetInteger(0);
