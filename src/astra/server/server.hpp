@@ -123,6 +123,26 @@ class Server {
   class PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
   ::astra::replication::ReplicationManager* GetReplicationManager() { return replication_manager_.get(); }
 
+  // Get connection info for CLIENT LIST command
+  std::vector<std::tuple<uint64_t, std::string, std::string, int>> GetConnectionInfo() {
+    std::vector<std::tuple<uint64_t, std::string, std::string, int>> all_info;
+    for (auto& worker : workers_) {
+      auto worker_info = worker->GetConnectionInfo();
+      all_info.insert(all_info.end(), worker_info.begin(), worker_info.end());
+    }
+    return all_info;
+  }
+
+  // Kill a connection by ID (for CLIENT KILL command)
+  bool KillConnection(uint64_t conn_id) {
+    for (auto& worker : workers_) {
+      if (worker->KillConnection(conn_id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
  private:
   // Initialize persistence
   bool InitPersistence() noexcept;
