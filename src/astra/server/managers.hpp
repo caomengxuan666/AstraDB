@@ -4,6 +4,7 @@
 #pragma once
 
 #include <absl/time/time.h>
+
 #include <atomic>
 #include <memory>
 #include <string>
@@ -27,7 +28,8 @@ class PersistenceManager {
   ~PersistenceManager() { Shutdown(); }
 
   // Initialize persistence manager
-  bool Init(const std::string& data_dir, bool aof_enabled = true, bool rdb_enabled = true,
+  bool Init(const std::string& data_dir, bool aof_enabled = true,
+            bool rdb_enabled = true,
             const std::string& aof_path = "./data/aof/appendonly.aof",
             const std::string& rdb_path = "./data/dump.rdb") {
     data_dir_ = data_dir;
@@ -61,10 +63,13 @@ class PersistenceManager {
 
     // Start background thread for processing AOF commands
     running_.store(true, std::memory_order_release);
-    processing_thread_ = std::thread(&PersistenceManager::ProcessCommands, this);
+    processing_thread_ =
+        std::thread(&PersistenceManager::ProcessCommands, this);
 
-    ASTRADB_LOG_INFO("PersistenceManager: Init with data_dir={}, aof_enabled={}, rdb_enabled={}",
-                     data_dir, aof_enabled, rdb_enabled);
+    ASTRADB_LOG_INFO(
+        "PersistenceManager: Init with data_dir={}, aof_enabled={}, "
+        "rdb_enabled={}",
+        data_dir, aof_enabled, rdb_enabled);
     initialized_ = true;
     return true;
   }
@@ -113,14 +118,15 @@ class PersistenceManager {
     ASTRADB_LOG_INFO("PersistenceManager: Starting RDB save");
 
     // Collect data from all workers
-    std::vector<std::vector<std::tuple<std::string, astra::storage::KeyType,
-                                         std::string, int64_t>>> all_data;
+    std::vector<std::vector<
+        std::tuple<std::string, astra::storage::KeyType, std::string, int64_t>>>
+        all_data;
 
     for (const auto& worker : workers) {
       auto worker_data = worker->GetRdbData();
       all_data.push_back(std::move(worker_data));
       ASTRADB_LOG_DEBUG("PersistenceManager: Collected {} keys from worker {}",
-                       worker_data.size(), worker->GetWorkerId());
+                        worker_data.size(), worker->GetWorkerId());
     }
 
     // Save to RDB file using callback
@@ -174,7 +180,8 @@ class PersistenceManager {
   template <typename WorkerCollection>
   bool BackgroundSaveRdb(const WorkerCollection& workers) {
     if (bg_save_in_progress_) {
-      ASTRADB_LOG_WARN("PersistenceManager: Background RDB save already in progress");
+      ASTRADB_LOG_WARN(
+          "PersistenceManager: Background RDB save already in progress");
       return false;
     }
 
@@ -189,7 +196,9 @@ class PersistenceManager {
       ASTRADB_LOG_INFO("PersistenceManager: Background RDB save started");
       bool success = SaveRdb(workers);
       bg_save_in_progress_ = false;
-      ASTRADB_LOG_INFO("PersistenceManager: Background RDB save completed, success={}", success);
+      ASTRADB_LOG_INFO(
+          "PersistenceManager: Background RDB save completed, success={}",
+          success);
     });
 
     return true;
@@ -220,14 +229,17 @@ class PersistenceManager {
     }
 
     // Load key-value pairs from RDB file into workers
-    auto load_callback = [&workers, num_workers](int db_num, const persistence::RdbKeyValue& kv) {
-      // Calculate target worker based on key hash (consistent with NO SHARING architecture)
+    auto load_callback = [&workers, num_workers](
+                             int db_num, const persistence::RdbKeyValue& kv) {
+      // Calculate target worker based on key hash (consistent with NO SHARING
+      // architecture)
       size_t hash = std::hash<std::string>{}(kv.key);
       size_t target_worker = hash % num_workers;
 
       // Get target worker
       size_t idx = 0;
-      typename std::decay_t<decltype(workers)>::value_type target_worker_ptr = nullptr;
+      typename std::decay_t<decltype(workers)>::value_type target_worker_ptr =
+          nullptr;
       for (const auto& w : workers) {
         if (idx == target_worker) {
           target_worker_ptr = w;
@@ -239,7 +251,7 @@ class PersistenceManager {
       if (target_worker_ptr) {
         // Load key-value into target worker's database
         auto& db = target_worker_ptr->GetDataShard().GetDatabase();
-        
+
         // Calculate TTL
         int64_t ttl_ms = -1;
         if (kv.expire_ms > 0) {
@@ -247,7 +259,7 @@ class PersistenceManager {
           auto expire_time = absl::FromUnixMillis(kv.expire_ms);
           auto ttl = expire_time - now;
           ttl_ms = absl::ToInt64Milliseconds(ttl);
-          
+
           // Skip expired keys
           if (ttl_ms <= 0) {
             return;
@@ -264,7 +276,10 @@ class PersistenceManager {
             break;
           case persistence::RDB_TYPE_HASH:
             // TODO: Parse field-value pairs from serialized value
-            ASTRADB_LOG_WARN("PersistenceManager: Hash type not fully supported yet for key {}", kv.key);
+            ASTRADB_LOG_WARN(
+                "PersistenceManager: Hash type not fully supported yet for key "
+                "{}",
+                kv.key);
             break;
           case persistence::RDB_TYPE_LIST:
             db.LPush(kv.key, kv.value);  // Simplified: single value
@@ -305,7 +320,7 @@ class PersistenceManager {
  private:
   // Background thread to process commands and write to AOF
   void ProcessCommands() {
-    ASTRADB_LOG_INFO("PersistenceManager: Command processing thread started");
+    ASTRADB_LOG_DEBUG("PersistenceManager: Command processing thread started");
 
     while (running_.load(std::memory_order_acquire)) {
       // Process commands in batch
@@ -313,8 +328,7 @@ class PersistenceManager {
       std::string rcmd;
       size_t processed = 0;
 
-      while (processed < kBatchSize &&
-             command_queue_.try_dequeue(rcmd)) {
+      while (processed < kBatchSize && command_queue_.try_dequeue(rcmd)) {
         aof_writer_.Append(rcmd);
         rcmd.clear();
         processed++;
@@ -383,26 +397,7 @@ class ClusterManager {
     return true;
   }
 
-  void Shutdown() {
-    ASTRADB_LOG_INFO("ClusterManager: Shutdown");
-  }
-};
-
-// Simple Pub/Sub manager stub
-// TODO: Implement full Pub/Sub with cross-worker communication
-class PubSubManager {
- public:
-  PubSubManager() = default;
-  ~PubSubManager() = default;
-
-  bool Init() {
-    ASTRADB_LOG_INFO("PubSubManager: Init");
-    return true;
-  }
-
-  void Shutdown() {
-    ASTRADB_LOG_INFO("PubSubManager: Shutdown");
-  }
+  void Shutdown() { ASTRADB_LOG_INFO("ClusterManager: Shutdown"); }
 };
 
 // Metrics Manager - Prometheus metrics collection and HTTP server
@@ -449,12 +444,12 @@ class MetricsManager {
         // Run io_context
         metrics_io_context_->run();
 
-        ASTRADB_LOG_INFO("MetricsManager: HTTP server thread exited");
+        ASTRADB_LOG_DEBUG("MetricsManager: HTTP server thread exited");
       });
 
       // Start periodic update thread
       update_thread_ = std::thread([this]() {
-        ASTRADB_LOG_INFO("MetricsManager: Starting periodic update thread");
+        ASTRADB_LOG_DEBUG("MetricsManager: Starting periodic update thread");
 
         auto start_time = std::chrono::steady_clock::now();
         while (running_.load()) {
@@ -464,9 +459,12 @@ class MetricsManager {
 
           // Update uptime
           auto now = std::chrono::steady_clock::now();
-          auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
-          astra::server::ServerStatsAccessor::Instance().GetStats()->uptime_seconds.store(
-              uptime, std::memory_order_relaxed);
+          auto uptime =
+              std::chrono::duration_cast<std::chrono::seconds>(now - start_time)
+                  .count();
+          astra::server::ServerStatsAccessor::Instance()
+              .GetStats()
+              ->uptime_seconds.store(uptime, std::memory_order_relaxed);
 
           // Sync ServerStats to Prometheus
           astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
@@ -476,10 +474,11 @@ class MetricsManager {
           // astra::metrics::AstraMetrics::Instance().SetMemoryUsed(...);
         }
 
-        ASTRADB_LOG_INFO("MetricsManager: Periodic update thread exited");
+        ASTRADB_LOG_DEBUG("MetricsManager: Periodic update thread exited");
       });
 
-      ASTRADB_LOG_INFO("MetricsManager: Initialized successfully with custom HTTP server");
+      ASTRADB_LOG_INFO(
+          "MetricsManager: Initialized successfully with custom HTTP server");
       initialized_ = true;
       return true;
     } catch (const std::exception& e) {
