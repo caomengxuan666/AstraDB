@@ -124,44 +124,59 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
     throw std::runtime_error("Failed to set reuse_address: " + ec.message());
   }
 
-  // Enable SO_REUSEPORT/SO_REUSEADDR for kernel-level load balancing
-  // On Windows: Uses SO_REUSEADDR which behaves like SO_REUSEPORT + SO_REUSEADDR on BSD
-  // On Linux/Unix: Uses SO_REUSEPORT for true port reuse
+  // Enable port reuse for multiple acceptors binding to the same address/port
+  // ASIO's reuse_address option is cross-platform and handles platform differences
+  // - Windows: Uses SO_REUSEADDR (allows binding to address/port in use)
+  // - Linux: Uses SO_REUSEADDR (allows rebinding after TIME_WAIT)
+  // - macOS/BSD: Uses SO_REUSEADDR
+  //
+  // On Linux, we additionally use SO_REUSEPORT for kernel-level load balancing
+  // (allows multiple acceptors to share the same port with kernel distributing connections)
   if (reuse_port) {
+#ifndef _WIN32
+    // On Linux/Unix, try to enable SO_REUSEPORT for kernel-level load balancing
+    // This allows multiple acceptors to bind to the same address/port
+    // and the kernel will distribute connections evenly across them
     acceptor->set_option(
-        asio::detail::socket_option::boolean<SOL_SOCKET, ASTRADB_REUSEPORT>(true),
+        asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT>(true),
         ec);
     if (ec) {
       ASTRADB_LOG_WARN(
-          "Worker {}: Port reuse option ({}) not supported: {} (using single "
+          "Worker {}: SO_REUSEPORT not supported: {} (falling back to single "
           "acceptor mode)",
-          worker_id,
-#ifdef _WIN32
-          "SO_REUSEADDR",
-#else
-          "SO_REUSEPORT",
-#endif
-          ec.message());
+          worker_id, ec.message());
       if (worker_id == 0) {
         ASTRADB_LOG_INFO(
             "Falling back to single acceptor mode - connections will be "
             "accepted by worker 0 only");
       }
-      // If port reuse fails, only worker 0 should continue
+      // If SO_REUSEPORT fails, only worker 0 should continue
       if (worker_id != 0) {
         return;
       }
     } else if (worker_id == 0) {
       ASTRADB_LOG_INFO(
-          "{} enabled - kernel will distribute connections evenly "
+          "SO_REUSEPORT enabled - kernel will distribute connections evenly "
           "across {} workers",
-#ifdef _WIN32
-          "SO_REUSEADDR",
-#else
-          "SO_REUSEPORT",
-#endif
           num_workers_);
     }
+#else
+    // On Windows, SO_REUSEPORT is not supported
+    // Windows uses SO_REUSEADDR which is already set above
+    // Note: Windows 10+ has SO_REUSE_UNICASTPORT but it's not directly available via ASIO
+    ASTRADB_LOG_WARN(
+        "Worker {}: SO_REUSEPORT not supported on Windows (using single acceptor mode)",
+        worker_id);
+    if (worker_id == 0) {
+      ASTRADB_LOG_INFO(
+          "Using single acceptor mode - connections will be accepted by worker 0 "
+          "only");
+    }
+    // Only worker 0 should continue on Windows
+    if (worker_id != 0) {
+      return;
+    }
+#endif
   }
 
   // Bind

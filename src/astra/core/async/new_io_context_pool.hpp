@@ -14,23 +14,14 @@
   // Windows
   #include <winsock2.h>
   #include <windows.h>
-  
-  // Windows port reuse options:
-  // - SO_REUSE_UNICASTPORT (Windows 10/11): Best for unicast port reuse (like SO_REUSEPORT on Linux)
-  // - SO_REUSEADDR: Legacy option, allows binding to address/port in use
-  #ifndef SO_REUSE_UNICASTPORT
-    #define SO_REUSE_UNICASTPORT 0x0004  // Defined in Mswsock.h for Windows 10+
-  #endif
-  
-  // On Windows, prefer SO_REUSE_UNICASTPORT (if available), fallback to SO_REUSEADDR
-  #define ASTRADB_REUSEPORT SO_REUSE_UNICASTPORT
 #else
   // Linux/Unix
   #include <sys/socket.h>
+  
+  // SO_REUSEPORT option for Linux (for kernel-level load balancing)
   #ifndef SO_REUSEPORT
     #define SO_REUSEPORT 15
   #endif
-  #define ASTRADB_REUSEPORT SO_REUSEPORT
 #endif
 
 namespace astra::core::async {
