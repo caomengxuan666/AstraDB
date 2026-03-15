@@ -81,7 +81,6 @@ int main(int argc, char** argv) {
     const std::string dev_config = "astradb-dev.toml";
     std::ifstream dev_file(dev_config);
     if (dev_file.good()) {
-      ASTRADB_LOG_INFO("Using development configuration: {}", dev_config);
       config_file = dev_config;
     }
     dev_file.close();
@@ -137,7 +136,7 @@ int main(int argc, char** argv) {
 
   // Print AstraDB startup banner with ASCII art logo
   ASTRADB_LOG_INFO(R"(
-                                       AAA                                         tttt                                                DDDDDDDDDDDDD        BBBBBBBBBBBBBBBBB   
+               AAA                                       ttttt                                                 DDDDDDDDDDDDD        BBBBBBBBBBBBBBBBB   
               A:::A                                     ttt:::t                                                D::::::::::::DDD     B::::::::::::::::B  
              A:::::A                                    t:::::t                                                D:::::::::::::::DD   B::::::BBBBBB:::::B 
             A:::::::A                                   t:::::t                                                DDD:::::DDDDD:::::D  BB:::::B     B:::::B
@@ -159,7 +158,8 @@ AAAAAAA                   AAAAAAA  sssssssssss              ttttttttttt   rrrrrr
   ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
   ASTRADB_LOG_INFO("Build:       {} {}", __DATE__, __TIME__);
   ASTRADB_LOG_INFO("Git Branch:  {}", ASTRADB_GIT_BRANCH);
-  ASTRADB_LOG_INFO("Git Commit:  {} ({})", ASTRADB_GIT_COMMIT_HASH, ASTRADB_GIT_COMMIT_SHORT);
+  ASTRADB_LOG_INFO("Git Commit:  {} ({})", ASTRADB_GIT_COMMIT_HASH,
+                   ASTRADB_GIT_COMMIT_SHORT);
   ASTRADB_LOG_INFO("Git Status:  {}", ASTRADB_GIT_IS_DIRTY ? "Dirty" : "Clean");
   ASTRADB_LOG_INFO("========================================");
 
@@ -285,7 +285,8 @@ AAAAAAA                   AAAAAAA  sssssssssss              ttttttttttt   rrrrrr
   try {
     g_server->Start();
 
-    // Wait for server to stop (NO SHARING architecture - Start() is non-blocking)
+    // Wait for server to stop (NO SHARING architecture - Start() is
+    // non-blocking)
     while (g_server->IsRunning()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
