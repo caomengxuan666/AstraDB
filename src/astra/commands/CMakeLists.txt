@@ -92,7 +92,7 @@ if(TARGET libgossip)
     PRIVATE ${libgossip_download_SOURCE_DIR}/include
             ${libgossip_download_SOURCE_DIR}/third_party
             ${libgossip_download_SOURCE_DIR}/third_party/json/single_include)
-  target_link_libraries(astra_commands PUBLIC libgossip)
+  target_link_libraries(astra_commands PUBLIC libgossip::core libgossip::network)
 endif()
 
 # Link Lua library
