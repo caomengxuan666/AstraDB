@@ -97,3 +97,6 @@ DOCS/PAPER
 
 # Auto-generated version information
 include/astra/base/version.hpp
+
+# Development configuration (not tracked in version control)
+astradb-dev.toml

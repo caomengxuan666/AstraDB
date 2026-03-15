@@ -6,6 +6,9 @@
 
 #include <csignal>
 #include <cxxopts.hpp>
+#include <fmt/color.h>
+#include <fmt/core.h>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -14,6 +17,7 @@
 #include "astra/base/config.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/base/macros.hpp"
+#include "astra/base/version.hpp"
 #include "astra/server/server.hpp"
 
 namespace {
@@ -73,6 +77,17 @@ int main(int argc, char** argv) {
   // Get config file path
   std::string config_file = result["config"].as<std::string>();
 
+  // Prioritize development config if not explicitly specified
+  if (config_file == "astradb.toml") {
+    // Check if development config exists
+    const std::string dev_config = "astradb-dev.toml";
+    std::ifstream dev_file(dev_config);
+    if (dev_file.good()) {
+      config_file = dev_config;
+    }
+    dev_file.close();
+  }
+
   // Load config from file
   auto config = astra::base::ServerConfig::LoadFromFile(config_file);
 
@@ -121,9 +136,34 @@ int main(int argc, char** argv) {
   astra::base::InitLogging(config.log_file, log_level, config.log_async,
                            config.log_queue_size);
 
-  ASTRADB_LOG_INFO("========================================");
-  ASTRADB_LOG_INFO("AstraDB - High-Performance Redis-Compatible Database");
-  ASTRADB_LOG_INFO("Version: {}", ASTRADB_VERSION_STRING);
+  // Print AstraDB startup banner with ASCII art logo (always visible)
+  // Use vibrant gradient colors from cyan to magenta via RGB
+  fmt::print("\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 255, 255)) | fmt::emphasis::bold, "               AAA                                       tttt                                             DDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB   \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 230, 255)) | fmt::emphasis::bold, "              A:::A                                   ttt:::t                                             D::::::::::::DDD   B::::::::::::::::B  \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 200, 255)) | fmt::emphasis::bold, "             A:::::A                                  t:::::t                                             D:::::::::::::::DD B::::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 175, 255)) | fmt::emphasis::bold, "            A:::::::A                                 t:::::t                                             DDD:::::DDDDD:::::DBB:::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 150, 255)) | fmt::emphasis::bold, "           A:::::::::A             ssssssssss   ttttttt:::::ttttttt   rrrrr   rrrrrrrrr   aaaaaaaaaaaaa     D:::::D    D:::::D B::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 125, 255)) | fmt::emphasis::bold, "          A:::::A:::::A          ss::::::::::s  t:::::::::::::::::t   r::::rrr:::::::::r  a::::::::::::a    D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 100, 255)) | fmt::emphasis::bold, "         A:::::A A:::::A       ss:::::::::::::s t:::::::::::::::::t   r:::::::::::::::::r aaaaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 75, 255)) | fmt::emphasis::bold,  "        A:::::A   A:::::A      s::::::ssss:::::stttttt:::::::tttttt   rr::::::rrrrr::::::r         a::::a   D:::::D     D:::::DB:::::::::::::BB  \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 50, 255)) | fmt::emphasis::bold,  "       A:::::A     A:::::A      s:::::s  ssssss       t:::::t          r:::::r     r:::::r  aaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 25, 255)) | fmt::emphasis::bold,  "      A:::::AAAAAAAAA:::::A       s::::::s            t:::::t          r:::::r     rrrrrrraa::::::::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(75, 0, 255)) | fmt::emphasis::bold,  "     A:::::::::::::::::::::A         s::::::s         t:::::t          r:::::r           a::::aaaa::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(125, 0, 255)) | fmt::emphasis::bold, "    A:::::AAAAAAAAAAAAA:::::A  ssssss   s:::::s       t:::::t    ttttttr:::::r          a::::a    a:::::a   D:::::D    D:::::D B::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(175, 0, 255)) | fmt::emphasis::bold, "   A:::::A             A:::::A s:::::ssss::::::s      t::::::tttt:::::tr:::::r          a::::a    a:::::a DDD:::::DDDDD:::::DBB:::::BBBBBB::::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(200, 0, 255)) | fmt::emphasis::bold, "  A:::::A               A:::::As::::::::::::::s       tt::::::::::::::tr:::::r          a:::::aaaa::::::a D:::::::::::::::DD B:::::::::::::::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(225, 0, 255)) | fmt::emphasis::bold, " A:::::A                 A:::::As:::::::::::ss          tt:::::::::::ttr:::::r           a::::::::::aa:::aD::::::::::::DDD   B::::::::::::::::B  \n");
+  fmt::print(fmt::fg(fmt::rgb(255, 0, 255)) | fmt::emphasis::bold, "AAAAAAA                   AAAAAAAsssssssssss              ttttttttttt  rrrrrrr            aaaaaaaaaa  aaaaDDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB \n");
+  fmt::print("\n");
+
+  // Print version information
+  ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
+  ASTRADB_LOG_INFO("Build:       {} {}", __DATE__, __TIME__);
+  ASTRADB_LOG_INFO("Git Branch:  {}", ASTRADB_GIT_BRANCH);
+  ASTRADB_LOG_INFO("Git Commit:  {} ({})", ASTRADB_GIT_COMMIT_HASH,
+                   ASTRADB_GIT_COMMIT_SHORT);
+  ASTRADB_LOG_INFO("Git Status:  {}", ASTRADB_GIT_IS_DIRTY ? "Dirty" : "Clean");
   ASTRADB_LOG_INFO("========================================");
 
   // Print build information
@@ -248,7 +288,8 @@ int main(int argc, char** argv) {
   try {
     g_server->Start();
 
-    // Wait for server to stop (NO SHARING architecture - Start() is non-blocking)
+    // Wait for server to stop (NO SHARING architecture - Start() is
+    // non-blocking)
     while (g_server->IsRunning()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
