@@ -7,9 +7,14 @@
 # ==============================================================================
 
 cmake_minimum_required(VERSION 3.20)
+
+# Read version from VERSION file
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReadVersionFile.cmake)
+read_version_file()
+
 project(
   AstraDB
-  VERSION 1.0.0
+  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
   DESCRIPTION "Ultra-high performance Redis-compatible database"
   LANGUAGES CXX C)
 
