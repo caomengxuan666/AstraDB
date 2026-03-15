@@ -13,11 +13,11 @@ thread_count = 2
 # use_per_worker_io: Enable per-worker IO architecture (SO_REUSEPORT)
 #   - true: Each worker has its own io_context and acceptor (recommended for high performance)
 #   - false: Use legacy single acceptor architecture (backward compatible)
-use_per_worker_io = false
+use_per_worker_io = true
 # use_so_reuseport: Enable SO_REUSEPORT for kernel-level load balancing (only works with use_per_worker_io=true)
 #   - true: Kernel automatically distributes connections across workers
 #   - false: Connections accepted by worker 0 only (fallback mode)
-use_so_reuseport = false
+use_so_reuseport = true
 
 [database]
 # Number of databases
