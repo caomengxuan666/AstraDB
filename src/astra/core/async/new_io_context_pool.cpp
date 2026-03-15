@@ -125,7 +125,8 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
   }
 
   // Enable SO_REUSEPORT for kernel-level load balancing
-  if (reuse_port) {
+  // Note: SO_REUSEPORT is only available on Linux, not on Windows
+  if (reuse_port && SO_REUSEPORT != 0) {
     acceptor->set_option(
         asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT>(true),
         ec);
@@ -148,6 +149,21 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
           "SO_REUSEPORT enabled - kernel will distribute connections evenly "
           "across {} workers",
           num_workers_);
+    }
+  } else if (reuse_port && SO_REUSEPORT == 0) {
+    // SO_REUSEPORT requested but not supported (e.g., on Windows)
+    ASTRADB_LOG_WARN(
+        "Worker {}: SO_REUSEPORT not supported on this platform (using single "
+        "acceptor mode)",
+        worker_id);
+    if (worker_id == 0) {
+      ASTRADB_LOG_INFO(
+          "Using single acceptor mode - connections will be accepted by worker 0 "
+          "only");
+    }
+    // Only worker 0 should continue
+    if (worker_id != 0) {
+      return;
     }
   }
 

@@ -10,11 +10,23 @@
 #include <thread>
 #include <vector>
 
-#include <sys/socket.h>
+#ifdef _WIN32
+  // Windows
+  #include <winsock2.h>
+  #include <windows.h>
+#else
+  // Linux/Unix
+  #include <sys/socket.h>
+#endif
 
-// SO_REUSEPORT option for Linux
+// SO_REUSEPORT option for Linux (not available on Windows)
 #ifndef SO_REUSEPORT
-#define SO_REUSEPORT 15
+  #ifdef _WIN32
+    // Windows does not support SO_REUSEPORT
+    #define SO_REUSEPORT 0
+  #else
+    #define SO_REUSEPORT 15
+  #endif
 #endif
 
 namespace astra::core::async {
