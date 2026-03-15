@@ -124,46 +124,43 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
     throw std::runtime_error("Failed to set reuse_address: " + ec.message());
   }
 
-  // Enable SO_REUSEPORT for kernel-level load balancing
-  // Note: SO_REUSEPORT is only available on Linux, not on Windows
-  if (reuse_port && SO_REUSEPORT != 0) {
+  // Enable SO_REUSEPORT/SO_REUSEADDR for kernel-level load balancing
+  // On Windows: Uses SO_REUSEADDR which behaves like SO_REUSEPORT + SO_REUSEADDR on BSD
+  // On Linux/Unix: Uses SO_REUSEPORT for true port reuse
+  if (reuse_port) {
     acceptor->set_option(
-        asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT>(true),
+        asio::detail::socket_option::boolean<SOL_SOCKET, ASTRADB_REUSEPORT>(true),
         ec);
     if (ec) {
       ASTRADB_LOG_WARN(
-          "Worker {}: SO_REUSEPORT not supported: {} (using single acceptor "
-          "mode)",
-          worker_id, ec.message());
+          "Worker {}: Port reuse option ({}) not supported: {} (using single "
+          "acceptor mode)",
+          worker_id,
+#ifdef _WIN32
+          "SO_REUSEADDR",
+#else
+          "SO_REUSEPORT",
+#endif
+          ec.message());
       if (worker_id == 0) {
         ASTRADB_LOG_INFO(
             "Falling back to single acceptor mode - connections will be "
             "accepted by worker 0 only");
       }
-      // If SO_REUSEPORT fails, only worker 0 should continue
+      // If port reuse fails, only worker 0 should continue
       if (worker_id != 0) {
         return;
       }
     } else if (worker_id == 0) {
       ASTRADB_LOG_INFO(
-          "SO_REUSEPORT enabled - kernel will distribute connections evenly "
+          "{} enabled - kernel will distribute connections evenly "
           "across {} workers",
+#ifdef _WIN32
+          "SO_REUSEADDR",
+#else
+          "SO_REUSEPORT",
+#endif
           num_workers_);
-    }
-  } else if (reuse_port && SO_REUSEPORT == 0) {
-    // SO_REUSEPORT requested but not supported (e.g., on Windows)
-    ASTRADB_LOG_WARN(
-        "Worker {}: SO_REUSEPORT not supported on this platform (using single "
-        "acceptor mode)",
-        worker_id);
-    if (worker_id == 0) {
-      ASTRADB_LOG_INFO(
-          "Using single acceptor mode - connections will be accepted by worker 0 "
-          "only");
-    }
-    // Only worker 0 should continue
-    if (worker_id != 0) {
-      return;
     }
   }
 
