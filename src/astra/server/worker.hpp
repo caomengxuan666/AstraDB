@@ -395,11 +395,29 @@ class Worker {
     acceptor_.open(endpoint.protocol());
     acceptor_.set_option(asio::socket_base::reuse_address(true));
 
-// Enable SO_REUSEPORT
+    // Enable SO_REUSEPORT for kernel-level load balancing
+    // This allows multiple acceptors to bind to the same address/port
+    // and the kernel will distribute connections evenly across them
 #ifdef SO_REUSEPORT
     int reuseport = 1;
-    setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT, &reuseport,
-               sizeof(reuseport));
+    int result = setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT,
+                            &reuseport, sizeof(reuseport));
+    if (result == 0) {
+      ASTRADB_LOG_INFO(
+          "Worker {}: SO_REUSEPORT enabled - kernel will distribute connections "
+          "evenly across workers",
+          worker_id_);
+    } else {
+      ASTRADB_LOG_WARN(
+          "Worker {}: Failed to enable SO_REUSEPORT: {} (falling back to "
+          "single acceptor mode)",
+          worker_id_, strerror(errno));
+    }
+#else
+    ASTRADB_LOG_WARN(
+        "Worker {}: SO_REUSEPORT not supported on this platform (using single "
+        "acceptor mode)",
+        worker_id_);
 #endif
 
     acceptor_.bind(endpoint);
