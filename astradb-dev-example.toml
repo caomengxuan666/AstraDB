@@ -1,0 +1,119 @@
+# AstraDB Development Configuration File
+# This file is a template for development environment configuration
+# Copy this file to astradb-dev.toml and modify as needed
+
+[server]
+# Network binding
+host = "0.0.0.0"
+port = 6379
+max_connections = 10000
+# Set to 0 to auto-detect number of threads
+thread_count = 2
+
+# Network Architecture Configuration
+# use_per_worker_io: Enable per-worker IO architecture (SO_REUSEPORT)
+#   - true: Each worker has its own io_context and acceptor (recommended for high performance)
+#   - false: Use legacy single acceptor architecture (backward compatible)
+use_per_worker_io = true
+# use_so_reuseport: Enable SO_REUSEPORT for kernel-level load balancing (only works with use_per_worker_io=true)
+#   - true: Kernel automatically distributes connections across workers
+#   - false: Connections accepted by worker 0 only (fallback mode)
+use_so_reuseport = true
+
+[database]
+# Number of databases
+num_databases = 16
+# Number of data shards for parallel processing
+num_shards = 16
+
+[logging]
+# Development: set to 'trace' for detailed debugging information
+level = "trace"
+file = "astradb.log"
+async = false
+queue_size = 8192
+
+[performance]
+# Enable automatic pipeline processing
+enable_pipeline = true
+# Enable response compression (not implemented yet)
+enable_compression = false
+
+# =============================================================================
+# Async / Coroutine Configuration
+# =============================================================================
+[async]
+# Use coroutines for command processing (default: true)
+# When enabled, commands are processed asynchronously using C++20 coroutines
+# When disabled, commands are processed synchronously (fallback mode)
+use_async_commands = true
+
+# =============================================================================
+# Persistence Configuration (LevelDB)
+# =============================================================================
+[persistence]
+# Enable persistence (RDB-like snapshots + AOF-like WAL via LevelDB)
+enabled = false
+# Data directory for LevelDB storage
+data_dir = "./data/astradb"
+# Write buffer size (4MB default)
+write_buffer_size = 4194304
+# LRU cache size (256MB default)
+cache_size = 268435456
+# Sync writes to disk (slower but more durable)
+sync_writes = false
+
+# =============================================================================
+# AOF Configuration (NO SHARING Architecture)
+# =============================================================================
+[aof]
+# Enable AOF (Append-Only File) persistence
+enabled = true
+# AOF file path
+path = "./data/aof/appendonly.aof"
+# Sync policy: true = sync every second, false = sync after every write
+sync_everysec = true
+
+# =============================================================================
+# RDB Configuration (NO SHARING Architecture)
+# =============================================================================
+[rdb]
+# Enable RDB (Redis Database) persistence
+enabled = true
+# RDB file path
+path = "./data/dump.rdb"
+# Auto-save (not implemented yet)
+auto_save = false
+# Save interval in seconds (not implemented yet)
+save_interval = 300
+
+# =============================================================================
+# Prometheus Metrics Configuration
+# =============================================================================
+[metrics]
+# Enable Prometheus metrics collection
+enabled = true
+# Metrics bind address
+bind_addr = "0.0.0.0"
+# Metrics port (default: 12345, avoid conflict with other services)
+port = 12345
+# Metrics endpoint path
+endpoint = "/metrics"
+
+# =============================================================================
+# Cluster Configuration (Redis Cluster Compatible)
+# =============================================================================
+[cluster]
+# Enable cluster mode
+enabled = false
+# Unique node ID (32 hex characters, auto-generated if empty)
+node_id = ""
+# Bind address for gossip protocol
+bind_addr = "0.0.0.0"
+# Gossip protocol port (default: 7946, Redis uses 16379 for cluster bus)
+gossip_port = 7946
+# Number of hash slots / shards (16384 total slots, Redis compatible)
+shard_count = 256
+# Seed nodes for cluster join (format: "ip:port")
+# Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
+seeds = []
