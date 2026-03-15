@@ -20,10 +20,17 @@ jobs:
             preset: linux-package-clang
             package_preset: linux-clang-deb
             package_preset2: linux-clang-tgz
+            variant: epoll
+          - os: ubuntu-latest
+            preset: linux-package-clang-iouring
+            package_preset: linux-clang-iouring-deb
+            package_preset2: linux-clang-iouring-tgz
+            variant: iouring
           - os: windows-latest
             preset: windows-package-msvc
             package_preset: windows-msvc-zip
             package_preset2: windows-msvc-msi
+            variant: windows
 
     steps:
       - uses: actions/checkout@v4

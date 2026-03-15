@@ -26,7 +26,7 @@ num_databases = 16
 num_shards = 16
 
 [logging]
-level = "trace"
+level = "warn"
 file = "astradb.log"
 async = false
 queue_size = 8192

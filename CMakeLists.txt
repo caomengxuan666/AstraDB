@@ -7,9 +7,14 @@
 # ==============================================================================
 
 cmake_minimum_required(VERSION 3.20)
+
+# Read version from PROJECT_VERSION file
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReadVersionFile.cmake)
+read_version_file()
+
 project(
   AstraDB
-  VERSION 1.0.0
+  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
   DESCRIPTION "Ultra-high performance Redis-compatible database"
   LANGUAGES CXX C)
 
@@ -443,12 +448,20 @@ set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
 if(UNIX AND NOT APPLE)
     # Linux-specific
     set(CPACK_GENERATOR "DEB;TGZ;RPM")
+
+    # Add backend suffix to package name to distinguish epoll vs io_uring builds
+    if(ASTRADB_ENABLE_IO_URING)
+        set(BACKEND_SUFFIX "-iouring")
+    else()
+        set(BACKEND_SUFFIX "-epoll")
+    endif()
+    set(CPACK_PACKAGE_FILE_NAME "astradb-${PROJECT_VERSION}-Linux${BACKEND_SUFFIX}")
     
     # DEB package settings
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.17), libgcc-s1, libstdc++6")
     set(CPACK_DEBIAN_PACKAGE_SECTION "database")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+    set(CPACK_DEBIAN_FILE_NAME "astradb-${PROJECT_VERSION}${BACKEND_SUFFIX}_amd64.deb")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_COMPRESSION_TYPE "gzip")
     
