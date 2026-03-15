@@ -342,8 +342,14 @@ if(asio_ADDED)
       # Linux: try to enable io_uring backend
       find_library(LIBURING_LIB NAMES uring)
       if(LIBURING_LIB)
-        target_compile_definitions(asio::asio PRIVATE ASIO_HAS_IO_URING)
-        target_link_libraries(asio::asio INTERFACE ${LIBURING_LIB})
+        # Create an interface library for io_uring support
+        add_library(asio::io_uring INTERFACE IMPORTED)
+        target_compile_definitions(asio::io_uring INTERFACE ASIO_HAS_IO_URING)
+        target_link_libraries(asio::io_uring INTERFACE ${LIBURING_LIB})
+        
+        # Link io_uring library to asio target
+        target_link_libraries(asio::asio INTERFACE asio::io_uring)
+        
         message(STATUS "✅ Created asio::asio target with io_uring backend")
       else()
         message(WARNING "liburing not found, falling back to epoll backend")
@@ -368,9 +374,9 @@ CPMAddPackage(
         NAME
         libgossip_download
         VERSION
-        1.2.0
+        1.2.1.3
         URL
-        https://github.com/caomengxuan666/libgossip/archive/master.tar.gz
+        https://github.com/caomengxuan666/libgossip/archive/refs/tags/v1.2.1.3.tar.gz
         DOWNLOAD_ONLY
         YES)
 # Set LIBGOSSIP_SOURCE variable
