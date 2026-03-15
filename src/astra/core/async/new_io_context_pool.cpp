@@ -238,8 +238,8 @@ void NewIOContextPool::DoAccept(size_t worker_id) {
     
     if (!ec) {
       ASTRADB_LOG_INFO("Worker {} accepted new connection (fd: {})",
-                       worker_id, socket.native_handle());
-
+                       worker_id,
+                       reinterpret_cast<uintptr_t>(socket.native_handle()));
       // Check if running
       if (!running_) {
         ASTRADB_LOG_WARN("Worker {} pool not running, closing socket", worker_id);

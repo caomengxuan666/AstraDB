@@ -23,7 +23,7 @@ class IOSession : public std::enable_shared_from_this<IOSession> {
       : socket_(std::move(socket)),
         worker_id_(worker_id) {
     ASTRADB_LOG_INFO("Worker {}: Session created, fd: {}", worker_id_,
-                     socket_.native_handle());
+                     reinterpret_cast<uintptr_t>(socket_.native_handle()));
   }
 
   void Start() {
