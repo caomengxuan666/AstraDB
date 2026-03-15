@@ -875,8 +875,14 @@ class Worker {
             asio::redirect_error(asio::use_awaitable, ec));
 
         if (ec) {
-          ASTRADB_LOG_ERROR("Worker {}: Connection {} read error: {}",
-                            worker_id_, conn_id_, ec.message());
+          // EOF is a normal connection closure, log as debug instead of error
+          if (ec == asio::error::eof) {
+            ASTRADB_LOG_DEBUG("Worker {}: Connection {} closed by client",
+                              worker_id_, conn_id_);
+          } else {
+            ASTRADB_LOG_ERROR("Worker {}: Connection {} read error: {}",
+                              worker_id_, conn_id_, ec.message());
+          }
           break;
         }
 
