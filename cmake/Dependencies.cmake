@@ -336,10 +336,27 @@ if(asio_ADDED)
   target_include_directories(asio::asio INTERFACE
           ${asio_SOURCE_DIR}/asio/include)
 
-  # Disable io_uring backend and use epoll for all platforms
-  # NOTE: io_uring is disabled to fix Windows CI build failures
-  # asio will use epoll on Linux and kqueue on macOS
-  message(STATUS "✅ Created asio::asio target with epoll backend (io_uring disabled)")
+  # Check if io_uring backend is enabled
+  if(ASTRADB_ENABLE_IO_URING)
+    if(UNIX AND NOT APPLE)
+      # Linux: try to enable io_uring backend
+      find_library(LIBURING_LIB NAMES uring)
+      if(LIBURING_LIB)
+        target_compile_definitions(asio::asio PRIVATE ASIO_HAS_IO_URING)
+        target_link_libraries(asio::asio INTERFACE ${LIBURING_LIB})
+        message(STATUS "✅ Created asio::asio target with io_uring backend")
+      else()
+        message(WARNING "liburing not found, falling back to epoll backend")
+        message(STATUS "✅ Created asio::asio target with epoll backend (io_uring requested but not available)")
+      endif()
+    else()
+      message(WARNING "io_uring is only supported on Linux, falling back to epoll backend")
+      message(STATUS "✅ Created asio::asio target with epoll backend (io_uring requested but platform unsupported)")
+    endif()
+  else()
+    # Default: use epoll backend
+    message(STATUS "✅ Created asio::asio target with epoll backend (io_uring disabled)")
+  endif()
 endif()
 
 # ==============================================================================

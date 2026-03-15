@@ -210,13 +210,14 @@
         "CMAKE_BUILD_TYPE": "Release",
         "ASTRADB_ENABLE_LTO": "ON",
         "ASTRADB_BUILD_TESTS": "OFF",
-        "ASTRADB_BUILD_BENCHMARKS": "OFF"
+        "ASTRADB_BUILD_BENCHMARKS": "OFF",
+        "ASTRADB_ENABLE_IO_URING": "OFF"
       }
     },
     {
       "name": "linux-package-gcc",
-      "displayName": "Linux Package (GCC)",
-      "description": "Release build for packaging on Linux with GCC",
+      "displayName": "Linux Package (GCC, epoll)",
+      "description": "Release build for packaging on Linux with GCC (epoll backend)",
       "inherits": [
         "package-common",
         "base-gcc"
@@ -226,8 +227,8 @@
     },
     {
       "name": "linux-package-clang",
-      "displayName": "Linux Package (Clang)",
-      "description": "Release build for packaging on Linux with Clang",
+      "displayName": "Linux Package (Clang, epoll)",
+      "description": "Release build for packaging on Linux with Clang (epoll backend)",
       "inherits": [
         "package-common",
         "base-clang"
@@ -236,9 +237,23 @@
       "generator": "Ninja"
     },
     {
+      "name": "linux-package-clang-iouring",
+      "displayName": "Linux Package (Clang, io_uring)",
+      "description": "Release build for packaging on Linux with Clang (io_uring backend)",
+      "inherits": [
+        "package-common",
+        "base-clang"
+      ],
+      "binaryDir": "${sourceDir}/build-linux-package-clang-iouring",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "ASTRADB_ENABLE_IO_URING": "ON"
+      }
+    },
+    {
       "name": "linux-iouring",
       "displayName": "Linux (io_uring enabled)",
-      "description": "Release build with io_uring backend on Linux",
+      "description": "Release build with io_uring backend on Linux (deprecated, use linux-package-clang-iouring)",
       "inherits": [
         "package-common",
         "base-clang"
@@ -312,14 +327,18 @@
       "name": "linux-package-gcc",
       "configurePreset": "linux-package-gcc"
     },
-    {
+{
       "name": "linux-package-clang",
       "configurePreset": "linux-package-clang"
     },
     {
+      "name": "linux-package-clang-iouring",
+      "configurePreset": "linux-package-clang-iouring"
+    },
+    {
       "name": "linux-iouring",
       "configurePreset": "linux-iouring"
-    },
+    },,
     {
       "name": "macos-debug-clang",
       "configurePreset": "macos-debug-clang"
@@ -422,11 +441,31 @@
       ],
       "packageDirectory": "${sourceDir}/dist"
     },
-    {
+{
       "name": "linux-clang-tgz",
       "displayName": "Linux TGZ Package (Clang)",
       "description": "Generate TGZ package with Clang",
       "configurePreset": "linux-package-clang",
+      "generators": [
+        "TGZ"
+      ],
+      "packageDirectory": "${sourceDir}/dist"
+    },
+    {
+      "name": "linux-clang-iouring-deb",
+      "displayName": "Linux Debian Package (Clang, io_uring)",
+      "description": "Generate Debian package with Clang and io_uring backend",
+      "configurePreset": "linux-package-clang-iouring",
+      "generators": [
+        "DEB"
+      ],
+      "packageDirectory": "${sourceDir}/dist"
+    },
+    {
+      "name": "linux-clang-iouring-tgz",
+      "displayName": "Linux TGZ Package (Clang, io_uring)",
+      "description": "Generate TGZ package with Clang and io_uring backend",
+      "configurePreset": "linux-package-clang-iouring",
       "generators": [
         "TGZ"
       ],
@@ -525,10 +564,10 @@
         }
       ]
     },
-    {
+{
       "name": "ci-linux-package",
       "displayName": "CI Pipeline - Linux Package",
-      "description": "CI workflow for Linux with Clang (package)",
+      "description": "CI workflow for Linux with Clang (package with epoll backend)",
       "steps": [
         {
           "type": "configure",
@@ -545,6 +584,29 @@
         {
           "type": "package",
           "name": "linux-clang-tgz"
+        }
+      ]
+    },
+    {
+      "name": "ci-linux-package-iouring",
+      "displayName": "CI Pipeline - Linux Package (io_uring)",
+      "description": "CI workflow for Linux with Clang (package with io_uring backend)",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "linux-package-clang-iouring"
+        },
+        {
+          "type": "build",
+          "name": "linux-package-clang-iouring"
+        },
+        {
+          "type": "package",
+          "name": "linux-clang-iouring-deb"
+        },
+        {
+          "type": "package",
+          "name": "linux-clang-iouring-tgz"
         }
       ]
     },
