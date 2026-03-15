@@ -6,6 +6,8 @@
 
 #include <csignal>
 #include <cxxopts.hpp>
+#include <fmt/color.h>
+#include <fmt/core.h>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -134,25 +136,26 @@ int main(int argc, char** argv) {
   astra::base::InitLogging(config.log_file, log_level, config.log_async,
                            config.log_queue_size);
 
-  // Print AstraDB startup banner with ASCII art logo
-  ASTRADB_LOG_INFO(R"(
-               AAA                                       ttttt                                                 DDDDDDDDDDDDD        BBBBBBBBBBBBBBBBB   
-              A:::A                                     ttt:::t                                                D::::::::::::DDD     B::::::::::::::::B  
-             A:::::A                                    t:::::t                                                D:::::::::::::::DD   B::::::BBBBBB:::::B 
-            A:::::::A                                   t:::::t                                                DDD:::::DDDDD:::::D  BB:::::B     B:::::B
-           A:::::::::A               ssssssssss   ttttttt:::::ttttttt    rrrrr   rrrrrrrrr     aaaaaaaaaaaaa     D:::::D    D:::::D   B::::B     B:::::B
-          A:::::A:::::A            ss::::::::::s  t:::::::::::::::::t    r::::rrr:::::::::r    a::::::::::::a    D:::::D     D:::::D  B::::B     B:::::B
-         A:::::A A:::::A         ss:::::::::::::s t:::::::::::::::::t    r:::::::::::::::::r   aaaaaaaaa:::::a   D:::::D     D:::::D  B::::BBBBBB:::::B 
-        A:::::A   A:::::A        s::::::ssss:::::stttttt:::::::tttttt    rr::::::rrrrr::::::r           a::::a   D:::::D     D:::::D  B:::::::::::::BB  
-       A:::::A     A:::::A        s:::::s  ssssss       t:::::t           r:::::r     r:::::r    aaaaaaa:::::a   D:::::D     D:::::D  B::::BBBBBB:::::B 
-      A:::::AAAAAAAAA:::::A         s::::::s            t:::::t           r:::::r     rrrrrrr  aa::::::::::::a   D:::::D     D:::::D  B::::B     B:::::B
-     A:::::::::::::::::::::A           s::::::s         t:::::t           r:::::r             a::::aaaa::::::a   D:::::D     D:::::D  B::::B     B:::::B
-    A:::::AAAAAAAAAAAAA:::::A    ssssss   s:::::s       t:::::t    tttttt r:::::r            a::::a    a:::::a   D:::::D    D:::::D   B::::B     B:::::B
-   A:::::A             A:::::A   s:::::ssss::::::s      t::::::tttt:::::t r:::::r            a::::a    a:::::a DDD:::::DDDDD:::::D  BB:::::BBBBBB::::::B
-  A:::::A               A:::::A  s::::::::::::::s       tt::::::::::::::t r:::::r            a:::::aaaa::::::a D:::::::::::::::DD   B:::::::::::::::::B 
- A:::::A                 A:::::A  s:::::::::::ss          tt:::::::::::tt r:::::r             a::::::::::aa:::aD::::::::::::DDD     B::::::::::::::::B  
-AAAAAAA                   AAAAAAA  sssssssssss              ttttttttttt   rrrrrrr              aaaaaaaaaa  aaaaDDDDDDDDDDDDD        BBBBBBBBBBBBBBBBB  
-)");
+  // Print AstraDB startup banner with ASCII art logo (always visible)
+  // Use vibrant gradient colors from cyan to magenta via RGB
+  fmt::print("\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 255, 255)) | fmt::emphasis::bold, "               AAA                                       tttt                                             DDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB   \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 230, 255)) | fmt::emphasis::bold, "              A:::A                                   ttt:::t                                             D::::::::::::DDD   B::::::::::::::::B  \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 200, 255)) | fmt::emphasis::bold, "             A:::::A                                  t:::::t                                             D:::::::::::::::DD B::::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 175, 255)) | fmt::emphasis::bold, "            A:::::::A                                 t:::::t                                             DDD:::::DDDDD:::::DBB:::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 150, 255)) | fmt::emphasis::bold, "           A:::::::::A             ssssssssss   ttttttt:::::ttttttt   rrrrr   rrrrrrrrr   aaaaaaaaaaaaa     D:::::D    D:::::D B::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 125, 255)) | fmt::emphasis::bold, "          A:::::A:::::A          ss::::::::::s  t:::::::::::::::::t   r::::rrr:::::::::r  a::::::::::::a    D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(0, 100, 255)) | fmt::emphasis::bold, "         A:::::A A:::::A       ss:::::::::::::s t:::::::::::::::::t   r:::::::::::::::::r aaaaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 75, 255)) | fmt::emphasis::bold,  "        A:::::A   A:::::A      s::::::ssss:::::stttttt:::::::tttttt   rr::::::rrrrr::::::r         a::::a   D:::::D     D:::::DB:::::::::::::BB  \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 50, 255)) | fmt::emphasis::bold,  "       A:::::A     A:::::A      s:::::s  ssssss       t:::::t          r:::::r     r:::::r  aaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(0, 25, 255)) | fmt::emphasis::bold,  "      A:::::AAAAAAAAA:::::A       s::::::s            t:::::t          r:::::r     rrrrrrraa::::::::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(75, 0, 255)) | fmt::emphasis::bold,  "     A:::::::::::::::::::::A         s::::::s         t:::::t          r:::::r           a::::aaaa::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(125, 0, 255)) | fmt::emphasis::bold, "    A:::::AAAAAAAAAAAAA:::::A  ssssss   s:::::s       t:::::t    ttttttr:::::r          a::::a    a:::::a   D:::::D    D:::::D B::::B     B:::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(175, 0, 255)) | fmt::emphasis::bold, "   A:::::A             A:::::A s:::::ssss::::::s      t::::::tttt:::::tr:::::r          a::::a    a:::::a DDD:::::DDDDD:::::DBB:::::BBBBBB::::::B\n");
+  fmt::print(fmt::fg(fmt::rgb(200, 0, 255)) | fmt::emphasis::bold, "  A:::::A               A:::::As::::::::::::::s       tt::::::::::::::tr:::::r          a:::::aaaa::::::a D:::::::::::::::DD B:::::::::::::::::B \n");
+  fmt::print(fmt::fg(fmt::rgb(225, 0, 255)) | fmt::emphasis::bold, " A:::::A                 A:::::As:::::::::::ss          tt:::::::::::ttr:::::r           a::::::::::aa:::aD::::::::::::DDD   B::::::::::::::::B  \n");
+  fmt::print(fmt::fg(fmt::rgb(255, 0, 255)) | fmt::emphasis::bold, "AAAAAAA                   AAAAAAAsssssssssss              ttttttttttt  rrrrrrr            aaaaaaaaaa  aaaaDDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB \n");
+  fmt::print("\n");
 
   // Print version information
   ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
