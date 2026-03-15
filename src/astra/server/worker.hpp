@@ -751,7 +751,7 @@ class Worker {
                                   asio::ip::tcp::socket socket) {
       if (!ec && running_) {
         ASTRADB_LOG_DEBUG("Worker {}: Accepted connection, fd: {}", worker_id_,
-                          socket.native_handle());
+                          reinterpret_cast<uintptr_t>(socket.native_handle()));
 
         // Create connection ID
         uint64_t conn_id = next_conn_id_++;
