@@ -6,6 +6,7 @@
 
 #include <csignal>
 #include <cxxopts.hpp>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -14,6 +15,7 @@
 #include "astra/base/config.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/base/macros.hpp"
+#include "astra/base/version.hpp"
 #include "astra/server/server.hpp"
 
 namespace {
@@ -73,6 +75,18 @@ int main(int argc, char** argv) {
   // Get config file path
   std::string config_file = result["config"].as<std::string>();
 
+  // Prioritize development config if not explicitly specified
+  if (config_file == "astradb.toml") {
+    // Check if development config exists
+    const std::string dev_config = "astradb-dev.toml";
+    std::ifstream dev_file(dev_config);
+    if (dev_file.good()) {
+      ASTRADB_LOG_INFO("Using development configuration: {}", dev_config);
+      config_file = dev_config;
+    }
+    dev_file.close();
+  }
+
   // Load config from file
   auto config = astra::base::ServerConfig::LoadFromFile(config_file);
 
@@ -121,9 +135,21 @@ int main(int argc, char** argv) {
   astra::base::InitLogging(config.log_file, log_level, config.log_async,
                            config.log_queue_size);
 
-  ASTRADB_LOG_INFO("========================================");
-  ASTRADB_LOG_INFO("AstraDB - High-Performance Redis-Compatible Database");
-  ASTRADB_LOG_INFO("Version: {}", ASTRADB_VERSION_STRING);
+  // Print AstraDB startup banner
+  ASTRADB_LOG_INFO(R"(
+╔════════════════════════════════════════════════════════════════════╗
+║                                                                    ║
+║      AstraDB - High-Performance Redis-Compatible Database          ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+)");
+
+  // Print version information
+  ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
+  ASTRADB_LOG_INFO("Build:       {} {}", __DATE__, __TIME__);
+  ASTRADB_LOG_INFO("Git Branch:  {}", ASTRADB_GIT_BRANCH);
+  ASTRADB_LOG_INFO("Git Commit:  {} ({})", ASTRADB_GIT_COMMIT_HASH, ASTRADB_GIT_COMMIT_SHORT);
+  ASTRADB_LOG_INFO("Git Status:  {}", ASTRADB_GIT_IS_DIRTY ? "Dirty" : "Clean");
   ASTRADB_LOG_INFO("========================================");
 
   // Print build information
