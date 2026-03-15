@@ -338,7 +338,7 @@
     {
       "name": "linux-iouring",
       "configurePreset": "linux-iouring"
-    },,
+    },
     {
       "name": "macos-debug-clang",
       "configurePreset": "macos-debug-clang"
