@@ -14,7 +14,12 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 
 - **Redis Protocol Compatible**: Full support for RESP2 and RESP3 protocols
 - **High Performance**: C++23 implementation with Asio coroutines and multi-threading
-- **Scalable Architecture**: Sharded architecture with configurable database and shard counts
+- **NO SHARING Architecture**: Each Worker is completely independent with private resources
+- **MPSC Communication**: Lock-free cross-worker communication via concurrent queues
+- **SIMD Optimizations**: AVX2, SSE4.2, and NEON support for vectorized operations
+- **Zero-Copy Serialization**: FlatBuffers-based efficient serialization
+- **Flexible Threading**: Support for both single-threaded and multi-threaded modes
+- **Dual Backend**: epoll (stable) and io_uring (high performance) support
 - **Rich Commands**: Support for 250+ Redis commands across all data types
 - **Persistence**: AOF (Append Only File), RDB snapshots, and LevelDB integration
 - **Cluster Support**: Gossip-based cluster management with libgossip
@@ -49,10 +54,8 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Real Blocking**: Full blocking command implementation (BLPOP, BRPOP, etc.)
 - **Raft Consensus**: Distributed consensus for cluster management
 - **TLS Encryption**: Secure connections with OpenSSL
-- **Zero-Copy I/O**: io_uring-based zero-copy networking (Linux)
-- **SIMD Optimizations**: AVX2/AVX-512 for vectorized operations
-- **RESP3 Protocol**: Full RESP3 protocol support
 - **Vector Search**: ANN search for Redis Search compatibility
+- **Redis Modules compatibility**: Support for Redis Modules API
 
 ## 📊 Performance
 
@@ -151,16 +154,6 @@ Cluster & Security:
 │                    Raft Consensus                              │
 │  Leader Election | Log Replication | Consensus Protocol         │
 └─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                    Zero-Copy I/O                               │
-│  io_uring (Linux) | Direct I/O (Windows)                      │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                    SIMD Optimizations                          │
-│  AVX2/AVX-512 | NEON | Vectorized Operations                  │
-└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 🛠️ Technology Stack
@@ -180,7 +173,6 @@ Cluster & Security:
 | **Storage** | LevelDB | Latest | Key-value store |
 | **Metrics** | Prometheus Client | 1.2.4 | Metrics collection |
 | **Compression** | zstd | 1.5.6 | Fast compression |
-| **Hashing** | xxHash | Latest | Fast hash function |
 | **JSON** | nlohmann_json | 3.11.2 | JSON parsing |
 | **Lua** | Lua | 5.4.7 | Scripting support |
 | **Config** | tomlplusplus | 3.4.0 | TOML configuration |
@@ -260,13 +252,19 @@ ninja -C build-debug
 cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_LTO=ON
 ninja -C build-release
 
-# Enable SIMD optimizations
+# Enable SIMD optimizations (default: ON)
 cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_SIMD=ON
 ninja -C build-release
 
-# Enable TLS support
+# Enable TLS support (planned for v1.2.0)
 cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_TLS=ON
 ninja -C build-release
+
+# Use io_uring backend (Linux 5.1+, high performance)
+cmake --preset linux-package-clang-iouring
+
+# Use epoll backend (stable, compatible with all Linux versions)
+cmake --preset linux-package-clang
 ```
 
 ### Configuration
@@ -281,6 +279,12 @@ You can configure AstraDB using command-line options or a configuration file:
   --shards 16 \
   --databases 16 \
   --max-connections 10000
+
+# Single-threaded mode (for testing or low-load scenarios)
+./build-release/bin/astradb \
+  --port 6379 \
+  --threads 1 \
+  --shards 1
 
 # Using configuration file
 ./build-release/bin/astradb --config astradb.toml
@@ -416,17 +420,14 @@ Contributions are welcome! Please follow these guidelines:
 - [ ] Full Redis compatibility (100%)
 - [ ] Comprehensive documentation
 
-### v1.1.0 (Future)
+### v1.2.0 (Future)
 
 - [ ] TLS encryption
-- [ ] RESP3 protocol
-- [ ] SIMD optimizations
-- [ ] Zero-copy I/O
+- [ ] Full RESP3 protocol
 - [ ] Vector search
 - [ ] Redis Modules compatibility
 - [ ] Web UI for monitoring
-
-## 📊 Command Coverage
+- [ ] Comprehensive documentation
 
 ### Implemented Commands (250+)
 
@@ -580,8 +581,9 @@ All 250+ commands are registered and functional. We aim for **100% Redis 7.4.1 c
 | HyperLogLog | ✅ | ✅ | ✅ |
 | Geospatial | ✅ | ✅ | ✅ |
 | Bitmaps | ✅ | ✅ | ✅ |
-| SIMD | ❌ | ✅ | 🚧 |
-| Zero-Copy I/O | ❌ | ✅ | 🚧 |
+| SIMD | ❌ | ✅ | ✅ |
+| MPSC Queues | ❌ | ✅ | ✅ |
+| Zero-Copy I/O | ❌ | ✅ | ✅ |
 | C++23 | ❌ | ❌ | ✅ |
 
 ## 🔐 Security
