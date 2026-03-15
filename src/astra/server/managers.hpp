@@ -6,6 +6,7 @@
 #include <absl/time/time.h>
 
 #include <atomic>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -216,6 +217,12 @@ class PersistenceManager {
     }
 
     ASTRADB_LOG_INFO("PersistenceManager: Starting RDB load");
+
+    // Check if RDB file exists - if not, this is normal (first run)
+    if (!std::filesystem::exists(options_.save_path)) {
+      ASTRADB_LOG_INFO("PersistenceManager: RDB file not found (first run), skipping load: {}", options_.save_path);
+      return true;  // File not found is normal, not an error
+    }
 
     if (!rdb_reader_.Init(options_.save_path, true)) {
       ASTRADB_LOG_ERROR("PersistenceManager: Failed to initialize RDB reader");
