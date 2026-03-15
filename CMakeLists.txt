@@ -8,7 +8,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-# Read version from VERSION file
+# Read version from PROJECT_VERSION file
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReadVersionFile.cmake)
 read_version_file()
 

@@ -2,8 +2,8 @@
 # This module reads the VERSION file from the project root and sets version variables
 
 function(read_version_file)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
-        file(READ "${CMAKE_SOURCE_DIR}/VERSION" VERSION_STRING)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/PROJECT_VERSION")
+        file(READ "${CMAKE_SOURCE_DIR}/PROJECT_VERSION" VERSION_STRING)
         string(STRIP "${VERSION_STRING}" VERSION_STRING)
         
         # Parse version string (major.minor.patch)
@@ -12,7 +12,7 @@ function(read_version_file)
         list(GET VERSION_LIST 1 VERSION_MINOR)
         list(GET VERSION_LIST 2 VERSION_PATCH)
         
-        message(STATUS "Read version from VERSION file: ${VERSION_STRING}")
+        message(STATUS "Read version from PROJECT_VERSION file: ${VERSION_STRING}")
         
         # Set PARENT_SCOPE variables
         set(VERSION_STRING "${VERSION_STRING}" PARENT_SCOPE)
@@ -20,6 +20,6 @@ function(read_version_file)
         set(VERSION_MINOR "${VERSION_MINOR}" PARENT_SCOPE)
         set(VERSION_PATCH "${VERSION_PATCH}" PARENT_SCOPE)
     else()
-        message(FATAL_ERROR "VERSION file not found in ${CMAKE_SOURCE_DIR}")
+        message(FATAL_ERROR "PROJECT_VERSION file not found in ${CMAKE_SOURCE_DIR}")
     endif()
 endfunction()
