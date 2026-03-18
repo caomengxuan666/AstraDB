@@ -148,6 +148,30 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       }
     }
 
+    // Memory (Eviction policy)
+    if (data["memory"]) {
+      auto memory = *data["memory"].as_table();
+      if (memory["max_memory"]) {
+        config.memory.max_memory = memory["max_memory"].value_or<uint64_t>(0);
+      }
+      if (memory["eviction_policy"]) {
+        config.memory.eviction_policy =
+            memory["eviction_policy"].value_or<std::string>("noeviction");
+      }
+      if (memory["eviction_threshold"]) {
+        config.memory.eviction_threshold =
+            memory["eviction_threshold"].value_or<double>(0.9);
+      }
+      if (memory["eviction_samples"]) {
+        config.memory.eviction_samples =
+            memory["eviction_samples"].value_or<uint32_t>(5);
+      }
+      if (memory["enable_tracking"]) {
+        config.memory.enable_tracking =
+            memory["enable_tracking"].value_or<bool>(true);
+      }
+    }
+
     // Metrics
     if (data["metrics"]) {
       auto metrics = *data["metrics"].as_table();

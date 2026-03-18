@@ -32,6 +32,15 @@ struct ClusterConfig {
   std::vector<std::string> seeds;
 };
 
+// Memory configuration
+struct MemoryConfig {
+  uint64_t max_memory = 0;  // 0 = no limit
+  std::string eviction_policy = "noeviction";
+  double eviction_threshold = 0.9;  // 90%
+  uint32_t eviction_samples = 5;  // Number of samples for LRU/LFU
+  bool enable_tracking = true;
+};
+
 struct ServerConfig {
   // Network
   std::string host = "0.0.0.0";
@@ -82,6 +91,9 @@ struct ServerConfig {
 
   // Cluster
   ClusterConfig cluster;
+
+  // Memory
+  MemoryConfig memory;
 
   // Metrics
   struct MetricsConfig {

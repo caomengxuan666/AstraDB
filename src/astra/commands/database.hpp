@@ -23,6 +23,9 @@
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
 #include "astra/container/zset/btree_zset.hpp"
+#include "astra/core/memory/eviction_manager.hpp"
+#include "astra/core/memory/memory_tracker.hpp"
+#include "astra/core/memory/object_size_estimator.hpp"
 #include "astra/core/memory/string_pool.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
@@ -92,6 +95,58 @@ class Database {
   // Get string pool for statistics
   core::memory::StringPool* GetStringPool() { return string_pool_.get(); }
 
+  // ========== Memory Tracking ==========
+
+  // Set memory tracker (called by Shard)
+  void SetMemoryTracker(core::memory::MemoryTracker* tracker) {
+    memory_tracker_ = tracker;
+  }
+
+  // Get memory tracker
+  core::memory::MemoryTracker* GetMemoryTracker() const { return memory_tracker_; }
+
+  // Initialize eviction manager (called after SetMemoryTracker)
+  void InitializeEvictionManager() {
+    if (memory_tracker_) {
+      eviction_manager_ = std::make_unique<core::memory::EvictionManager>(
+          memory_tracker_, &metadata_manager_);
+
+      // Set eviction callback to delete keys from all data structures
+      eviction_manager_->SetEvictionCallback(
+          [this](const std::string& key, astra::storage::KeyType type) -> bool {
+            return this->EvictKey(key, type);
+          });
+    }
+  }
+
+  // Evict a key (called by EvictionManager)
+  bool EvictKey(const std::string& key, astra::storage::KeyType type) {
+    (void)type;  // Type is already known from metadata
+
+    // Remove from all data structures
+    bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
+                   sets_.Remove(key) || zsets_.Remove(key) ||
+                   lists_.Remove(key) || streams_.Remove(key);
+
+    if (removed) {
+      // Get estimated size before deletion
+      uint32_t estimated_size = metadata_manager_.GetEstimatedSize(key);
+      uint32_t metadata_size = core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
+
+      // Subtract memory from tracker
+      if (memory_tracker_) {
+        memory_tracker_->SubtractMemory(estimated_size + metadata_size);
+      }
+
+      // Remove from metadata
+      metadata_manager_.UnregisterKey(key);
+
+      return true;
+    }
+
+    return false;
+  }
+
   // ========== Stream Operations ==========
 
   StreamData* GetStream(const std::string& key) {
@@ -119,8 +174,32 @@ class Database {
   // ========== String Operations ==========
 
   bool Set(const std::string& key, StringValue value) {
+    // Calculate memory delta
+    StringValue old_value;
+    bool key_existed = strings_.Get(key, &old_value);
+    uint32_t old_size = 0;
+    if (key_existed) {
+      old_size = core::memory::ObjectSizeEstimator::EstimateStringSize(key, old_value.value);
+    }
+    uint32_t new_size = core::memory::ObjectSizeEstimator::EstimateStringSize(key, value.value);
+    int32_t delta = static_cast<int32_t>(new_size) - static_cast<int32_t>(old_size);
+
+    // Update memory tracker
+    if (memory_tracker_) {
+      memory_tracker_->UpdateMemory(old_size, new_size);
+    }
+
+    // Update metadata
     strings_.Insert(key, std::move(value));
     metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+    metadata_manager_.UpdateAccessInfo(key);
+    metadata_manager_.UpdateEstimatedSize(key, new_size);
+
+    // Check and perform eviction if needed
+    if (eviction_manager_) {
+      eviction_manager_->CheckAndEvict();
+    }
+
     return true;
   }
 
@@ -137,6 +216,8 @@ class Database {
 
     StringValue value;
     if (strings_.Get(key, &value)) {
+      // Update access time for LRU/LFU
+      metadata_manager_.UpdateAccessInfo(key);
       return value;
     }
     return std::nullopt;
@@ -195,9 +276,22 @@ class Database {
   }
 
   bool Del(const std::string& key) {
+    // Get estimated size before deletion
+    uint32_t estimated_size = metadata_manager_.GetEstimatedSize(key);
+    uint32_t metadata_size = core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
+
+    // Remove from all data structures
+    bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
+                   sets_.Remove(key) || zsets_.Remove(key) ||
+                   lists_.Remove(key) || streams_.Remove(key);
+
+    if (removed && memory_tracker_) {
+      // Subtract memory from tracker (data + metadata)
+      memory_tracker_->SubtractMemory(estimated_size + metadata_size);
+    }
+
     metadata_manager_.UnregisterKey(key);
-    return strings_.Remove(key) || hashes_.Remove(key) || sets_.Remove(key) ||
-           zsets_.Remove(key);
+    return removed;
   }
 
   size_t Del(const std::vector<std::string>& keys) {
@@ -1720,6 +1814,8 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
+  core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned
+  std::unique_ptr<core::memory::EvictionManager> eviction_manager_;  // Owned
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
   std::function<void(const std::string&)> aof_callback_;  // For persistence
 };
@@ -1744,6 +1840,14 @@ class DatabaseManager {
   }
 
   size_t GetDatabaseCount() const { return databases_.size(); }
+
+  // Set memory tracker for all databases (called by Shard)
+  void SetMemoryTrackerForAll(core::memory::MemoryTracker* tracker) {
+    for (auto& db : databases_) {
+      db->SetMemoryTracker(tracker);
+      db->InitializeEvictionManager();
+    }
+  }
 
  private:
   std::vector<std::unique_ptr<Database>> databases_;

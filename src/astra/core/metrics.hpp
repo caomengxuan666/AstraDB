@@ -289,6 +289,37 @@ class AstraMetrics {
                           .Register(*registry.GetRegistry());
     error_protocol_current_ = &error_protocol_->Add({});
 
+    // Memory eviction metrics
+    evicted_keys_total_ = &prometheus::BuildCounter()
+                               .Name("astradb_evicted_keys_total")
+                               .Help("Total number of evicted keys")
+                               .Register(*registry.GetRegistry());
+    evicted_keys_total_current_ = &evicted_keys_total_->Add({});
+
+    eviction_operations_total_ = &prometheus::BuildCounter()
+                                     .Name("astradb_eviction_operations_total")
+                                     .Help("Total number of eviction operations")
+                                     .Register(*registry.GetRegistry());
+    eviction_operations_total_current_ = &eviction_operations_total_->Add({});
+
+    memory_max_bytes_ = &prometheus::BuildGauge()
+                            .Name("astradb_memory_max_bytes")
+                            .Help("Maximum memory limit in bytes")
+                            .Register(*registry.GetRegistry());
+    memory_max_bytes_current_ = &memory_max_bytes_->Add({});
+
+    memory_used_bytes_ = &prometheus::BuildGauge()
+                             .Name("astradb_memory_used_bytes")
+                             .Help("Used memory in bytes")
+                             .Register(*registry.GetRegistry());
+    memory_used_bytes_current_ = &memory_used_bytes_->Add({});
+
+    memory_usage_ratio_ = &prometheus::BuildGauge()
+                              .Name("astradb_memory_usage_ratio")
+                              .Help("Memory usage ratio (0.0-1.0)")
+                              .Register(*registry.GetRegistry());
+    memory_usage_ratio_current_ = &memory_usage_ratio_->Add({});
+
     initialized_ = true;
   }
 
@@ -406,6 +437,42 @@ class AstraMetrics {
       error_syntax_current_->Increment();
     } else if (error_type == "protocol" && error_protocol_current_) {
       error_protocol_current_->Increment();
+    }
+  }
+
+  // Record eviction key
+  void RecordEvictionKey() {
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (evicted_keys_total_current_) {
+      evicted_keys_total_current_->Increment();
+    }
+  }
+
+  // Record eviction operation
+  void RecordEvictionOperation() {
+    // Only update Prometheus if enabled
+    if (!IsEnabled()) return;
+    if (eviction_operations_total_current_) {
+      eviction_operations_total_current_->Increment();
+    }
+  }
+
+  // Update memory metrics
+  void UpdateMemoryMetrics(uint64_t used_bytes, uint64_t max_bytes) {
+    if (!IsEnabled()) return;
+
+    if (memory_used_bytes_current_) {
+      memory_used_bytes_current_->Set(static_cast<double>(used_bytes));
+    }
+
+    if (memory_max_bytes_current_) {
+      memory_max_bytes_current_->Set(static_cast<double>(max_bytes));
+    }
+
+    if (memory_usage_ratio_current_ && max_bytes > 0) {
+      double ratio = static_cast<double>(used_bytes) / static_cast<double>(max_bytes);
+      memory_usage_ratio_current_->Set(ratio);
     }
   }
 
@@ -691,6 +758,18 @@ class AstraMetrics {
   prometheus::Counter* error_syntax_current_ = nullptr;
   prometheus::Family<prometheus::Counter>* error_protocol_ = nullptr;
   prometheus::Counter* error_protocol_current_ = nullptr;
+
+  // Memory eviction metrics
+  prometheus::Family<prometheus::Counter>* evicted_keys_total_ = nullptr;
+  prometheus::Counter* evicted_keys_total_current_ = nullptr;
+  prometheus::Family<prometheus::Counter>* eviction_operations_total_ = nullptr;
+  prometheus::Counter* eviction_operations_total_current_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* memory_max_bytes_ = nullptr;
+  prometheus::Gauge* memory_max_bytes_current_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* memory_used_bytes_ = nullptr;
+  prometheus::Gauge* memory_used_bytes_current_ = nullptr;
+  prometheus::Family<prometheus::Gauge>* memory_usage_ratio_ = nullptr;
+  prometheus::Gauge* memory_usage_ratio_current_ = nullptr;
 
   // Track last command count for incremental updates (NO SHARING architecture)
   uint64_t last_commands_processed_ = 0;
