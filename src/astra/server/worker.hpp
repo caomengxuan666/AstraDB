@@ -571,11 +571,14 @@ class Worker {
   }
 
   // Process pubsub messages (called from ExecutorLoop)
-  void ProcessPubSubMessages() {
+  bool ProcessPubSubMessages() {
+    bool has_work = false;
     PubSubMessage msg;
     while (pubsub_msg_queue_.try_dequeue(msg)) {
+      has_work = true;
       pubsub_manager_->ProcessPubSubMessage(msg);
     }
+    return has_work;
   }
 
   // Enqueue a client info request (for sending to other workers)
@@ -734,7 +737,7 @@ class Worker {
   void ProcessBatchRequest(const BatchCrossWorkerRequest& req);
 
   // Process batch responses (called in executor loop)
-  void ProcessBatchResponses();
+  bool ProcessBatchResponses();
 
   // ========== RDB Persistence Operations ==========
 
@@ -1001,9 +1004,12 @@ class Worker {
 
   void ExecutorLoop() {
     while (running_) {
+      bool has_work = false;
+
       // Process local commands first
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
+        has_work = true;
         ASTRADB_LOG_DEBUG(
             "Worker {}: Executor processing command: {} for conn {} "
             "(forwarded={})",
@@ -1061,6 +1067,7 @@ class Worker {
       // Process cross-worker responses
       CrossWorkerResponse cross_resp;
       while (cross_worker_resp_queue_.try_dequeue(cross_resp)) {
+        has_work = true;
         ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
         resp_queue_.enqueue(resp);
       }
@@ -1068,6 +1075,7 @@ class Worker {
       // Process client info responses (for CLIENT LIST command)
       ClientInfoResponse client_info_resp;
       while (client_info_resp_queue_.try_dequeue(client_info_resp)) {
+        has_work = true;
         // Store the response in pending requests map
         std::lock_guard<std::mutex> lock(batch_mutex_);
         auto it = pending_client_info_reqs_.find(client_info_resp.req_id);
@@ -1077,14 +1085,19 @@ class Worker {
       }
 
       // Process batch responses
-      ProcessBatchResponses();
+      if (ProcessBatchResponses()) {
+        has_work = true;
+      }
 
       // Process pubsub messages from other workers
-      ProcessPubSubMessages();
+      if (ProcessPubSubMessages()) {
+        has_work = true;
+      }
 
       // Process scheduler tasks (from WorkerScheduler)
       std::function<void()> task;
       while (task_queue_.try_dequeue(task)) {
+        has_work = true;
         ASTRADB_LOG_DEBUG("Worker {}: Processing scheduler task", worker_id_);
         try {
           task();
@@ -1096,17 +1109,23 @@ class Worker {
       // Process batch requests from other workers
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
+        has_work = true;
         ProcessBatchRequest(batch_req);
       }
 
       // Process client info requests from other workers
       ClientInfoRequest client_info_req;
       while (client_info_req_queue_.try_dequeue(client_info_req)) {
+        has_work = true;
         ProcessClientInfoRequest(client_info_req);
       }
 
-      // Yield if no work
-      std::this_thread::yield();
+      // Wait if no work (using absl condition variable for better performance)
+      if (!has_work) {
+        absl::MutexLock lock(&executor_mutex_);
+        // Wait until there's work or timeout (100ms to avoid missing notifications)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
+      }
     }
   }
 
@@ -1184,6 +1203,11 @@ class Worker {
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> next_conn_id_{0};
   std::mutex batch_mutex_;  // For pending_batch_reqs_ access
+
+  // Condition variable and mutex for ExecutorLoop (absl for better performance)
+  absl::Mutex executor_mutex_;
+  absl::CondVar executor_cv_;
+  bool has_work_{false};  // Flag to indicate if there's work to do
 
   // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
   std::unique_ptr<commands::BlockingManager> blocking_manager_;
@@ -1385,9 +1409,11 @@ inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
   }
 }
 
-inline void Worker::ProcessBatchResponses() {
+inline bool Worker::ProcessBatchResponses() {
+  bool has_work = false;
   BatchCrossWorkerResponse resp;
   while (batch_resp_queue_.try_dequeue(resp)) {
+    has_work = true;
     ASTRADB_LOG_DEBUG("Worker {}: Received batch response for request {}",
                       worker_id_, resp.req_id);
     std::lock_guard<std::mutex> lock(batch_mutex_);
@@ -1407,6 +1433,7 @@ inline void Worker::ProcessBatchResponses() {
                         worker_id_, resp.req_id);
     }
   }
+  return has_work;
 }
 
 // Enqueue a client info response
