@@ -366,6 +366,7 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 100000 -c 50 -P 16
 
 - **Design Document**: [AstraDB_DESIGN.md](AstraDB_DESIGN.md) - Comprehensive design and architecture documentation
 - **Performance Document**: [PERFORMANCE.md](PERFORMANCE.md) - Performance benchmarks and optimizations
+- **Eviction Strategy Document**: [DOCS/eviction-strategy-optimization.md](DOCS/eviction-strategy-optimization.md) - Dragonfly-style 2Q eviction algorithm
 
 ## 🤝 Contributing
 

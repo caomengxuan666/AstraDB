@@ -614,38 +614,6 @@ if(benchmark_ADDED)
   endif()
 endif()
 
-# ==============================================================================
-# Optional High-Performance Libraries
-# ==============================================================================
-
-# Folly - Facebook Open-source Library
-# Note: Folly is complex and may take time to build
-# Uncomment if needed:
-# CPMAddPackage(
-#   NAME folly
-#   VERSION 2024.02.05.00
-#   GITHUB_REPOSITORY facebook/folly
-#   GIT_TAG v2024.02.05.00
-# )
-
-# Boost - Peer-reviewed Portable C++ Source Libraries
-# Note: Only include specific Boost libraries needed
-# Uncomment if needed:
-# CPMAddPackage(
-#   NAME boost
-#   VERSION 1.85.0
-#  URL https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.gz
-# )
-
-# Abseil - Common C++ Libraries
-# Note: Only include if needed for specific functionality
-# Uncomment if needed:
-# CPMAddPackage(
-#   NAME abseil
-#   VERSION 20240116.1
-#   GITHUB_REPOSITORY abseil/abseil-cpp
-#   GIT_TAG 20240116.1
-# )
 
 # ==============================================================================
 # Post-Dependency Injection

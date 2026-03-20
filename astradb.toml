@@ -115,3 +115,19 @@ shard_count = 256
 # Seed nodes for cluster join (format: "ip:port")
 # Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
 seeds = []
+
+# =============================================================================
+# Memory and Eviction Configuration (NO SHARING Architecture)
+# =============================================================================
+[memory]
+# Maximum memory limit in bytes (0 = no limit)
+# Recommended: 2GB = 2147483648 bytes
+max_memory = 2147483648
+# Eviction policy: noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-lfu, allkeys-random, volatile-random, volatile-ttl, 2q
+eviction_policy = "2q"
+# Eviction threshold (0.0 to 1.0, e.g., 0.9 means trigger eviction at 90% of max_memory)
+eviction_threshold = 0.9
+# Number of samples for LRU/LFU algorithms (3 to 100, default: 5)
+eviction_samples = 5
+# Enable/disable memory tracking
+enable_tracking = true

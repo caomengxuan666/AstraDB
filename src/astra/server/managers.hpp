@@ -504,12 +504,17 @@ class MetricsManager {
 
     // Stop io_context
     if (metrics_io_context_) {
-      metrics_io_context_->stop();
+        metrics_io_context_->stop();
     }
 
-    // Wait for thread
+    // Wait for HTTP server thread
     if (metrics_thread_.joinable()) {
-      metrics_thread_.join();
+        metrics_thread_.join();
+    }
+
+    // Wait for periodic update thread
+    if (update_thread_.joinable()) {
+        update_thread_.join();
     }
 
     ASTRADB_LOG_INFO("MetricsManager: Shutdown complete");

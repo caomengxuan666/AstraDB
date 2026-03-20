@@ -9,7 +9,7 @@
 #include "astra/base/logging.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/core/async/thread_pool.hpp"
+#include "astra/core/memory/memory_tracker.hpp"
 #include "astra/persistence/leveldb_adapter.hpp"
 
 namespace astra::server {
@@ -34,17 +34,29 @@ class Shard {
   // Get the shard's IO context index (for routing to thread pool)
   size_t GetIOContextIndex() const { return io_context_index_; }
 
-  // Post work directly to main thread's io_context (simplest implementation)
-  template <typename F>
-  void Post(F&& work) {
-    // Direct posting to main thread's io_context - no thread pool overhead
-    astra::core::async::PostToMainIOContext(std::forward<F>(work));
+  // Get memory tracker
+  core::memory::MemoryTracker* GetMemoryTracker() { return &memory_tracker_; }
+  const core::memory::MemoryTracker* GetMemoryTracker() const { return &memory_tracker_; }
+
+  // Set memory configuration (called during server initialization)
+  void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config) {
+    memory_tracker_.SetMaxMemory(config.max_memory_limit);
+    memory_tracker_.SetEvictionPolicy(config.eviction_policy);
+    memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
+    memory_tracker_.SetEvictionSamples(config.eviction_samples);
+    memory_tracker_.SetTrackingEnabled(config.enable_tracking);
+
+    // Propagate memory tracker to all databases
+    if (db_manager_) {
+      db_manager_->SetMemoryTrackerForAll(&memory_tracker_);
+    }
   }
 
  private:
   int shard_id_;
   size_t io_context_index_;
   std::unique_ptr<commands::DatabaseManager> db_manager_;
+  core::memory::MemoryTracker memory_tracker_;
 };
 
 // LocalShardManager - Manages local database shards (renamed to avoid conflict

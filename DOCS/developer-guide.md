@@ -24,6 +24,35 @@ This is an optional configuration file for development. It is **not** included i
 - Development-friendly settings
 - Created by developers for local development
 
+## Memory Configuration
+
+AstraDB supports Redis-compatible memory limits and eviction policies. Configure these in the `[memory]` section:
+
+```toml
+[memory]
+max_memory = 1073741824        # 1GB (0 = no limit)
+eviction_policy = "2q"         # Recommended: 2Q algorithm
+eviction_threshold = 0.9       # Trigger eviction at 90% of max_memory
+eviction_samples = 5           # Number of samples for LRU/LFU
+enable_tracking = true         # Enable memory tracking
+```
+
+### Supported Eviction Policies
+
+| Policy | Description | Recommended |
+|--------|-------------|-------------|
+| `noeviction` | No eviction, return error on OOM | No |
+| `allkeys-lru` | Evict any key using LRU | No |
+| `volatile-lru` | Evict keys with TTL using LRU | No |
+| `allkeys-lfu` | Evict any key using LFU | No |
+| `volatile-lfu` | Evict keys with TTL using LFU | No |
+| `allkeys-random` | Evict any key randomly | No |
+| `volatile-random` | Evict keys with TTL randomly | No |
+| `volatile-ttl` | Evict keys with smallest TTL | No |
+| **`2q`** | **Dragonfly-style 2Q algorithm** | **Yes** |
+
+For detailed information about eviction strategies, see [Eviction Strategy Optimization](./eviction-strategy-optimization.md).
+
 ## Setting Up Development Environment
 
 ### 1. Clone the Repository
