@@ -1164,18 +1164,28 @@ class Worker {
       }
     }
 
-    // Send responses per connection (batched)
+    // Send responses per connection (batched and merged)
     for (const auto& [conn_id, responses] : conn_responses) {
       auto it = connections_.find(conn_id);
       if (it != connections_.end()) {
-        // Send all responses for this connection
+        // Merge all responses into a single buffer for true batch sending
         asio::co_spawn(
             it->second->GetSocket().get_executor(),
             [conn = it->second, responses = std::move(responses)]()
                 -> asio::awaitable<void> {
-              for (const auto& response : responses) {
-                co_await conn->Send(response);
+              if (responses.empty()) {
+                co_return;
               }
+
+              // Merge all responses into a single string
+              std::string batch;
+              batch.reserve(responses.size() * 64);  // Pre-allocate average size
+              for (const auto& response : responses) {
+                batch += response;
+              }
+
+              // Send all responses in a single system call
+              co_await conn->Send(batch);
             },
             asio::detached);
       }
