@@ -67,7 +67,7 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 500
 Initial performance showed:
 - Multi-connection QPS limited to 50K-70K (vs target 150K+)
 - Single connection QPS limited to ~300 (vs Redis 109K)
--大量 CLOSE_WAIT connections causing memory leaks
+- CLOSE_WAIT connections causing memory leaks
 
 ### Root Causes Identified
 
