@@ -1215,8 +1215,17 @@ class Worker {
       }
     }
 
-    // Schedule next check
-    response_timer_.expires_after(std::chrono::milliseconds(1));
+    // OPTIMIZATION: Dynamic timer interval based on queue load
+    // High load: 0.1ms (allows 10K+ QPS per connection)
+    // Low load: 1ms (reduces CPU usage)
+    if (!conn_responses.empty()) {
+      // High load: faster timer
+      response_timer_.expires_after(std::chrono::microseconds(100));
+    } else {
+      // Low load: slower timer to reduce CPU
+      response_timer_.expires_after(std::chrono::milliseconds(1));
+    }
+    
     response_timer_.async_wait([this](asio::error_code ec) {
       if (!ec && running_) {
         ProcessResponseQueue();
