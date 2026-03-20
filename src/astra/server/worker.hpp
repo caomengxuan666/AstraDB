@@ -795,7 +795,14 @@ class Worker {
         // Create connection
         auto conn = std::make_shared<Connection>(
             worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_,
-            [this]() { NotifyExecutorLoop(); });
+            [this]() { NotifyExecutorLoop(); },
+            [this](uint64_t conn_id) {
+              // Remove connection from map when it's closed
+              std::lock_guard<std::mutex> lock(connections_mutex_);
+              connections_.erase(conn_id);
+              ASTRADB_LOG_DEBUG("Worker {}: Connection {} removed, total connections: {}",
+                                worker_id_, conn_id, connections_.size());
+            });
 
         connections_[conn_id] = conn;
         conn->Start();
@@ -819,13 +826,15 @@ class Worker {
     Connection(size_t worker_id, uint64_t conn_id, asio::ip::tcp::socket socket,
                moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue,
                moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue,
-               std::function<void()> notify_callback)
+               std::function<void()> notify_callback,
+               std::function<void(uint64_t)> on_close_callback)
         : worker_id_(worker_id),
           conn_id_(conn_id),
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue),
-          notify_callback_(std::move(notify_callback)) {
+          notify_callback_(std::move(notify_callback)),
+          on_close_callback_(std::move(on_close_callback)) {
       // Enable TCP_NODELAY to disable Nagle's algorithm (like Redis)
       asio::ip::tcp::no_delay option(true);
       socket_.set_option(option);
@@ -836,6 +845,8 @@ class Worker {
     ~Connection() {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} destroyed", worker_id_,
                         conn_id_);
+      // Close socket to avoid CLOSE_WAIT
+      Close();
       // Record connection in metrics
       astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
@@ -945,6 +956,11 @@ class Worker {
 
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} read loop terminated",
                         worker_id_, conn_id_);
+      
+      // Notify Worker to remove this connection from connections_ map
+      if (on_close_callback_) {
+        on_close_callback_(conn_id_);
+      }
     }
 
     void ProcessCommands() {
@@ -1005,6 +1021,7 @@ class Worker {
     moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue_;
     moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue_;
     std::function<void()> notify_callback_;
+    std::function<void(uint64_t)> on_close_callback_;
 
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
@@ -1186,9 +1203,9 @@ class Worker {
               std::string batch;
               batch.reserve(total_size);
               
-              // Merge all responses
+              // Merge all responses (use append to avoid reallocations)
               for (const auto& response : responses) {
-                batch += response;
+                batch.append(response);
               }
 
               // Send all responses in a single system call
@@ -1235,6 +1252,9 @@ class Worker {
       pending_client_info_reqs_;
   std::atomic<uint64_t> next_batch_req_id_{1};
   std::atomic<uint64_t> next_client_info_req_id_{1};
+
+  // Mutex for protecting connections_ map (NO SHARING architecture)
+  std::mutex connections_mutex_;
 
   absl::flat_hash_map<uint64_t, std::shared_ptr<Connection>> connections_;
 
