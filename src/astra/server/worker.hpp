@@ -826,6 +826,9 @@ class Worker {
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue),
           notify_callback_(std::move(notify_callback)) {
+      // Enable TCP_NODELAY to disable Nagle's algorithm (like Redis)
+      asio::ip::tcp::no_delay option(true);
+      socket_.set_option(option);
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_,
                         conn_id_);
     }
@@ -1150,21 +1153,31 @@ class Worker {
       return;
     }
 
-    // Check response queue and send responses (process up to 100 responses)
+    // Collect responses by connection (batching for better performance)
+    absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
     for (int i = 0; i < 100; ++i) {
       ResponseWithConnId resp;
       if (resp_queue_.try_dequeue(resp)) {
-        auto it = connections_.find(resp.conn_id);
-        if (it != connections_.end()) {
-          // Spawn coroutine to send response (non-blocking)
-          asio::co_spawn(
-              it->second->GetSocket().get_executor(),
-              [conn = it->second, response = resp.response]()
-                  -> asio::awaitable<void> { co_await conn->Send(response); },
-              asio::detached);
-        }
+        conn_responses[resp.conn_id].push_back(std::move(resp.response));
       } else {
         break;  // Queue is empty
+      }
+    }
+
+    // Send responses per connection (batched)
+    for (const auto& [conn_id, responses] : conn_responses) {
+      auto it = connections_.find(conn_id);
+      if (it != connections_.end()) {
+        // Send all responses for this connection
+        asio::co_spawn(
+            it->second->GetSocket().get_executor(),
+            [conn = it->second, responses = std::move(responses)]()
+                -> asio::awaitable<void> {
+              for (const auto& response : responses) {
+                co_await conn->Send(response);
+              }
+            },
+            asio::detached);
       }
     }
 
