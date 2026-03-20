@@ -568,6 +568,7 @@ class Worker {
   // Enqueue a pubsub message (for receiving PUBLISH from other workers)
   void EnqueuePubSubMessage(const PubSubMessage& msg) {
     pubsub_msg_queue_.enqueue(msg);
+    NotifyExecutorLoop();
   }
 
   // Process pubsub messages (called from ExecutorLoop)
@@ -582,7 +583,10 @@ class Worker {
   }
 
   // Enqueue a client info request (for sending to other workers)
-  void EnqueueClientInfoRequest(const ClientInfoRequest& req);
+  void EnqueueClientInfoRequest(const ClientInfoRequest& req) {
+    client_info_req_queue_.enqueue(req);
+    NotifyExecutorLoop();
+  }
 
   // Send client info request to all workers (for CLIENT LIST command)
   uint64_t SendClientInfoRequest(uint64_t conn_id);
@@ -708,6 +712,7 @@ class Worker {
   // Enqueue a cross-worker response (called by other workers)
   void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
     cross_worker_resp_queue_.enqueue(resp);
+    NotifyExecutorLoop();
   }
 
   // Enqueue a cross-worker request (called by other workers)
@@ -716,6 +721,7 @@ class Worker {
     CommandWithConnId cmd{req.conn_id, req.command, true,
                           req.source_worker_id};  // Mark as forwarded
     cmd_queue_.enqueue(cmd);
+    NotifyExecutorLoop();
   }
 
   // Send batch request to multiple workers (for multi-key commands)
@@ -726,11 +732,13 @@ class Worker {
   // Enqueue batch response
   void EnqueueBatchResponse(const BatchCrossWorkerResponse& resp) {
     batch_resp_queue_.enqueue(resp);
+    NotifyExecutorLoop();
   }
 
   // Enqueue batch request (called by other workers)
   void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
     batch_req_queue_.enqueue(req);
+    NotifyExecutorLoop();
   }
 
   // Process batch request from another worker
@@ -786,7 +794,8 @@ class Worker {
 
         // Create connection
         auto conn = std::make_shared<Connection>(
-            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_);
+            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_,
+            [this]() { NotifyExecutorLoop(); });
 
         connections_[conn_id] = conn;
         conn->Start();
@@ -809,12 +818,14 @@ class Worker {
    public:
     Connection(size_t worker_id, uint64_t conn_id, asio::ip::tcp::socket socket,
                moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue,
-               moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue)
+               moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue,
+               std::function<void()> notify_callback)
         : worker_id_(worker_id),
           conn_id_(conn_id),
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
-          resp_queue_(resp_queue) {
+          resp_queue_(resp_queue),
+          notify_callback_(std::move(notify_callback)) {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_,
                         conn_id_);
     }
@@ -972,6 +983,10 @@ class Worker {
         CommandWithConnId cmd{conn_id_, *command_opt, false,
                               worker_id_};  // Not forwarded, source is self
         cmd_queue_->enqueue(cmd);
+        // Notify ExecutorLoop that there's work to do
+        if (notify_callback_) {
+          notify_callback_();
+        }
       }
     }
 
@@ -986,6 +1001,7 @@ class Worker {
     asio::ip::tcp::socket socket_;
     moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue_;
     moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue_;
+    std::function<void()> notify_callback_;
 
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
@@ -1123,8 +1139,8 @@ class Worker {
       // Wait if no work (using absl condition variable for better performance)
       if (!has_work) {
         absl::MutexLock lock(&executor_mutex_);
-        // Wait until there's work or timeout (100ms to avoid missing notifications)
-        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
+        // Wait until there's work or timeout (1s timeout as safety net)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Seconds(1));
       }
     }
   }
@@ -1208,6 +1224,12 @@ class Worker {
   absl::Mutex executor_mutex_;
   absl::CondVar executor_cv_;
   bool has_work_{false};  // Flag to indicate if there's work to do
+
+  // Notify ExecutorLoop that there's work to do
+  inline void NotifyExecutorLoop() {
+    absl::MutexLock lock(&executor_mutex_);
+    executor_cv_.Signal();
+  }
 
   // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
   std::unique_ptr<commands::BlockingManager> blocking_manager_;
@@ -1439,6 +1461,7 @@ inline bool Worker::ProcessBatchResponses() {
 // Enqueue a client info response
 inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
   client_info_resp_queue_.enqueue(resp);
+  NotifyExecutorLoop();
 }
 
 // Send client info request to all workers (for CLIENT LIST command)
