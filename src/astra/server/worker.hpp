@@ -1153,33 +1153,40 @@ class Worker {
       return;
     }
 
-    // Collect responses by connection (batching for better performance)
+    // Collect all available responses (not limited to 100)
+    // This increases batching opportunities (Dragonfly best practice)
     absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
-    for (int i = 0; i < 100; ++i) {
-      ResponseWithConnId resp;
-      if (resp_queue_.try_dequeue(resp)) {
-        conn_responses[resp.conn_id].push_back(std::move(resp.response));
-      } else {
-        break;  // Queue is empty
+    
+    ResponseWithConnId resp;
+    while (resp_queue_.try_dequeue(resp)) {
+      conn_responses[resp.conn_id].push_back(std::move(resp.response));
+      
+      // Limit total responses per batch to avoid memory bloat
+      static constexpr size_t kMaxBatchSize = 1000;
+      if (conn_responses.size() > kMaxBatchSize) {
+        break;
       }
     }
 
     // Send responses per connection (batched and merged)
     for (const auto& [conn_id, responses] : conn_responses) {
       auto it = connections_.find(conn_id);
-      if (it != connections_.end()) {
+      if (it != connections_.end() && !responses.empty()) {
         // Merge all responses into a single buffer for true batch sending
         asio::co_spawn(
             it->second->GetSocket().get_executor(),
             [conn = it->second, responses = std::move(responses)]()
                 -> asio::awaitable<void> {
-              if (responses.empty()) {
-                co_return;
+              // Calculate total size and pre-allocate
+              size_t total_size = 0;
+              for (const auto& response : responses) {
+                total_size += response.size();
               }
-
-              // Merge all responses into a single string
+              
               std::string batch;
-              batch.reserve(responses.size() * 64);  // Pre-allocate average size
+              batch.reserve(total_size);
+              
+              // Merge all responses
               for (const auto& response : responses) {
                 batch += response;
               }
