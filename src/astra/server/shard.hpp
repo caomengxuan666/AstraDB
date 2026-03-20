@@ -9,7 +9,6 @@
 #include "astra/base/logging.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/core/async/thread_pool.hpp"
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/persistence/leveldb_adapter.hpp"
 
@@ -51,13 +50,6 @@ class Shard {
     if (db_manager_) {
       db_manager_->SetMemoryTrackerForAll(&memory_tracker_);
     }
-  }
-
-  // Post work directly to main thread's io_context (simplest implementation)
-  template <typename F>
-  void Post(F&& work) {
-    // Direct posting to main thread's io_context - no thread pool overhead
-    astra::core::async::PostToMainIOContext(std::forward<F>(work));
   }
 
  private:

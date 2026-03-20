@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -94,6 +93,12 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
 
     // Copy AOF configuration
     config.aof = base_config.aof;
+
+    // Copy RDB configuration
+    config.rdb = base_config.rdb;
+
+    // Copy Memory configuration
+    config.memory = base_config.memory;
 
     return config;
   }

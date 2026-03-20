@@ -7,6 +7,7 @@
 #include <absl/strings/ascii.h>
 
 #include "astra/server/worker.hpp"
+#include "astra/server/worker_scheduler.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -1718,6 +1719,21 @@ CommandResult HandleDbSize(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
+  // Try to use WorkerScheduler to query all workers (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    size_t total_size = 0;
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect DBSIZE from all workers
+    for (auto* worker : all_workers) {
+      total_size += worker->GetDataShard().GetDatabase().DbSize();
+    }
+
+    return CommandResult(RespValue(static_cast<int64_t>(total_size)));
+  }
+
+  // Fallback: single worker mode
   size_t size = db->DbSize();
   return CommandResult(RespValue(static_cast<int64_t>(size)));
 }

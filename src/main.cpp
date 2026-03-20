@@ -255,6 +255,13 @@ int main(int argc, char** argv) {
   server_config.metrics.bind_addr = config.metrics.bind_addr;
   server_config.metrics.port = config.metrics.port;
 
+  // Copy memory config
+  server_config.memory.max_memory = config.memory.max_memory;
+  server_config.memory.eviction_policy = config.memory.eviction_policy;
+  server_config.memory.eviction_threshold = config.memory.eviction_threshold;
+  server_config.memory.eviction_samples = config.memory.eviction_samples;
+  server_config.memory.enable_tracking = config.memory.enable_tracking;
+
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
   ASTRADB_LOG_INFO("  Port: {}", server_config.port);

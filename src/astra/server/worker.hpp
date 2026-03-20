@@ -22,6 +22,7 @@
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
 #include "astra/commands/pubsub_commands.hpp"
+#include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
@@ -198,6 +199,27 @@ class DataShard {
     auto registry_size = registry_.Size();
     ASTRADB_LOG_DEBUG("Shard {}: CommandRegistry now has {} commands", shard_id_,
                       registry_size);
+
+    // Set memory tracker for database
+    database_.SetMemoryTracker(&memory_tracker_);
+    // Note: InitializeEvictionManager() will be called after config is set in SetMemoryConfig()
+  }
+
+  // Set memory configuration
+  void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config, 
+                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
+    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}",
+                     shard_id_, config.max_memory_limit,
+                     static_cast<int>(config.eviction_policy),
+                     config.eviction_threshold);
+    memory_tracker_.SetMaxMemory(config.max_memory_limit);
+    memory_tracker_.SetEvictionPolicy(config.eviction_policy);
+    memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
+    memory_tracker_.SetEvictionSamples(config.eviction_samples);
+    memory_tracker_.SetTrackingEnabled(config.enable_tracking);
+    
+    // Initialize eviction manager after config is set
+    database_.InitializeEvictionManager(std::move(get_total_memory_callback));
   }
 
   // Execute a command using the command registry
@@ -239,9 +261,13 @@ class DataShard {
   // Get command registry (for COMMAND command - NO SHARING architecture)
   astra::commands::CommandRegistry* GetCommandRegistry() { return &registry_; }
 
+  // Get memory tracker (for global memory tracking)
+  core::memory::MemoryTracker* GetMemoryTracker() { return &memory_tracker_; }
+
  private:
   size_t shard_id_;
   astra::commands::Database database_;
+  core::memory::MemoryTracker memory_tracker_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
 };

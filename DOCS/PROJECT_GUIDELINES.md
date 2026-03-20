@@ -350,6 +350,44 @@ src/astra/
 5. **Profile before optimizing** (use Google Benchmark)
 6. **Avoid premature optimization**
 
+### Memory Management Guidelines
+
+**Memory Tracking**
+- Always update memory tracker when modifying data
+- Use `MemoryTrackerHelper` for consistent memory updates
+- Use sampling estimation for large datasets
+- Set appropriate memory limits in configuration
+
+**Eviction Strategies**
+- Prefer `2q` algorithm for best overall performance
+- Use `volatile-*` policies when TTL is important
+- Avoid `noeviction` unless memory is unlimited
+- Monitor eviction rate and hit rate
+
+**Performance Optimization**
+- Use background threads for periodic checks
+- Add performance-optimized thresholds (e.g., 80% check threshold)
+- Profile before optimizing
+- Use absl containers for better performance
+
+**Example**:
+```cpp
+// ✅ Good: Use MemoryTrackerHelper
+if (memory_tracker_) {
+  core::memory::MemoryTrackerHelper::UpdateString(
+      memory_tracker_, &metadata_manager_, key, old_value, new_value);
+}
+
+// ❌ Bad: Manual memory tracking (error-prone)
+if (new_value.size() > old_value.size()) {
+  memory_tracker_->AddMemory(new_value.size() - old_value.size());
+}
+```
+
+**See**: `DOCS/eviction-strategy-optimization.md` for detailed memory management guidelines.
+
+---
+
 ## Security Considerations
 
 1. **Input Validation**: Validate all user inputs
@@ -364,5 +402,5 @@ All code is licensed under Apache 2.0. Ensure proper attribution for third-party
 
 ---
 
-**Last Updated**: March 18, 2026
+**Last Updated**: March 20, 2026
 **Maintainer**: caomengxuan666

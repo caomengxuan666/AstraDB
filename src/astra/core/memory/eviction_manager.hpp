@@ -8,13 +8,15 @@
 
 #include <absl/random/random.h>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "eviction_policy.hpp"
+#include "eviction_strategy_2q.hpp"
 #include "memory_tracker.hpp"
-
-namespace astra::core::memory {
+#include "astra/storage/key_metadata.hpp"
+#include "astra/core/metrics.hpp"
 
 // Forward declarations
 namespace astra::storage {
@@ -24,6 +26,8 @@ class KeyMetadataManager;
 namespace astra::commands {
 class Database;
 }
+
+namespace astra::core::memory {
 
 // Eviction candidate for selection
 struct EvictionCandidate {
@@ -45,13 +49,19 @@ struct EvictionCandidate {
 using EvictionCallback =
     std::function<bool(const std::string& key, astra::storage::KeyType type)>;
 
+// Callback to get total memory usage across all workers
+using GetTotalMemoryCallback = std::function<size_t()>;
+
 // Eviction manager - manages key eviction based on memory usage and policy
 class EvictionManager {
  public:
+  // Constructor with callback for global memory tracking
   EvictionManager(MemoryTracker* memory_tracker,
-                  astra::storage::KeyMetadataManager* metadata_manager)
+                  astra::storage::KeyMetadataManager* metadata_manager,
+                  GetTotalMemoryCallback get_total_memory_callback = nullptr)
       : memory_tracker_(memory_tracker),
         metadata_manager_(metadata_manager),
+        get_total_memory_callback_(std::move(get_total_memory_callback)),
         rng_(absl::BitGen()) {}
 
   ~EvictionManager() = default;
@@ -70,12 +80,30 @@ class EvictionManager {
   // Check if eviction is needed and perform eviction
   // Returns number of keys evicted
   size_t CheckAndEvict() {
-    if (!memory_tracker_ || !memory_tracker_->ShouldEvict()) {
+    if (!memory_tracker_) {
       return 0;
     }
 
     EvictionPolicy policy = memory_tracker_->GetEvictionPolicy();
+    
+    // Get total memory usage across all workers if callback is available
+    size_t current_memory = memory_tracker_->GetCurrentMemory();
+    if (get_total_memory_callback_) {
+      current_memory = get_total_memory_callback_();
+    }
+    
+    size_t max_memory = memory_tracker_->GetMaxMemory();
+    bool should_evict = ShouldEvict(current_memory, max_memory, policy);
+
+    ASTRADB_LOG_DEBUG("CheckAndEvict: policy={}, current_memory={}, max_memory={}, should_evict={}",
+                     static_cast<int>(policy), current_memory, max_memory, should_evict);
+
+    if (!should_evict) {
+      return 0;
+    }
+
     if (policy == EvictionPolicy::kNoEviction) {
+      ASTRADB_LOG_DEBUG("CheckAndEvict: policy is noeviction, skipping eviction");
       return 0;
     }
 
@@ -84,24 +112,44 @@ class EvictionManager {
     const uint32_t max_iterations = 100;  // Prevent infinite loops
     uint32_t iterations = 0;
 
-    while (memory_tracker_->ShouldEvict() && iterations < max_iterations) {
+    while (ShouldEvict(current_memory, max_memory, policy) && iterations < max_iterations) {
       std::string victim_key = SelectVictim(policy);
       if (victim_key.empty()) {
         break;  // No more keys to evict
       }
 
+      ASTRADB_LOG_DEBUG("CheckAndEvict: selected victim key: {}", victim_key);
       if (ExecuteEviction(victim_key)) {
         evicted_count++;
+        ASTRADB_LOG_DEBUG("CheckAndEvict: successfully evicted key: {}, total evicted: {}", 
+                         victim_key, evicted_count);
+        
+        // Update current_memory after eviction
+        if (get_total_memory_callback_) {
+          current_memory = get_total_memory_callback_();
+        } else {
+          current_memory = memory_tracker_->GetCurrentMemory();
+        }
+      } else {
+        ASTRADB_LOG_DEBUG("CheckAndEvict: failed to evict key: {}", victim_key);
       }
 
       iterations++;
     }
 
+    ASTRADB_LOG_DEBUG("CheckAndEvict: finished, evicted {} keys", evicted_count);
     return evicted_count;
   }
 
   // Select victim key based on eviction policy
   std::string SelectVictim(EvictionPolicy policy) {
+    // Special handling for 2Q policy
+    if (policy == EvictionPolicy::k2Q) {
+      Init2QStrategy();
+      auto all_keys = metadata_manager_->GetAllKeys();
+      return strategy_2q_->GetVictim(all_keys.size());
+    }
+
     // Get all keys from metadata manager
     auto all_keys = metadata_manager_->GetAllKeys();
     if (all_keys.empty()) {
@@ -157,6 +205,11 @@ class EvictionManager {
       return false;
     }
 
+    // Remove from 2Q strategy if active
+    if (strategy_2q_ && memory_tracker_->GetEvictionPolicy() == EvictionPolicy::k2Q) {
+      strategy_2q_->RemoveKey(key);
+    }
+
     // Call eviction callback to delete the key
     bool evicted = eviction_callback_(key, *key_type);
 
@@ -196,7 +249,7 @@ class EvictionManager {
 
     for (uint32_t i = 0; i < num_samples; ++i) {
       // Randomly select a key
-      size_t idx = absl::Uniform(rng_, 0, keys.size());
+      size_t idx = absl::Uniform<size_t>(rng_, 0ULL, keys.size());
       const std::string& key = keys[idx];
 
       uint32_t access_time = metadata_manager_->GetAccessTime(key);
@@ -223,7 +276,7 @@ class EvictionManager {
 
     for (uint32_t i = 0; i < num_samples; ++i) {
       // Randomly select a key
-      size_t idx = absl::Uniform(rng_, 0, keys.size());
+      size_t idx = absl::Uniform<size_t>(rng_, 0ULL, keys.size());
       const std::string& key = keys[idx];
 
       uint8_t lfu = metadata_manager_->GetLFUCounter(key);
@@ -246,7 +299,7 @@ class EvictionManager {
       return "";
     }
 
-    size_t idx = absl::Uniform(rng_, 0, keys.size());
+    size_t idx = absl::Uniform<size_t>(rng_, 0ULL, keys.size());
     std::string random_key = keys[idx];
 
     stats_.random_evicted++;
@@ -277,9 +330,29 @@ class EvictionManager {
 
   MemoryTracker* memory_tracker_;
   astra::storage::KeyMetadataManager* metadata_manager_;
+  GetTotalMemoryCallback get_total_memory_callback_;
   EvictionCallback eviction_callback_;
   EvictionStats stats_;
   absl::BitGen rng_;
+  std::unique_ptr<EvictionStrategy2Q> strategy_2q_;  // For 2Q policy
+
+  // Check if eviction is needed
+  bool ShouldEvict(size_t current_memory, size_t max_memory, EvictionPolicy policy) {
+    if (!memory_tracker_->IsTrackingEnabled()) return false;
+    if (max_memory == 0) return false;  // No limit
+    if (!IsEvictionActive(policy)) return false;
+
+    double threshold = memory_tracker_->GetEvictionThreshold();
+    uint64_t threshold_bytes = static_cast<uint64_t>(max_memory * threshold);
+    return current_memory >= threshold_bytes;
+  }
+
+  // Initialize 2Q strategy if not already initialized
+  void Init2QStrategy() {
+    if (!strategy_2q_) {
+      strategy_2q_ = std::make_unique<EvictionStrategy2Q>();
+    }
+  }
 };
 
 }  // namespace astra::core::memory

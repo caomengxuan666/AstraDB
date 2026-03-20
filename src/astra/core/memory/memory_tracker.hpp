@@ -11,6 +11,8 @@
 #include <string>
 
 #include "eviction_policy.hpp"
+#include "object_size_estimator.hpp"
+#include "astra/storage/key_metadata.hpp"
 
 namespace astra::core::memory {
 
@@ -74,17 +76,27 @@ class MemoryTracker {
 
   // ========== Eviction Control ==========
 
-  // Check if eviction is needed
+// Check if eviction is needed (optimized: only check when memory is close to threshold)
   bool ShouldEvict() const {
     if (!config_.enable_tracking) return false;
     if (config_.max_memory_limit == 0) return false;  // No limit
     if (!IsEvictionActive(config_.eviction_policy)) return false;
 
     uint64_t current = GetCurrentMemory();
-    uint64_t threshold = static_cast<uint64_t>(
-        config_.max_memory_limit * config_.eviction_threshold);
+    return current >= config_.max_memory_limit;
+  }
 
-    return current >= threshold;
+  // Check if we should even perform an eviction check (performance optimization)
+  // Only check when memory is close to threshold (e.g., within 80% of max)
+  bool ShouldCheckEviction() const {
+    if (!config_.enable_tracking) return false;
+    if (config_.max_memory_limit == 0) return false;  // No limit
+    if (!IsEvictionActive(config_.eviction_policy)) return false;
+
+    uint64_t current = GetCurrentMemory();
+    // Only check when memory is at 80% of max or higher
+    uint64_t check_threshold = static_cast<uint64_t>(config_.max_memory_limit * 0.8);
+    return current >= check_threshold;
   }
 
   // Check if memory is at or above limit
@@ -203,5 +215,161 @@ class MemoryTracker {
   MemoryTrackerConfig config_;
   std::atomic<uint64_t> current_memory_{0};
 };
+
+// MemoryTracker constructor implementation
+inline MemoryTracker::MemoryTracker(const MemoryTrackerConfig& config)
+    : config_(config), current_memory_(0) {}
+
+// Memory Tracker Helper - Simplifies memory management for commands
+class MemoryTrackerHelper {
+ public:
+  // Update memory for String type
+  static void UpdateString(MemoryTracker* tracker,
+                          astra::storage::KeyMetadataManager* metadata,
+                          const std::string& key,
+                          const std::string& old_value,
+                          const std::string& new_value);
+
+  // Update memory for Hash field
+  static void UpdateHashField(MemoryTracker* tracker,
+                             astra::storage::KeyMetadataManager* metadata,
+                             const std::string& key,
+                             bool field_existed,
+                             const std::string& old_field_value,
+                             const std::string& new_field_value);
+
+  // Update memory for Set member
+  static void UpdateSetMember(MemoryTracker* tracker,
+                            astra::storage::KeyMetadataManager* metadata,
+                            const std::string& key,
+                            bool member_existed,
+                            const std::string& member);
+
+  // Update memory for ZSet member
+  static void UpdateZSetMember(MemoryTracker* tracker,
+                              astra::storage::KeyMetadataManager* metadata,
+                              const std::string& key,
+                              bool member_existed,
+                              const std::string& member,
+                              double score);
+
+  // Update memory for List element
+  static void UpdateListElement(MemoryTracker* tracker,
+                               astra::storage::KeyMetadataManager* metadata,
+                               const std::string& key,
+                               bool element_existed,
+                               const std::string& element);
+};
+
+// Implementation of MemoryTrackerHelper methods
+inline void MemoryTrackerHelper::UpdateString(
+    MemoryTracker* tracker,
+    astra::storage::KeyMetadataManager* metadata,
+    const std::string& key,
+    const std::string& old_value,
+    const std::string& new_value) {
+  if (!tracker || !metadata) return;
+
+  uint32_t old_size = ObjectSizeEstimator::EstimateStringSize(key, old_value);
+  uint32_t new_size = ObjectSizeEstimator::EstimateStringSize(key, new_value);
+
+  if (old_size != new_size) {
+    tracker->UpdateMemory(old_size, new_size);
+  }
+
+  metadata->UpdateEstimatedSize(key, new_size);
+}
+
+inline void MemoryTrackerHelper::UpdateHashField(
+    MemoryTracker* tracker,
+    astra::storage::KeyMetadataManager* metadata,
+    const std::string& key,
+    bool field_existed,
+    const std::string& old_field_value,
+    const std::string& new_field_value) {
+  if (!tracker || !metadata) return;
+
+  // Get old total hash size
+  uint32_t old_size = metadata->GetEstimatedSize(key);
+  
+  // Calculate new total hash size
+  uint32_t field_size_delta = 0;
+  if (field_existed) {
+    field_size_delta = static_cast<uint32_t>(new_field_value.size()) - 
+                      static_cast<uint32_t>(old_field_value.size());
+  } else {
+    field_size_delta = static_cast<uint32_t>(new_field_value.size()) +
+                      static_cast<uint32_t>(key.size()) + 8;  // field overhead
+  }
+  
+  uint32_t new_size = old_size + field_size_delta;
+
+  if (old_size != new_size) {
+    tracker->UpdateMemory(old_size, new_size);
+  }
+
+  metadata->UpdateEstimatedSize(key, new_size);
+}
+
+inline void MemoryTrackerHelper::UpdateSetMember(
+    MemoryTracker* tracker,
+    astra::storage::KeyMetadataManager* metadata,
+    const std::string& key,
+    bool member_existed,
+    const std::string& member) {
+  if (!tracker || !metadata) return;
+
+  uint32_t old_size = metadata->GetEstimatedSize(key);
+  uint32_t member_size = static_cast<uint32_t>(member.size()) + 8;  // member overhead
+  
+  uint32_t new_size = member_existed ? old_size : (old_size + member_size);
+
+  if (old_size != new_size) {
+    tracker->UpdateMemory(old_size, new_size);
+  }
+
+  metadata->UpdateEstimatedSize(key, new_size);
+}
+
+inline void MemoryTrackerHelper::UpdateZSetMember(
+    MemoryTracker* tracker,
+    astra::storage::KeyMetadataManager* metadata,
+    const std::string& key,
+    bool member_existed,
+    const std::string& member,
+    double score) {
+  if (!tracker || !metadata) return;
+
+  uint32_t old_size = metadata->GetEstimatedSize(key);
+  uint32_t member_size = static_cast<uint32_t>(member.size()) + 16;  // member + score overhead
+  
+  uint32_t new_size = member_existed ? old_size : (old_size + member_size);
+
+  if (old_size != new_size) {
+    tracker->UpdateMemory(old_size, new_size);
+  }
+
+  metadata->UpdateEstimatedSize(key, new_size);
+}
+
+inline void MemoryTrackerHelper::UpdateListElement(
+    MemoryTracker* tracker,
+    astra::storage::KeyMetadataManager* metadata,
+    const std::string& key,
+    bool element_existed,
+    const std::string& element) {
+  if (!tracker || !metadata) return;
+
+  uint32_t old_size = metadata->GetEstimatedSize(key);
+  uint32_t element_size = static_cast<uint32_t>(element.size()) + 8;  // element overhead
+  
+  uint32_t new_size = element_existed ? old_size : (old_size + element_size);
+
+  if (old_size != new_size) {
+    tracker->UpdateMemory(old_size, new_size);
+  }
+
+  metadata->UpdateEstimatedSize(key, new_size);
+}
 
 }  // namespace astra::core::memory

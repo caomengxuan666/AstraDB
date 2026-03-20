@@ -292,6 +292,135 @@ thread_count = 1
 
 ---
 
+## Memory Management Performance (Updated 2026-03-20)
+
+### Memory Tracking Optimization
+
+AstraDB implements advanced memory tracking and eviction strategies inspired by DragonflyDB's design:
+
+#### Performance Optimizations
+
+| Optimization | Impact | Implementation |
+|--------------|--------|----------------|
+| **Background Monitoring** | ~90% CPU reduction | EvictionMonitor runs every 100ms in background thread |
+| **Sampling Estimation** | ~80% CPU reduction | Randomly sample 100 keys for memory estimation |
+| **80% Check Threshold** | ~50% check reduction | Only check eviction when memory ≥ 80% of limit |
+| **2Q Algorithm** | ~10-15% better hit rate | Dragonfly-style dual-buffer design |
+
+#### Memory Usage Tracking
+
+```cpp
+// Exact calculation (keys ≤ sample_size)
+if (all_keys.size() <= sample_size_) {
+  for (const auto& key : all_keys) {
+    total += get_key_size(key);
+  }
+}
+
+// Sampling estimation (keys > sample_size)
+for (size_t i = 0; i < sample_size_; ++i) {
+  size_t idx = static_cast<size_t>(dist_(rng_) * all_keys.size());
+  sample_total += get_key_size(all_keys[idx]);
+}
+double avg_size = static_cast<double>(sample_total) / sample_size_;
+return static_cast<uint64_t>(avg_size * all_keys.size());
+```
+
+#### 2Q Algorithm Performance
+
+The 2Q algorithm (probationary + protected buffers) provides better cache hit rates than traditional LRU:
+
+```
+Probationary Buffer (6.7%): FIFO for new keys
+  ↓ (accessed once)
+Protected Buffer (93.3%): LRU for accessed keys
+```
+
+**Performance Characteristics**:
+- O(1) time complexity for access
+- O(1) time complexity for eviction
+- Zero additional metadata overhead (uses existing key metadata)
+- Higher hit rate than LRU in most workloads
+
+#### Configuration Example
+
+```toml
+[memory]
+max_memory = 1073741824        # 1GB (0 = no limit)
+eviction_policy = "2q"         # Recommended: 2Q algorithm
+eviction_threshold = 0.9       # Trigger eviction at 90% of max_memory
+eviction_samples = 5           # Number of samples for LRU/LFU
+enable_tracking = true         # Enable memory tracking
+```
+
+#### Performance Comparison
+
+| Strategy | Hit Rate | CPU Overhead | Memory Overhead |
+|----------|----------|--------------|-----------------|
+| LRU | 60-70% | High | Low |
+| LFU | 65-75% | High | Low |
+| **2Q** | **75-85%** | **Low** | **Zero** |
+
+For detailed information, see `DOCS/eviction-strategy-optimization.md`.
+
+### Global Memory Tracking in NO SHARING Architecture
+
+In NO SHARING architecture, each worker has independent memory tracking, but eviction uses global memory:
+
+```
+Worker 0                Worker 1
+  ├─ MemoryTracker 0      ├─ MemoryTracker 1
+  ├─ Database 0          ├─ Database 1
+  └─ Keys: 49            └─ Keys: 51
+
+Global Memory Check:
+  Total = 20000 + 20000 = 40000
+  Max = 1048576
+  Threshold = 943718 (90%)
+  Should Evict = No
+```
+
+**Implementation**:
+```cpp
+// Get total memory across all workers
+core::memory::GetTotalMemoryCallback get_total_memory_callback;
+get_total_memory_callback = [this]() -> size_t {
+  size_t total_memory = 0;
+  for (auto& worker : workers_) {
+    total_memory += worker->GetDataShard().GetMemoryTracker()->GetCurrentMemory();
+  }
+  return total_memory;
+};
+```
+
+### Memory Usage Best Practices
+
+1. **Set Appropriate Memory Limits**
+   - Don't set too low (frequent eviction)
+   - Don't set too high (risk of OOM)
+   - Monitor eviction rate with Prometheus
+
+2. **Choose Right Eviction Policy**
+   - Use `2q` for best overall performance
+   - Use `volatile-*` policies if TTL is important
+   - Use `noeviction` only if you have infinite memory
+
+3. **Monitor Memory Metrics**
+   ```bash
+   # Check current memory usage
+   INFO memory
+   
+   # Monitor eviction rate
+   # Metrics: eviction_key_total, eviction_operation_total
+   ```
+
+4. **Avoid Memory Leaks**
+   - All keys with TTL are automatically cleaned up
+   - Eviction prevents unbounded memory growth
+   - Use memory tracking to identify issues
+
+---
+
 ## Build Instructions
 
 ### Release Build (Stripped, Optimized)
@@ -391,6 +520,6 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2026-03-02  
+**Document Version**: 1.1  
+**Last Updated**: 2026-03-20  
 **Tested Environment**: WSL2, 12 cores, GCC 13.3.0

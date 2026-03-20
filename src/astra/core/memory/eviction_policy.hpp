@@ -10,7 +10,7 @@
 
 namespace astra::core::memory {
 
-// Eviction policy types (Redis-compatible)
+// Eviction policy types (Redis-compatible + Dragonfly-inspired)
 enum class EvictionPolicy : uint8_t {
   kNoEviction = 0,         // No eviction, return error on OOM
   kAllKeysLRU = 1,         // Evict any key using LRU
@@ -19,7 +19,8 @@ enum class EvictionPolicy : uint8_t {
   kVolatileLFU = 4,        // Evict keys with TTL using LFU
   kAllKeysRandom = 5,      // Evict any key randomly
   kVolatileRandom = 6,     // Evict keys with TTL randomly
-  kVolatileTTL = 7         // Evict keys with smallest TTL
+  kVolatileTTL = 7,        // Evict keys with smallest TTL
+  k2Q = 8                  // Dragonfly-inspired 2Q algorithm (recommended)
 };
 
 // Convert eviction policy to string
@@ -41,6 +42,8 @@ inline std::string EvictionPolicyToString(EvictionPolicy policy) {
       return "volatile-random";
     case EvictionPolicy::kVolatileTTL:
       return "volatile-ttl";
+    case EvictionPolicy::k2Q:
+      return "2q";
     default:
       return "unknown";
   }
@@ -69,6 +72,8 @@ inline EvictionPolicy StringToEvictionPolicy(const std::string& str) {
     return EvictionPolicy::kVolatileRandom;
   } else if (lower_str == "volatile-ttl") {
     return EvictionPolicy::kVolatileTTL;
+  } else if (lower_str == "2q" || lower_str == "dash-cache") {
+    return EvictionPolicy::k2Q;
   } else {
     return EvictionPolicy::kNoEviction;  // Default to noeviction
   }
