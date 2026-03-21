@@ -99,6 +99,12 @@ bind_addr = "0.0.0.0"
 port = 12345
 # Metrics endpoint path
 endpoint = "/metrics"
+# Stats aggregation frequency in seconds (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
+# - 0: Disabled for maximum performance (INFO command will return outdated data)
+# - 10: Optimal balance (default) - 10% performance improvement vs 1s
+# - 1: Detailed monitoring (may impact performance)
+# - 60: Low frequency monitoring (minimal performance impact)
+stats_frequency_seconds = 10
 
 # =============================================================================
 # Cluster Configuration (Redis Cluster Compatible)

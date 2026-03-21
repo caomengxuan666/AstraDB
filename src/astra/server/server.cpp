@@ -385,10 +385,18 @@ void Server::StartStatsAggregation() {
 
     while (stats_aggregation_running_) {
       AggregateStats();
-      // OPTIMIZATION: Reduce frequency to 10s to minimize lock contention
-      // Peak performance: 68K QPS (when stats thread is idle)
-      // Average performance: 50K QPS (when stats thread is active)
-      absl::SleepFor(absl::Seconds(10));
+      
+      // Use configured stats frequency
+      int frequency = config_.stats_frequency_seconds;
+      if (frequency <= 0) {
+        // Disabled: sleep for a long time (effectively stops stats aggregation)
+        ASTRADB_LOG_WARN("Stats aggregation is disabled (frequency <= 0), sleeping for 1 hour");
+        absl::SleepFor(absl::Hours(1));
+      } else {
+        // Use configured frequency
+        ASTRADB_LOG_DEBUG("Stats aggregation: sleeping for {} seconds", frequency);
+        absl::SleepFor(absl::Seconds(frequency));
+      }
     }
 
     ASTRADB_LOG_DEBUG("Stats aggregation thread exited");

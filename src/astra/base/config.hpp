@@ -95,11 +95,16 @@ struct ServerConfig {
   // Memory
   MemoryConfig memory;
 
-  // Metrics
+// Metrics
   struct MetricsConfig {
     bool enabled = true;
     std::string bind_addr = "0.0.0.0";
     uint16_t port = 9100;
+    // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
+    // Default: 10 seconds for optimal performance and monitoring
+    // Set to 0 for maximum performance (INFO command will return outdated data)
+    // Set to 1 for detailed monitoring (may impact performance)
+    int stats_frequency_seconds = 10;
   };
   MetricsConfig metrics;
 

@@ -62,6 +62,10 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   bool metrics_enabled = true;
   std::string metrics_bind_addr = "0.0.0.0";
   uint16_t metrics_port = 9999;
+  
+  // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
+  // Default: 10 seconds for optimal performance and monitoring
+  int stats_frequency_seconds = 10;
 
   // Load configuration from file
   static NoSharingServerConfig LoadFromFile(const std::string& config_file) {
@@ -90,6 +94,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.persistence = base_config.persistence;
     config.cluster = base_config.cluster;
     config.metrics = base_config.metrics;
+    config.stats_frequency_seconds = base_config.metrics.stats_frequency_seconds;
 
     // Copy AOF configuration
     config.aof = base_config.aof;
