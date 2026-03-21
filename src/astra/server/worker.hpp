@@ -32,6 +32,21 @@
 
 namespace astra::server {
 
+// Helper function to convert absl::Duration to std::chrono::duration for asio
+inline std::chrono::nanoseconds AbslToChronoNanoseconds(absl::Duration d) {
+  return std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d));
+}
+
+inline std::chrono::microseconds AbslToChronoMicroseconds(absl::Duration d) {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d)));
+}
+
+inline std::chrono::milliseconds AbslToChronoMilliseconds(absl::Duration d) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d)));
+}
+
 // Forward declarations
 class Worker;
 class PersistenceManager;
@@ -304,7 +319,7 @@ struct PendingClientInfoReq {
   size_t responses_received = 0;
   size_t expected_responses = 0;
   std::vector<ClientInfoResponse> responses;
-  std::chrono::steady_clock::time_point start_time;
+  absl::Time start_time;
 };
 
 // Batch cross-worker request for multi-key commands
@@ -1087,6 +1102,10 @@ class Worker {
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
+            
+            // OPTIMIZATION: Trigger immediate response processing for low latency
+            // This is especially important for single-connection scenarios
+            NotifyResponseQueue();
           } else {
             // Forward to target worker (enqueue to avoid blocking)
             ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
@@ -1106,6 +1125,9 @@ class Worker {
         has_work = true;
         ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
         resp_queue_.enqueue(resp);
+        
+        // OPTIMIZATION: Trigger immediate response processing
+        NotifyResponseQueue();
       }
 
       // Process client info responses (for CLIENT LIST command)
@@ -1165,6 +1187,19 @@ class Worker {
     }
   }
 
+  // Trigger immediate response processing for low latency
+  // Reschedules the response timer with minimal delay (10us)
+  void NotifyResponseQueue() {
+    // Cancel existing timer and reschedule with minimal delay
+    response_timer_.cancel();
+    response_timer_.expires_after(AbslToChronoMicroseconds(absl::Microseconds(10)));
+    response_timer_.async_wait([this](asio::error_code ec) {
+      if (!ec && running_) {
+        ProcessResponseQueue();
+      }
+    });
+  }
+
   void ProcessResponseQueue() {
     if (!running_) {
       return;
@@ -1218,12 +1253,13 @@ class Worker {
     // OPTIMIZATION: Dynamic timer interval based on queue load
     // High load: 0.1ms (allows 10K+ QPS per connection)
     // Low load: 1ms (reduces CPU usage)
+    // Combined with NotifyResponseQueue() for ultra-low latency
     if (!conn_responses.empty()) {
       // High load: faster timer
-      response_timer_.expires_after(std::chrono::microseconds(100));
+      response_timer_.expires_after(AbslToChronoMicroseconds(absl::Microseconds(100)));
     } else {
       // Low load: slower timer to reduce CPU
-      response_timer_.expires_after(std::chrono::milliseconds(1));
+      response_timer_.expires_after(AbslToChronoMilliseconds(absl::Milliseconds(1)));
     }
     
     response_timer_.async_wait([this](asio::error_code ec) {
@@ -1404,7 +1440,7 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
         auto status = futures[i].wait_for(
-            absl::ToChronoMilliseconds(absl::Milliseconds(1)));
+            AbslToChronoMilliseconds(absl::Milliseconds(1)));
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
@@ -1534,7 +1570,7 @@ inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
   pending_req->conn_id = conn_id;
   pending_req->responses_received = 0;
   pending_req->expected_responses = all_workers_.size();
-  pending_req->start_time = std::chrono::steady_clock::now();
+  pending_req->start_time = absl::Now();
 
   {
     std::lock_guard<std::mutex> lock(batch_mutex_);
