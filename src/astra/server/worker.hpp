@@ -1179,10 +1179,12 @@ class Worker {
       }
 
       // Wait if no work (using absl condition variable for better performance)
+      // OPTIMIZATION: Reduce timeout from 1s to 100ms for better responsiveness
+      // 100ms is a good balance: fast enough for responsiveness, low CPU overhead
       if (!has_work) {
         absl::MutexLock lock(&executor_mutex_);
-        // Wait until there's work or timeout (1s timeout as safety net)
-        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Seconds(1));
+        // Wait until there's work or timeout (100ms timeout for responsiveness)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
       }
     }
   }
@@ -1299,10 +1301,21 @@ void NotifyResponseQueue() {
   absl::CondVar executor_cv_;
   bool has_work_{false};  // Flag to indicate if there's work to do
 
+  // Condition variable and mutex for batch response notification
+  absl::Mutex batch_response_mutex_;
+  absl::CondVar batch_response_cv_;
+  std::atomic<size_t> pending_batch_responses_{0};
+
   // Notify ExecutorLoop that there's work to do
   inline void NotifyExecutorLoop() {
     absl::MutexLock lock(&executor_mutex_);
     executor_cv_.Signal();
+  }
+
+  // Notify that a batch response is ready
+  inline void NotifyBatchResponseReady() {
+    absl::MutexLock lock(&batch_response_mutex_);
+    batch_response_cv_.Signal();
   }
 
   // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
@@ -1405,27 +1418,38 @@ inline std::vector<std::string> Worker::SendBatchRequest(
   }
 
   // Wait for all cross-worker responses with timeout
-  // Note: This is still blocking, but we call ProcessBatchResponses
-  // periodically
+  // OPTIMIZATION: Use condition variable instead of sleep to avoid 1ms delay
   auto start_time = absl::Now();
   size_t completed = 0;
+
+  // Register pending responses for notification
+  pending_batch_responses_.fetch_add(futures.size());
 
   while (completed < futures.size()) {
     // Process batch responses (this is called from ExecutorLoop, so we need to
     // do it here)
     ProcessBatchResponses();
 
-    // Check if any future is ready
+    // Check if any future is ready (with short timeout to avoid blocking too long)
+    bool any_ready = false;
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
         auto status = futures[i].wait_for(
-            AbslToChronoMilliseconds(absl::Milliseconds(1)));
+            AbslToChronoMicroseconds(absl::Microseconds(100)));  // 100us instead of 1ms
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
           completed++;
+          any_ready = true;
         }
       }
+    }
+
+    // If no futures are ready, wait for batch response notification
+    if (!any_ready && completed < futures.size()) {
+      absl::MutexLock lock(&batch_response_mutex_);
+      // Wait for notification or timeout (100us)
+      batch_response_cv_.WaitWithTimeout(&batch_response_mutex_, absl::Microseconds(100));
     }
 
     // Check timeout
@@ -1441,10 +1465,10 @@ inline std::vector<std::string> Worker::SendBatchRequest(
       }
       break;
     }
-
-    // Small sleep to avoid busy waiting
-    absl::SleepFor(absl::Milliseconds(1));
   }
+
+  // Unregister pending responses
+  pending_batch_responses_.fetch_sub(futures.size());
 
   // Aggregate results based on command type
   absl::InlinedVector<std::string, 8> final_result;
@@ -1497,6 +1521,8 @@ inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
     ASTRADB_LOG_DEBUG("Worker {}: Enqueueing batch response to Worker {}",
                       worker_id_, req.source_worker_id);
     all_workers_[req.source_worker_id]->EnqueueBatchResponse(resp);
+    // OPTIMIZATION: Notify source worker that batch response is ready
+    all_workers_[req.source_worker_id]->NotifyBatchResponseReady();
     ASTRADB_LOG_DEBUG("Worker {}: Batch response enqueued successfully",
                       worker_id_);
   } else {
