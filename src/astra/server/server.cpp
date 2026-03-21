@@ -5,6 +5,7 @@
 #include "worker_scheduler.hpp"
 
 #include "astra/security/acl_manager.hpp"  // For AclManager
+#include "absl/time/time.h"
 
 namespace astra::server {
 
@@ -12,8 +13,9 @@ Server::Server(const ServerConfig& config) : config_(config), running_(false) {
   ASTRADB_LOG_INFO("Creating server with NO SHARING architecture");
   // Set server start time for stats
   auto* stats = server::ServerStatsAccessor::Instance().GetStats();
+  absl::Time start_time = absl::Now();
   stats->start_time.store(
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()),
+      absl::ToTimeT(start_time),
       std::memory_order_relaxed);
   ASTRADB_LOG_INFO("Config: host={}, port={}, workers={}", config.host,
                    config.port, config.num_workers);
@@ -119,12 +121,7 @@ void Server::Start() {
         "Replication initialization failed, running without replication");
   }
 
-  // Start all workers
-  for (auto& worker : workers_) {
-    worker->Start();
-  }
-
-  // Create worker scheduler (after workers are started)
+  // Create worker scheduler first (before setting memory config)
   {
     std::vector<Worker*> worker_ptrs;
     worker_ptrs.reserve(workers_.size());
@@ -133,12 +130,43 @@ void Server::Start() {
     }
     worker_scheduler_ = std::make_unique<WorkerScheduler>(worker_ptrs);
     ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
+  }
 
-    // Set worker scheduler for all workers (for SCRIPT KILL command)
+  // Set memory configuration for all workers' data shards
+  {
+    ASTRADB_LOG_INFO("Memory configuration from file - max_memory={}, eviction_policy={}",
+                     config_.memory.max_memory, config_.memory.eviction_policy);
+    
+    core::memory::MemoryTrackerConfig memory_config;
+    memory_config.max_memory_limit = config_.memory.max_memory;
+    memory_config.eviction_policy = 
+        core::memory::StringToEvictionPolicy(config_.memory.eviction_policy);
+    memory_config.eviction_threshold = config_.memory.eviction_threshold;
+    memory_config.eviction_samples = config_.memory.eviction_samples;
+    memory_config.enable_tracking = config_.memory.enable_tracking;
+
+    ASTRADB_LOG_INFO("Setting memory configuration for {} workers", workers_.size());
     for (auto& worker : workers_) {
-      worker->SetWorkerScheduler(worker_scheduler_.get());
+      // Create callback to get total memory across all workers
+      core::memory::GetTotalMemoryCallback get_total_memory_callback;
+      if (workers_.size() > 1) {
+        get_total_memory_callback = [this]() -> size_t {
+          size_t total_memory = 0;
+          for (auto& worker : workers_) {
+            total_memory += worker->GetDataShard().GetMemoryTracker()->GetCurrentMemory();
+          }
+          return total_memory;
+        };
+      }
+      
+      worker->GetDataShard().SetMemoryConfig(memory_config, std::move(get_total_memory_callback));
     }
-    ASTRADB_LOG_INFO("Worker scheduler set for all workers");
+    ASTRADB_LOG_INFO("Memory configuration set for all workers");
+  }
+
+  // Start all workers
+  for (auto& worker : workers_) {
+    worker->Start();
   }
 
   running_ = true;
@@ -149,6 +177,7 @@ void Server::Start() {
     StartStatsAggregation();
   }
 }
+
 void Server::Stop() {
   if (!running_) {
     return;
@@ -356,7 +385,18 @@ void Server::StartStatsAggregation() {
 
     while (stats_aggregation_running_) {
       AggregateStats();
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      
+      // Use configured stats frequency
+      int frequency = config_.stats_frequency_seconds;
+      if (frequency <= 0) {
+        // Disabled: sleep for a long time (effectively stops stats aggregation)
+        ASTRADB_LOG_WARN("Stats aggregation is disabled (frequency <= 0), sleeping for 1 hour");
+        absl::SleepFor(absl::Hours(1));
+      } else {
+        // Use configured frequency
+        ASTRADB_LOG_DEBUG("Stats aggregation: sleeping for {} seconds", frequency);
+        absl::SleepFor(absl::Seconds(frequency));
+      }
     }
 
     ASTRADB_LOG_DEBUG("Stats aggregation thread exited");
@@ -384,12 +424,11 @@ void Server::AggregateStats() {
   }
 
   // Update server uptime
-  auto now = std::chrono::system_clock::now();
-  auto start_time =
-      std::chrono::system_clock::from_time_t(global_stats->start_time.load());
-  auto uptime =
-      std::chrono::duration_cast<std::chrono::seconds>(now - start_time)
-          .count();
+  absl::Time now = absl::Now();
+  absl::Time start_time = absl::FromTimeT(global_stats->start_time.load());
+  absl::Duration uptime_duration = now - start_time;
+  int64_t uptime = absl::ToInt64Seconds(uptime_duration);
+  
   global_stats->uptime_seconds.store(uptime, std::memory_order_relaxed);
 
   // Sync to Prometheus

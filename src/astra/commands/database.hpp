@@ -23,9 +23,17 @@
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
 #include "astra/container/zset/btree_zset.hpp"
+#include "astra/core/memory/eviction_manager.hpp"
+#include "astra/core/memory/memory_tracker.hpp"
+#include "astra/core/memory/object_size_estimator.hpp"
 #include "astra/core/memory/string_pool.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
+
+// Forward declarations
+namespace astra::server {
+class WorkerScheduler;
+}
 
 namespace astra::commands {
 
@@ -42,16 +50,17 @@ class Database {
  public:
   // Callback for batch cross-worker requests
   struct BatchRequestContext {
-    size_t worker_id;  // This worker's ID
+    size_t worker_id;    // This worker's ID
     size_t num_workers;  // Total number of workers
-    std::function<std::vector<std::string>(size_t target_worker, const std::string& cmd_type,
-                                           const std::vector<std::string>& keys,
-                                           const std::vector<std::string>& args)> send_request;
+    std::function<std::vector<std::string>(
+        size_t target_worker, const std::string& cmd_type,
+        const std::vector<std::string>& keys,
+        const std::vector<std::string>& args)>
+        send_request;
   };
 
   using BatchRequestCallback = std::function<std::vector<std::string>(
-      const std::string& cmd_type,
-      const std::vector<std::string>& keys,
+      const std::string& cmd_type, const std::vector<std::string>& keys,
       const std::vector<std::string>& args)>;
 
   using StringMap = astra::container::DashMap<std::string, StringValue>;
@@ -92,6 +101,67 @@ class Database {
   // Get string pool for statistics
   core::memory::StringPool* GetStringPool() { return string_pool_.get(); }
 
+  // ========== Memory Tracking ==========
+
+  // Set memory tracker (called by Shard)
+  void SetMemoryTracker(core::memory::MemoryTracker* tracker) {
+    memory_tracker_ = tracker;
+  }
+
+  // Get memory tracker
+  core::memory::MemoryTracker* GetMemoryTracker() const {
+    return memory_tracker_;
+  }
+
+  // Initialize eviction manager (called after SetMemoryTracker)
+  void InitializeEvictionManager(core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
+    if (memory_tracker_ && !eviction_manager_) {
+      eviction_manager_ = std::make_unique<core::memory::EvictionManager>(
+          memory_tracker_, &metadata_manager_, std::move(get_total_memory_callback));
+
+      // Set eviction callback to delete keys from all data structures
+      eviction_manager_->SetEvictionCallback(
+          [this](const std::string& key, astra::storage::KeyType type) -> bool {
+            return this->EvictKey(key, type);
+          });
+    }
+  }
+
+  // Evict a key (called by EvictionManager)
+  bool EvictKey(const std::string& key, astra::storage::KeyType type) {
+    (void)type;  // Type is already known from metadata
+
+    ASTRADB_LOG_DEBUG("EvictKey: attempting to evict key: {}", key);
+
+    // Remove from all data structures
+    bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
+                   sets_.Remove(key) || zsets_.Remove(key) ||
+                   lists_.Remove(key) || streams_.Remove(key);
+
+    if (removed) {
+      // Get estimated size before deletion
+      uint32_t estimated_size = metadata_manager_.GetEstimatedSize(key);
+      uint32_t metadata_size =
+          core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
+
+      ASTRADB_LOG_DEBUG("EvictKey: successfully removed key: {}, estimated_size={}, metadata_size={}",
+                       key, estimated_size, metadata_size);
+
+      // Subtract memory from tracker
+      if (memory_tracker_) {
+        memory_tracker_->SubtractMemory(estimated_size + metadata_size);
+      }
+
+      // Remove from metadata
+      metadata_manager_.UnregisterKey(key);
+
+      return true;
+    }
+
+    ASTRADB_LOG_DEBUG("EvictKey: failed to remove key: {}", key);
+    return false;
+  }
+
   // ========== Stream Operations ==========
 
   StreamData* GetStream(const std::string& key) {
@@ -119,8 +189,29 @@ class Database {
   // ========== String Operations ==========
 
   bool Set(const std::string& key, StringValue value) {
+    // Get old value for memory tracking
+    StringValue old_value;
+    bool key_existed = strings_.Get(key, &old_value);
+    const std::string& old_value_str = key_existed ? old_value.value : "";
+    const std::string& new_value_str = value.value;
+
+    // Update metadata (register key first, so metadata_manager_.UpdateEstimatedSize can find it)
     strings_.Insert(key, std::move(value));
     metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+    metadata_manager_.UpdateAccessInfo(key);
+
+    // Update memory tracker using helper (after key is registered)
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateString(
+          memory_tracker_, &metadata_manager_, key, old_value_str, new_value_str);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    // Only check eviction when memory is close to threshold to avoid performance impact
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
     return true;
   }
 
@@ -137,6 +228,16 @@ class Database {
 
     StringValue value;
     if (strings_.Get(key, &value)) {
+      // Update access time for LRU/LFU
+      metadata_manager_.UpdateAccessInfo(key);
+      
+      // Record access for 2Q strategy if active
+      if (eviction_manager_ && memory_tracker_ && 
+          memory_tracker_->GetEvictionPolicy() == core::memory::EvictionPolicy::k2Q) {
+        // Access to 2Q strategy is handled via callback
+        // We'll add this later
+      }
+      
       return value;
     }
     return std::nullopt;
@@ -153,12 +254,20 @@ class Database {
     int64_t len = static_cast<int64_t>(str.size());
 
     // Handle negative indices
-    if (start < 0) start = len + start;
-    if (end < 0) end = len + end;
+    if (start < 0) {
+      start = len + start;
+    }
+    if (end < 0) {
+      end = len + end;
+    }
 
     // Clamp to valid range
-    if (start < 0) start = 0;
-    if (end >= len) end = len - 1;
+    if (start < 0) {
+      start = 0;
+    }
+    if (end >= len) {
+      end = len - 1;
+    }
 
     if (start > end || start >= len) {
       return "";
@@ -195,9 +304,23 @@ class Database {
   }
 
   bool Del(const std::string& key) {
+    // Get estimated size before deletion
+    uint32_t estimated_size = metadata_manager_.GetEstimatedSize(key);
+    uint32_t metadata_size =
+        core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
+
+    // Remove from all data structures
+    bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
+                   sets_.Remove(key) || zsets_.Remove(key) ||
+                   lists_.Remove(key) || streams_.Remove(key);
+
+    if (removed && memory_tracker_) {
+      // Subtract memory from tracker (data + metadata)
+      memory_tracker_->SubtractMemory(estimated_size + metadata_size);
+    }
+
     metadata_manager_.UnregisterKey(key);
-    return strings_.Remove(key) || hashes_.Remove(key) || sets_.Remove(key) ||
-           zsets_.Remove(key);
+    return removed;
   }
 
   size_t Del(const std::vector<std::string>& keys) {
@@ -270,12 +393,35 @@ class Database {
 
   bool HSet(const std::string& key, const std::string& field,
             const std::string& value) {
+    // Check if hash already exists
     auto hash = GetHash(key);
+    
+    // Check if field already exists
+    std::string old_field_value;
+    bool field_existed = false;
+    if (hash) {
+      field_existed = hash->Get(field, &old_field_value);
+    }
+
+    // Create new hash if needed
     if (!hash) {
       hash = std::make_shared<HashType>(16);
       hashes_.Insert(key, hash);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kHash);
     }
+
+    // Update memory tracker using helper
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateHashField(
+          memory_tracker_, &metadata_manager_, key, field_existed, old_field_value, value);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
+    // Insert field
     return hash->Insert(field, value);
   }
 
@@ -487,12 +633,34 @@ class Database {
   // ========== Set Operations ==========
 
   bool SAdd(const std::string& key, const std::string& member) {
+    // Check if set already exists
     auto set = GetSet(key);
+    
+    // Check if member already exists
+    bool member_existed = false;
+    if (set) {
+      member_existed = set->Contains(member);
+    }
+
+    // Create new set if needed
     if (!set) {
       set = std::make_shared<SetType>(16);
       sets_.Insert(key, set);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kSet);
     }
+
+    // Update memory tracker using helper
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateSetMember(
+          memory_tracker_, &metadata_manager_, key, member_existed, member);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
+    // Insert member
     return set->Insert(member);
   }
 
@@ -626,7 +794,8 @@ class Database {
       return {};
     }
 
-    // Check if batch request callback is available (for multi-worker architecture)
+    // Check if batch request callback is available (for multi-worker
+    // architecture)
     if (batch_request_callback_) {
       return batch_request_callback_("SINTER", keys, {});
     }
@@ -819,12 +988,34 @@ class Database {
   // ========== Sorted Set Operations ==========
 
   bool ZAdd(const std::string& key, double score, const std::string& member) {
+    // Check if zset already exists
     auto zset = GetZSet(key);
+    
+    // Check if member already exists
+    bool member_existed = false;
+    if (zset) {
+      member_existed = zset->Contains(member);
+    }
+
+    // Create new zset if needed
     if (!zset) {
       zset = std::make_shared<ZSetType>(1024);
       zsets_.Insert(key, zset);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kZSet);
     }
+
+    // Update memory tracker using helper
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateZSetMember(
+          memory_tracker_, &metadata_manager_, key, member_existed, member, score);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
+    // Add member
     return zset->Add(member, score);
   }
 
@@ -1298,7 +1489,7 @@ class Database {
     auto result =
         first_zset->GetRangeByRank(0, first_zset->Size() - 1, false, true);
     absl::flat_hash_map<std::string, double> result_map(result.begin(),
-                                                         result.end());
+                                                        result.end());
 
     // Remove members from all other sets
     for (size_t i = 1; i < numkeys; ++i) {
@@ -1358,23 +1549,55 @@ class Database {
   // ========== List Operations ==========
 
   bool LPush(const std::string& key, const std::string& value) {
+    // Check if list already exists
     auto list = GetList(key);
+
+    // Create new list if needed
     if (!list) {
       list = std::make_shared<ListType>();
       lists_.Insert(key, list);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kList);
     }
+
+    // Update memory tracker using helper (element is always new for push)
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateListElement(
+          memory_tracker_, &metadata_manager_, key, false, value);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
+    // Push element
     list->PushLeft(value);
     return true;
   }
 
   bool RPush(const std::string& key, const std::string& value) {
+    // Check if list already exists
     auto list = GetList(key);
+
+    // Create new list if needed
     if (!list) {
       list = std::make_shared<ListType>();
       lists_.Insert(key, list);
       metadata_manager_.RegisterKey(key, astra::storage::KeyType::kList);
     }
+
+    // Update memory tracker using helper (element is always new for push)
+    if (memory_tracker_) {
+      core::memory::MemoryTrackerHelper::UpdateListElement(
+          memory_tracker_, &metadata_manager_, key, false, value);
+    }
+
+    // Check and perform eviction if needed (performance optimized)
+    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+      eviction_manager_->CheckAndEvict();
+    }
+
+    // Push element
     list->PushRight(value);
     return true;
   }
@@ -1566,8 +1789,8 @@ class Database {
 
   // Get total key count across all data types
   size_t GetKeyCount() const {
-    return strings_.Size() + hashes_.Size() + lists_.Size() + 
-           sets_.Size() + zsets_.Size() + streams_.Size();
+    return strings_.Size() + hashes_.Size() + lists_.Size() + sets_.Size() +
+           zsets_.Size() + streams_.Size();
   }
 
   // Get expired keys count
@@ -1578,11 +1801,9 @@ class Database {
   // ========== RDB Persistence Operations ==========
 
   // ForEachKey callback type
-  using ForEachKeyCallback = std::function<void(
-      const std::string& key,
-      astra::storage::KeyType type,
-      const std::string& value,
-      int64_t ttl_ms)>;
+  using ForEachKeyCallback =
+      std::function<void(const std::string& key, astra::storage::KeyType type,
+                         const std::string& value, int64_t ttl_ms)>;
 
   // Iterate through all keys in the database
   // callback(key, type, value, ttl_ms)
@@ -1720,6 +1941,8 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
+  core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned
+  std::unique_ptr<core::memory::EvictionManager> eviction_manager_;  // Owned
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
   std::function<void(const std::string&)> aof_callback_;  // For persistence
 };
@@ -1744,6 +1967,14 @@ class DatabaseManager {
   }
 
   size_t GetDatabaseCount() const { return databases_.size(); }
+
+  // Set memory tracker for all databases (called by Shard)
+  void SetMemoryTrackerForAll(core::memory::MemoryTracker* tracker) {
+    for (auto& db : databases_) {
+      db->SetMemoryTracker(tracker);
+      db->InitializeEvictionManager();
+    }
+  }
 
  private:
   std::vector<std::unique_ptr<Database>> databases_;

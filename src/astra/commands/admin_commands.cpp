@@ -7,6 +7,7 @@
 #include <absl/strings/ascii.h>
 
 #include "astra/server/worker.hpp"
+#include "astra/server/worker_scheduler.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -1718,6 +1719,21 @@ CommandResult HandleDbSize(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
+  // Try to use WorkerScheduler to query all workers (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    size_t total_size = 0;
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect DBSIZE from all workers
+    for (auto* worker : all_workers) {
+      total_size += worker->GetDataShard().GetDatabase().DbSize();
+    }
+
+    return CommandResult(RespValue(static_cast<int64_t>(total_size)));
+  }
+
+  // Fallback: single worker mode
   size_t size = db->DbSize();
   return CommandResult(RespValue(static_cast<int64_t>(size)));
 }
@@ -1866,7 +1882,41 @@ CommandResult HandleConfig(const protocol::Command& command,
         result.push_back(key);
 
         RespValue value;
-        value.SetString("0", protocol::RespType::kBulkString);  // No limit
+        // Get maxmemory from memory tracker (0 = no limit)
+        uint64_t max_memory = 0;
+        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
+          max_memory = context->GetDatabase()->GetMemoryTracker()->GetMaxMemory();
+        }
+        value.SetString(absl::StrCat(max_memory), protocol::RespType::kBulkString);
+        result.push_back(value);
+      } else if (upper_param == "MAXMEMORY-POLICY" || upper_param == "*" ||
+                 upper_param == "*MAXMEMORY-POLICY*") {
+        RespValue key;
+        key.SetString("maxmemory-policy", protocol::RespType::kBulkString);
+        result.push_back(key);
+
+        RespValue value;
+        // Get eviction policy from memory tracker
+        std::string policy = "noeviction";
+        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
+          auto astra_policy = context->GetDatabase()->GetMemoryTracker()->GetEvictionPolicy();
+          policy = astra::core::memory::EvictionPolicyToString(astra_policy);
+        }
+        value.SetString(policy, protocol::RespType::kBulkString);
+        result.push_back(value);
+      } else if (upper_param == "MAXMEMORY-SAMPLES" || upper_param == "*" ||
+                 upper_param == "*MAXMEMORY-SAMPLES*") {
+        RespValue key;
+        key.SetString("maxmemory-samples", protocol::RespType::kBulkString);
+        result.push_back(key);
+
+        RespValue value;
+        // Get eviction samples from memory tracker
+        uint32_t samples = 5;
+        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
+          samples = context->GetDatabase()->GetMemoryTracker()->GetEvictionSamples();
+        }
+        value.SetString(absl::StrCat(samples), protocol::RespType::kBulkString);
         result.push_back(value);
       } else if (upper_param == "PORT" || upper_param == "*" ||
                  upper_param == "*PORT*") {

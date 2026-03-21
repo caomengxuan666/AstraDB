@@ -14,12 +14,6 @@
 
 #include "astra/base/macros.hpp"
 
-// Forward declare b-plus-tree types
-namespace bplustree {
-template <typename Key, typename Value, typename Compare = std::less<Key>>
-class BPlusTree;
-}  // namespace bplustree
-
 namespace astra::container {
 
 // ScoredMember - Sorted Set element with score and member
@@ -28,7 +22,6 @@ struct ScoredMember {
   std::string member;
 
   ScoredMember() : score(0.0) {}
-
   ScoredMember(double s, std::string m) : score(s), member(std::move(m)) {}
 
   // Comparison for ordering by score
@@ -44,15 +37,7 @@ struct ScoredMember {
   }
 };
 
-// Hash for ScoredMember
-struct ScoredMemberHash {
-  size_t operator()(const ScoredMember& sm) const {
-    return absl::Hash<double>{}(sm.score) ^
-           absl::Hash<std::string>{}(sm.member);
-  }
-};
-
-// ZSet - Sorted Set implementation using B+ Tree
+// ZSet - Sorted Set implementation (interface-compatible replacement)
 template <typename Key = std::string, typename Score = double>
 class ZSet {
  public:
@@ -63,10 +48,13 @@ class ZSet {
   explicit ZSet(size_t expected_size = 1024);
   ~ZSet();
 
-  // Non-copyable, non-movable
+  // Non-copyable, non-movable (same as original)
   ZSet(const ZSet&) = delete;
+  
   ZSet& operator=(const ZSet&) = delete;
+
   ZSet(ZSet&&) = delete;
+
   ZSet& operator=(ZSet&&) = delete;
 
   // Add or update a member with a score
@@ -84,16 +72,14 @@ class ZSet {
   // Get rank of a member (0-based)
   // Returns nullopt if member not found
   // reverse = true for reverse rank (highest score = 0)
-  std::optional<uint64_t> GetRank(const MemberType& member,
-                                  bool reverse = false) const;
+  std::optional<uint64_t> GetRank(const MemberType& member, bool reverse = false) const;
 
   // Get member by rank (0-based)
   // Returns nullopt if rank is out of range
   // reverse = true for reverse order
-  std::optional<MemberType> GetByRank(uint64_t rank,
-                                      bool reverse = false) const;
+  std::optional<MemberType> GetByRank(uint64_t rank, bool reverse = false) const;
 
-  // Get score by rank
+    // Get score by rank
   // Returns nullopt if rank is out of range
   std::optional<ScoreType> GetScoreByRank(uint64_t rank,
                                           bool reverse = false) const;
@@ -130,24 +116,12 @@ class ZSet {
   std::vector<std::pair<MemberType, ScoreType>> GetAll() const;
 
  private:
-  // B+ Tree for ordered storage (score, member)
-  // We use a pointer to avoid including the header here
-  void* btree_;  // bplustree::BPlusTree<ElementType, uint64_t>*
-
-  // Hash map for fast member lookup -> score
-  absl::flat_hash_map<MemberType, ScoreType> member_to_score_;
-
-  // Mutex for thread safety
-  mutable absl::Mutex mutex_;
-
-  // Initialize B+ Tree
-  void InitBTree();
-
-  // Cleanup B+ Tree
-  void CleanupBTree();
+  // Internal implementation details (replaced B+ tree with TBB + Abseil)
+  struct Impl;  // Forward declare internal implementation
+  Impl* impl_;  // Opaque pointer to hide implementation
 };
 
-// StringZSet - Specialized ZSet for string members
+// StringZSet - Specialized ZSet for string members (same as original)
 using StringZSet = ZSet<std::string, double>;
 
 }  // namespace astra::container

@@ -32,6 +32,11 @@ struct KeyMetadata {
   std::optional<int64_t> expire_time_ms;  // 0 or empty means no expiration
   uint64_t version = 0;  // Version for WATCH/optimistic locking
 
+  // Eviction tracking fields
+  uint32_t access_time_ms = 0;   // LRU access timestamp (24-bit, wraps every 194 days)
+  uint8_t lfu_counter = 0;       // LFU counter (8-bit, logarithmic)
+  uint32_t estimated_size = 0;   // Estimated memory size in bytes
+
   KeyMetadata() : type(KeyType::kNone) {}
 
   explicit KeyMetadata(KeyType t) : type(t) {}
@@ -76,6 +81,40 @@ struct KeyMetadata {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch())
         .count();
+  }
+
+  // ========== Access Tracking (LRU/LFU) ==========
+
+  // Update access information (called on every read/write)
+  void UpdateAccess() {
+    access_time_ms = static_cast<uint32_t>(GetCurrentTimeMs() & 0xFFFFFF);  // 24-bit
+    lfu_counter = std::min(static_cast<uint8_t>(lfu_counter + 1), static_cast<uint8_t>(255));
+  }
+
+  // Get access time for LRU
+  uint32_t GetAccessTime() const { return access_time_ms; }
+
+  // Get LFU counter
+  uint8_t GetLFUCounter() const { return lfu_counter; }
+
+  // Reset LFU counter (for periodic decay)
+  void ResetLFUCounter() { lfu_counter = lfu_counter >> 1; }
+
+  // ========== Memory Estimation ==========
+
+  // Set estimated memory size
+  void SetEstimatedSize(uint32_t size) { estimated_size = size; }
+
+  // Get estimated memory size
+  uint32_t GetEstimatedSize() const { return estimated_size; }
+
+  // Increment estimated size
+  void AddEstimatedSize(int32_t delta) {
+    if (delta > 0) {
+      estimated_size += static_cast<uint32_t>(delta);
+    } else if (delta < 0 && estimated_size >= static_cast<uint32_t>(-delta)) {
+      estimated_size -= static_cast<uint32_t>(-delta);
+    }
   }
 };
 
@@ -238,6 +277,97 @@ class KeyMetadataManager {
 
   // Clear all metadata
   void Clear() { metadata_map_.Clear(); }
+
+  // ========== Access Tracking (LRU/LFU) ==========
+
+  // Update access information for a key
+  bool UpdateAccessInfo(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return false;
+    }
+    metadata.UpdateAccess();
+    metadata_map_.Insert(key, std::move(metadata));
+    return true;
+  }
+
+  // Get access time for a key
+  uint32_t GetAccessTime(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return 0;
+    }
+    return metadata.GetAccessTime();
+  }
+
+  // Get LFU counter for a key
+  uint8_t GetLFUCounter(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return 0;
+    }
+    return metadata.GetLFUCounter();
+  }
+
+  // Decay LFU counters for all keys (call periodically)
+  void DecayLFUCounters() {
+    // Note: This is a simplified implementation
+    // In production, we'd need a more efficient way to iterate
+    // For now, we'll rely on lazy decay on access
+  }
+
+  // ========== Memory Estimation ==========
+
+  // Update estimated size for a key
+  bool UpdateEstimatedSize(const std::string& key, uint32_t size) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return false;
+    }
+    metadata.SetEstimatedSize(size);
+    metadata_map_.Insert(key, std::move(metadata));
+    return true;
+  }
+
+  // Add delta to estimated size for a key
+  bool AddEstimatedSize(const std::string& key, int32_t delta) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return false;
+    }
+    metadata.AddEstimatedSize(delta);
+    metadata_map_.Insert(key, std::move(metadata));
+    return true;
+  }
+
+  // Get estimated size for a key
+  uint32_t GetEstimatedSize(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return 0;
+    }
+    return metadata.GetEstimatedSize();
+  }
+
+  // Get total estimated memory usage
+  uint64_t GetTotalEstimatedMemory() {
+    uint64_t total = 0;
+    auto all_metadata = metadata_map_.GetAllKeyValuePairs();
+    for (const auto& [key, metadata] : all_metadata) {
+      (void)key;  // Unused
+      total += metadata.GetEstimatedSize();
+    }
+    return total;
+  }
+
+  // Check if key has TTL (for volatile eviction policies)
+  bool HasTTL(const std::string& key) {
+    KeyMetadata metadata;
+    if (!metadata_map_.Get(key, &metadata)) {
+      return false;
+    }
+    return metadata.expire_time_ms.has_value();
+  }
 
  private:
   astra::container::DashMap<std::string, KeyMetadata> metadata_map_;

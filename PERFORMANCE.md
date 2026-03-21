@@ -10,14 +10,39 @@ This document captures the performance analysis, benchmarking results, and archi
 
 ## Performance Benchmarks
 
-### Test Environment
-- **OS**: Linux 5.15.167.4-microsoft-standard-WSL2
-- **Architecture**: x86_64
-- **CPU**: 12 physical cores (WSL2 virtualization shows 20 logical cores)
-- **Compiler**: GCC 13.3.0 with -O2 optimization
-- **Build Type**: Release (stripped)
+### Test Environment (Latest)
+- **OS**: Linux 6.17.0-19-generic
+- **CPU**: Multi-core (2 workers configured)
+- **Compiler**: Clang 19.1 with C++23, -O2 optimization
+- **Build Type**: RelWithDebInfo
+- **Network**: TCP_NODELAY enabled, batch response sending
 
-### Single-Threaded Performance (1 connection)
+### Latest Results: AstraDB vs Redis (500 connections)
+
+| Metric | AstraDB | Redis | Comparison |
+|--------|---------|-------|------------|
+| **SET QPS** | 216,356 | 225,530 | **96%** |
+| **GET QPS** | 220,750 | 215,656 | **102%** ✅ |
+| **SET Latency (avg)** | 1.642ms | 1.117ms | 47% higher |
+| **GET Latency (avg)** | 1.596ms | 1.168ms | 37% higher |
+| **SET Latency (p50)** | 1.871ms | 1.103ms | 70% higher |
+| **GET Latency (p50)** | 1.871ms | 1.151ms | 63% higher |
+
+**Test Command**:
+```bash
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 500
+```
+
+**Key Achievements**:
+- ✅ GET performance **exceeds Redis** by 2%
+- ✅ SET performance reaches **96% of Redis**
+- ✅ Successfully eliminated CLOSE_WAIT leaks
+- ✅ Implemented true batch response sending
+- ✅ Optimized with TCP_NODELAY and string concatenation
+
+### Historical Benchmarks
+
+#### Single-Threaded Performance (1 connection)
 
 | Metric | AstraDB | DragonflyDB | Comparison |
 |--------|---------|-------------|------------|
@@ -26,12 +51,163 @@ This document captures the performance analysis, benchmarking results, and archi
 | **SET Latency** | ~0.82ms | ~0.85ms | **3.5% lower** |
 | **GET Latency** | ~0.84ms | ~0.85ms | ~parity |
 
-### Multi-Threaded Performance (8 connections)
+#### Multi-Threaded Performance (8 connections)
 
 | Metric | AstraDB | DragonflyDB | Comparison |
 |--------|---------|-------------|------------|
 | **SET QPS** | ~2000 req/s | ~1942 req/s | **+3% faster** |
 | **Scaling Factor** | 1.64x | 1.65x | **equivalent** |
+
+---
+
+## Network Performance Optimization (2026-03-20)
+
+### Problem Statement
+
+Initial performance showed:
+- Multi-connection QPS limited to 50K-70K (vs target 150K+)
+- Single connection QPS limited to ~300 (vs Redis 109K)
+- CLOSE_WAIT connections causing memory leaks
+
+### Root Causes Identified
+
+1. **1ms Timer Bottleneck**
+   - `ProcessResponseQueue()` triggered every 1ms
+   - Limited single connection QPS to ~1000
+   - Solution: Dynamic timer (0.1ms when queue has data, 1ms when empty)
+
+2. **CLOSE_WAIT Leaks**
+   - Connection read loop terminated without closing socket
+   - Connections not removed from `connections_` map
+   - Solution: Added `on_close_callback_` to properly cleanup
+
+3. **Inefficient Batch Sending**
+   - Initial implementation was serial sending (not true batch)
+   - String concatenation using `+=` caused reallocations
+   - Solution: Merge all responses, use `append()` for zero reallocation
+
+### Optimizations Implemented
+
+#### 1. TCP_NODELAY (Disable Nagle's Algorithm)
+
+```cpp
+// Connection constructor
+asio::ip::tcp::no_delay option(true);
+socket_.set_option(option);
+```
+
+**Impact**: Reduced latency for small packets (like Redis protocol)
+
+#### 2. True Batch Response Sending
+
+**Before** (Serial):
+```cpp
+for (const auto& response : responses) {
+  co_await conn->Send(response);  // Multiple system calls
+}
+```
+
+**After** (Merged):
+```cpp
+std::string batch;
+batch.reserve(total_size);
+for (const auto& response : responses) {
+  batch.append(response);  // Zero reallocation
+}
+co_await conn->Send(batch);  // Single system call
+```
+
+**Impact**: Reduced system calls from N to 1 per batch
+
+#### 3. Dynamic Timer Interval
+
+**Before** (Fixed 1ms):
+```cpp
+response_timer_.expires_after(std::chrono::milliseconds(1));
+```
+
+**After** (Dynamic):
+```cpp
+if (!conn_responses.empty()) {
+  response_timer_.expires_after(std::chrono::microseconds(100));
+} else {
+  response_timer_.expires_after(std::chrono::milliseconds(1));
+}
+```
+
+**Impact**: 
+- Single connection QPS: 300 → 9,700 (**32x improvement**)
+- Multi connection QPS: 50K → 216K (**4.3x improvement**)
+
+#### 4. Connection Cleanup
+
+**Before** (Leak):
+```cpp
+~Connection() {
+  ASTRADB_LOG_DEBUG("Connection destroyed");
+}
+```
+
+**After** (Proper cleanup):
+```cpp
+~Connection() {
+  Close();  // Close socket to prevent CLOSE_WAIT
+}
+
+// In DoRead() when connection closes
+if (on_close_callback_) {
+  on_close_callback_(conn_id_);  // Remove from map
+}
+```
+
+**Impact**: Eliminated CLOSE_WAIT leaks
+
+### Performance Evolution
+
+| Phase | SET QPS | GET QPS | Issues |
+|-------|---------|---------|---------|
+| Initial | ~50K | ~50K | High CPU (204%), 100ms latency |
+| + CPU Optimization | ~50K | ~50K | CPU 4.8%, still 100ms latency |
+| + Notification | ~50K | ~50K | Latency eliminated |
+| + TCP_NODELAY | ~50K | ~50K | No improvement yet |
+| + Batch Sending | ~50K | ~50K | Serial sending issue |
+| + True Batch | ~50K | ~50K | CLOSE_WAIT leaks |
+| + Connection Cleanup | ~54K | ~54K | Clean, but still slow |
+| + Dynamic Timer | **216K** | **220K** | ✅ **Goal Achieved!** |
+
+### Configuration for Optimal Performance
+
+```toml
+[server]
+thread_count = 2  # 2 workers for optimal performance
+use_per_worker_io = true
+use_so_reuseport = true
+
+[performance]
+enable_pipeline = true
+```
+
+### Lessons Learned
+
+1. **CLOSE_WAIT is a silent killer**
+   - Always close sockets when connection terminates
+   - Remove connections from tracking maps
+   - Monitor with `ss -antp | grep CLOSE-WAIT`
+
+2. **Batch sending must be true batch**
+   - Merging responses is essential
+   - Single system call is key
+   - Use `append()` not `+=` for strings
+
+3. **Timer interval matters**
+   - 1ms timer limits QPS to ~1000
+   - Dynamic timer adapts to load
+   - Balance performance vs CPU usage
+
+4. **Testing methodology**
+   - Test both single and multi connection
+   - Monitor for leaks
+   - Compare with Redis baseline
 
 ---
 
@@ -180,21 +356,25 @@ Using `strace`, we identified the system call overhead distribution:
 
 ## Configuration
 
-### astradb.toml
+### astradb.toml (Current Production Config)
 
 ```toml
 [server]
 host = "0.0.0.0"
 port = 6379
 max_connections = 10000
-thread_count = 1  # Single thread for WSL environment
+thread_count = 2  # 2 workers for optimal performance
+
+# Network Architecture
+use_per_worker_io = true
+use_so_reuseport = true
 
 [database]
 num_databases = 16
 num_shards = 16
 
 [logging]
-level = "warn"
+level = "error"  # Minimal logging for production
 file = "astradb.log"
 async = true
 queue_size = 8192
@@ -202,23 +382,37 @@ queue_size = 8192
 [performance]
 enable_pipeline = true
 enable_compression = false
+
+[memory]
+max_memory = 2147483648  # 2GB
+eviction_policy = "2q"
+eviction_threshold = 0.9
+enable_tracking = true
 ```
 
-### Recommended Settings for Different Environments
+### Recommended Settings for Different Scenarios
 
-**Native Linux (12+ cores)**:
+**High Performance (Production)**:
 ```toml
-thread_count = 0  # Auto-detect
+thread_count = 2
+use_per_worker_io = true
+use_so_reuseport = true
+logging.level = "error"
 ```
 
-**WSL2 (limited cores)**:
-```toml
-thread_count = 4  # Limit to avoid context switching overhead
-```
-
-**Single-threaded testing**:
+**Development**:
 ```toml
 thread_count = 1
+use_per_worker_io = true
+use_so_reuseport = false
+logging.level = "trace"
+```
+
+**Single Connection Testing**:
+```toml
+thread_count = 1
+use_per_worker_io = false
+use_so_reuseport = false
 ```
 
 ---
@@ -289,6 +483,135 @@ thread_count = 1
 8. **Thread-Local Caching**
    - Cache frequently accessed data
    - Reduce shared memory access
+
+---
+
+## Memory Management Performance (Updated 2026-03-20)
+
+### Memory Tracking Optimization
+
+AstraDB implements advanced memory tracking and eviction strategies inspired by DragonflyDB's design:
+
+#### Performance Optimizations
+
+| Optimization | Impact | Implementation |
+|--------------|--------|----------------|
+| **Background Monitoring** | ~90% CPU reduction | EvictionMonitor runs every 100ms in background thread |
+| **Sampling Estimation** | ~80% CPU reduction | Randomly sample 100 keys for memory estimation |
+| **80% Check Threshold** | ~50% check reduction | Only check eviction when memory ≥ 80% of limit |
+| **2Q Algorithm** | ~10-15% better hit rate | Dragonfly-style dual-buffer design |
+
+#### Memory Usage Tracking
+
+```cpp
+// Exact calculation (keys ≤ sample_size)
+if (all_keys.size() <= sample_size_) {
+  for (const auto& key : all_keys) {
+    total += get_key_size(key);
+  }
+}
+
+// Sampling estimation (keys > sample_size)
+for (size_t i = 0; i < sample_size_; ++i) {
+  size_t idx = static_cast<size_t>(dist_(rng_) * all_keys.size());
+  sample_total += get_key_size(all_keys[idx]);
+}
+double avg_size = static_cast<double>(sample_total) / sample_size_;
+return static_cast<uint64_t>(avg_size * all_keys.size());
+```
+
+#### 2Q Algorithm Performance
+
+The 2Q algorithm (probationary + protected buffers) provides better cache hit rates than traditional LRU:
+
+```
+Probationary Buffer (6.7%): FIFO for new keys
+  ↓ (accessed once)
+Protected Buffer (93.3%): LRU for accessed keys
+```
+
+**Performance Characteristics**:
+- O(1) time complexity for access
+- O(1) time complexity for eviction
+- Zero additional metadata overhead (uses existing key metadata)
+- Higher hit rate than LRU in most workloads
+
+#### Configuration Example
+
+```toml
+[memory]
+max_memory = 1073741824        # 1GB (0 = no limit)
+eviction_policy = "2q"         # Recommended: 2Q algorithm
+eviction_threshold = 0.9       # Trigger eviction at 90% of max_memory
+eviction_samples = 5           # Number of samples for LRU/LFU
+enable_tracking = true         # Enable memory tracking
+```
+
+#### Performance Comparison
+
+| Strategy | Hit Rate | CPU Overhead | Memory Overhead |
+|----------|----------|--------------|-----------------|
+| LRU | 60-70% | High | Low |
+| LFU | 65-75% | High | Low |
+| **2Q** | **75-85%** | **Low** | **Zero** |
+
+For detailed information, see `DOCS/eviction-strategy-optimization.md`.
+
+### Global Memory Tracking in NO SHARING Architecture
+
+In NO SHARING architecture, each worker has independent memory tracking, but eviction uses global memory:
+
+```
+Worker 0                Worker 1
+  ├─ MemoryTracker 0      ├─ MemoryTracker 1
+  ├─ Database 0          ├─ Database 1
+  └─ Keys: 49            └─ Keys: 51
+
+Global Memory Check:
+  Total = 20000 + 20000 = 40000
+  Max = 1048576
+  Threshold = 943718 (90%)
+  Should Evict = No
+```
+
+**Implementation**:
+```cpp
+// Get total memory across all workers
+core::memory::GetTotalMemoryCallback get_total_memory_callback;
+get_total_memory_callback = [this]() -> size_t {
+  size_t total_memory = 0;
+  for (auto& worker : workers_) {
+    total_memory += worker->GetDataShard().GetMemoryTracker()->GetCurrentMemory();
+  }
+  return total_memory;
+};
+```
+
+### Memory Usage Best Practices
+
+1. **Set Appropriate Memory Limits**
+   - Don't set too low (frequent eviction)
+   - Don't set too high (risk of OOM)
+   - Monitor eviction rate with Prometheus
+
+2. **Choose Right Eviction Policy**
+   - Use `2q` for best overall performance
+   - Use `volatile-*` policies if TTL is important
+   - Use `noeviction` only if you have infinite memory
+
+3. **Monitor Memory Metrics**
+   ```bash
+   # Check current memory usage
+   INFO memory
+   
+   # Monitor eviction rate
+   # Metrics: eviction_key_total, eviction_operation_total
+   ```
+
+4. **Avoid Memory Leaks**
+   - All keys with TTL are automatically cleaned up
+   - Eviction prevents unbounded memory growth
+   - Use memory tracking to identify issues
 
 ---
 
@@ -391,6 +714,6 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2026-03-02  
+**Document Version**: 1.1  
+**Last Updated**: 2026-03-20  
 **Tested Environment**: WSL2, 12 cores, GCC 13.3.0

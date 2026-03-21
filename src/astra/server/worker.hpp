@@ -22,6 +22,7 @@
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
 #include "astra/commands/pubsub_commands.hpp"
+#include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
@@ -30,6 +31,21 @@
 #include "managers.hpp"
 
 namespace astra::server {
+
+// Helper function to convert absl::Duration to std::chrono::duration for asio
+inline std::chrono::nanoseconds AbslToChronoNanoseconds(absl::Duration d) {
+  return std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d));
+}
+
+inline std::chrono::microseconds AbslToChronoMicroseconds(absl::Duration d) {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d)));
+}
+
+inline std::chrono::milliseconds AbslToChronoMilliseconds(absl::Duration d) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::nanoseconds(absl::ToInt64Nanoseconds(d)));
+}
 
 // Forward declarations
 class Worker;
@@ -198,6 +214,27 @@ class DataShard {
     auto registry_size = registry_.Size();
     ASTRADB_LOG_DEBUG("Shard {}: CommandRegistry now has {} commands", shard_id_,
                       registry_size);
+
+    // Set memory tracker for database
+    database_.SetMemoryTracker(&memory_tracker_);
+    // Note: InitializeEvictionManager() will be called after config is set in SetMemoryConfig()
+  }
+
+  // Set memory configuration
+  void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config, 
+                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
+    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}",
+                     shard_id_, config.max_memory_limit,
+                     static_cast<int>(config.eviction_policy),
+                     config.eviction_threshold);
+    memory_tracker_.SetMaxMemory(config.max_memory_limit);
+    memory_tracker_.SetEvictionPolicy(config.eviction_policy);
+    memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
+    memory_tracker_.SetEvictionSamples(config.eviction_samples);
+    memory_tracker_.SetTrackingEnabled(config.enable_tracking);
+    
+    // Initialize eviction manager after config is set
+    database_.InitializeEvictionManager(std::move(get_total_memory_callback));
   }
 
   // Execute a command using the command registry
@@ -239,9 +276,13 @@ class DataShard {
   // Get command registry (for COMMAND command - NO SHARING architecture)
   astra::commands::CommandRegistry* GetCommandRegistry() { return &registry_; }
 
+  // Get memory tracker (for global memory tracking)
+  core::memory::MemoryTracker* GetMemoryTracker() { return &memory_tracker_; }
+
  private:
   size_t shard_id_;
   astra::commands::Database database_;
+  core::memory::MemoryTracker memory_tracker_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
 };
@@ -278,7 +319,7 @@ struct PendingClientInfoReq {
   size_t responses_received = 0;
   size_t expected_responses = 0;
   std::vector<ClientInfoResponse> responses;
-  std::chrono::steady_clock::time_point start_time;
+  absl::Time start_time;
 };
 
 // Batch cross-worker request for multi-key commands
@@ -542,18 +583,25 @@ class Worker {
   // Enqueue a pubsub message (for receiving PUBLISH from other workers)
   void EnqueuePubSubMessage(const PubSubMessage& msg) {
     pubsub_msg_queue_.enqueue(msg);
+    NotifyExecutorLoop();
   }
 
   // Process pubsub messages (called from ExecutorLoop)
-  void ProcessPubSubMessages() {
+  bool ProcessPubSubMessages() {
+    bool has_work = false;
     PubSubMessage msg;
     while (pubsub_msg_queue_.try_dequeue(msg)) {
+      has_work = true;
       pubsub_manager_->ProcessPubSubMessage(msg);
     }
+    return has_work;
   }
 
   // Enqueue a client info request (for sending to other workers)
-  void EnqueueClientInfoRequest(const ClientInfoRequest& req);
+  void EnqueueClientInfoRequest(const ClientInfoRequest& req) {
+    client_info_req_queue_.enqueue(req);
+    NotifyExecutorLoop();
+  }
 
   // Send client info request to all workers (for CLIENT LIST command)
   uint64_t SendClientInfoRequest(uint64_t conn_id);
@@ -679,6 +727,7 @@ class Worker {
   // Enqueue a cross-worker response (called by other workers)
   void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
     cross_worker_resp_queue_.enqueue(resp);
+    NotifyExecutorLoop();
   }
 
   // Enqueue a cross-worker request (called by other workers)
@@ -687,6 +736,7 @@ class Worker {
     CommandWithConnId cmd{req.conn_id, req.command, true,
                           req.source_worker_id};  // Mark as forwarded
     cmd_queue_.enqueue(cmd);
+    NotifyExecutorLoop();
   }
 
   // Send batch request to multiple workers (for multi-key commands)
@@ -697,18 +747,20 @@ class Worker {
   // Enqueue batch response
   void EnqueueBatchResponse(const BatchCrossWorkerResponse& resp) {
     batch_resp_queue_.enqueue(resp);
+    NotifyExecutorLoop();
   }
 
   // Enqueue batch request (called by other workers)
   void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
     batch_req_queue_.enqueue(req);
+    NotifyExecutorLoop();
   }
 
   // Process batch request from another worker
   void ProcessBatchRequest(const BatchCrossWorkerRequest& req);
 
   // Process batch responses (called in executor loop)
-  void ProcessBatchResponses();
+  bool ProcessBatchResponses();
 
   // ========== RDB Persistence Operations ==========
 
@@ -757,7 +809,15 @@ class Worker {
 
         // Create connection
         auto conn = std::make_shared<Connection>(
-            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_);
+            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_,
+            [this]() { NotifyExecutorLoop(); },
+            [this](uint64_t conn_id) {
+              // Remove connection from map when it's closed
+              std::lock_guard<std::mutex> lock(connections_mutex_);
+              connections_.erase(conn_id);
+              ASTRADB_LOG_DEBUG("Worker {}: Connection {} removed, total connections: {}",
+                                worker_id_, conn_id, connections_.size());
+            });
 
         connections_[conn_id] = conn;
         conn->Start();
@@ -780,12 +840,19 @@ class Worker {
    public:
     Connection(size_t worker_id, uint64_t conn_id, asio::ip::tcp::socket socket,
                moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue,
-               moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue)
+               moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue,
+               std::function<void()> notify_callback,
+               std::function<void(uint64_t)> on_close_callback)
         : worker_id_(worker_id),
           conn_id_(conn_id),
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
-          resp_queue_(resp_queue) {
+          resp_queue_(resp_queue),
+          notify_callback_(std::move(notify_callback)),
+          on_close_callback_(std::move(on_close_callback)) {
+      // Enable TCP_NODELAY to disable Nagle's algorithm (like Redis)
+      asio::ip::tcp::no_delay option(true);
+      socket_.set_option(option);
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} created", worker_id_,
                         conn_id_);
     }
@@ -793,6 +860,8 @@ class Worker {
     ~Connection() {
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} destroyed", worker_id_,
                         conn_id_);
+      // Close socket to avoid CLOSE_WAIT
+      Close();
       // Record connection in metrics
       astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
@@ -902,6 +971,11 @@ class Worker {
 
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} read loop terminated",
                         worker_id_, conn_id_);
+      
+      // Notify Worker to remove this connection from connections_ map
+      if (on_close_callback_) {
+        on_close_callback_(conn_id_);
+      }
     }
 
     void ProcessCommands() {
@@ -943,6 +1017,10 @@ class Worker {
         CommandWithConnId cmd{conn_id_, *command_opt, false,
                               worker_id_};  // Not forwarded, source is self
         cmd_queue_->enqueue(cmd);
+        // Notify ExecutorLoop that there's work to do
+        if (notify_callback_) {
+          notify_callback_();
+        }
       }
     }
 
@@ -957,6 +1035,8 @@ class Worker {
     asio::ip::tcp::socket socket_;
     moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue_;
     moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue_;
+    std::function<void()> notify_callback_;
+    std::function<void(uint64_t)> on_close_callback_;
 
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
@@ -975,9 +1055,12 @@ class Worker {
 
   void ExecutorLoop() {
     while (running_) {
+      bool has_work = false;
+
       // Process local commands first
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
+        has_work = true;
         ASTRADB_LOG_DEBUG(
             "Worker {}: Executor processing command: {} for conn {} "
             "(forwarded={})",
@@ -1019,6 +1102,10 @@ class Worker {
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
+            
+            // OPTIMIZATION: Trigger immediate response processing for low latency
+            // This is especially important for single-connection scenarios
+            NotifyResponseQueue();
           } else {
             // Forward to target worker (enqueue to avoid blocking)
             ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
@@ -1035,13 +1122,18 @@ class Worker {
       // Process cross-worker responses
       CrossWorkerResponse cross_resp;
       while (cross_worker_resp_queue_.try_dequeue(cross_resp)) {
+        has_work = true;
         ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
         resp_queue_.enqueue(resp);
+        
+        // OPTIMIZATION: Trigger immediate response processing
+        NotifyResponseQueue();
       }
 
       // Process client info responses (for CLIENT LIST command)
       ClientInfoResponse client_info_resp;
       while (client_info_resp_queue_.try_dequeue(client_info_resp)) {
+        has_work = true;
         // Store the response in pending requests map
         std::lock_guard<std::mutex> lock(batch_mutex_);
         auto it = pending_client_info_reqs_.find(client_info_resp.req_id);
@@ -1051,14 +1143,19 @@ class Worker {
       }
 
       // Process batch responses
-      ProcessBatchResponses();
+      if (ProcessBatchResponses()) {
+        has_work = true;
+      }
 
       // Process pubsub messages from other workers
-      ProcessPubSubMessages();
+      if (ProcessPubSubMessages()) {
+        has_work = true;
+      }
 
       // Process scheduler tasks (from WorkerScheduler)
       std::function<void()> task;
       while (task_queue_.try_dequeue(task)) {
+        has_work = true;
         ASTRADB_LOG_DEBUG("Worker {}: Processing scheduler task", worker_id_);
         try {
           task();
@@ -1070,50 +1167,90 @@ class Worker {
       // Process batch requests from other workers
       BatchCrossWorkerRequest batch_req;
       while (batch_req_queue_.try_dequeue(batch_req)) {
+        has_work = true;
         ProcessBatchRequest(batch_req);
       }
 
       // Process client info requests from other workers
       ClientInfoRequest client_info_req;
       while (client_info_req_queue_.try_dequeue(client_info_req)) {
+        has_work = true;
         ProcessClientInfoRequest(client_info_req);
       }
 
-      // Yield if no work
-      std::this_thread::yield();
+      // Wait if no work (using absl condition variable for better performance)
+      // OPTIMIZATION: Reduce timeout from 1s to 100ms for better responsiveness
+      // 100ms is a good balance: fast enough for responsiveness, low CPU overhead
+      if (!has_work) {
+        absl::MutexLock lock(&executor_mutex_);
+        // Wait until there's work or timeout (100ms timeout for responsiveness)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
+      }
     }
   }
+
+  // Trigger immediate response processing using asio::post()
+// This eliminates timer delays and follows asio best practices
+// ProcessResponseQueue() will run in the io_context_ thread
+void NotifyResponseQueue() {
+  asio::post(io_context_, [this]() {
+    ProcessResponseQueue();
+  });
+}
 
   void ProcessResponseQueue() {
     if (!running_) {
       return;
     }
 
-    // Check response queue and send responses (process up to 100 responses)
-    for (int i = 0; i < 100; ++i) {
-      ResponseWithConnId resp;
-      if (resp_queue_.try_dequeue(resp)) {
-        auto it = connections_.find(resp.conn_id);
-        if (it != connections_.end()) {
-          // Spawn coroutine to send response (non-blocking)
-          asio::co_spawn(
-              it->second->GetSocket().get_executor(),
-              [conn = it->second, response = resp.response]()
-                  -> asio::awaitable<void> { co_await conn->Send(response); },
-              asio::detached);
-        }
-      } else {
-        break;  // Queue is empty
+    // Collect all available responses (not limited to 100)
+    // This increases batching opportunities (Dragonfly best practice)
+    absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
+    
+    ResponseWithConnId resp;
+    while (resp_queue_.try_dequeue(resp)) {
+      conn_responses[resp.conn_id].push_back(std::move(resp.response));
+      
+      // Limit total responses per batch to avoid memory bloat
+      static constexpr size_t kMaxBatchSize = 1000;
+      if (conn_responses.size() > kMaxBatchSize) {
+        break;
       }
     }
 
-    // Schedule next check
-    response_timer_.expires_after(std::chrono::milliseconds(1));
-    response_timer_.async_wait([this](asio::error_code ec) {
-      if (!ec && running_) {
-        ProcessResponseQueue();
+    // Send responses per connection (batched and merged)
+    for (const auto& [conn_id, responses] : conn_responses) {
+      auto it = connections_.find(conn_id);
+      if (it != connections_.end() && !responses.empty()) {
+        // Merge all responses into a single buffer for true batch sending
+        asio::co_spawn(
+            it->second->GetSocket().get_executor(),
+            [conn = it->second, responses = std::move(responses)]()
+                -> asio::awaitable<void> {
+              // Calculate total size and pre-allocate
+              size_t total_size = 0;
+              for (const auto& response : responses) {
+                total_size += response.size();
+              }
+              
+              std::string batch;
+              batch.reserve(total_size);
+              
+              // Merge all responses (use append to avoid reallocations)
+              for (const auto& response : responses) {
+                batch.append(response);
+              }
+
+              // Send all responses in a single system call
+              co_await conn->Send(batch);
+            },
+            asio::detached);
       }
-    });
+    }
+
+    // OPTIMIZATION: No periodic timer needed
+    // ProcessResponseQueue() is triggered by asio::post() when responses are ready
+    // This eliminates timer delays and follows Redis/Dragonfly best practices
   }
 
   size_t worker_id_;
@@ -1145,19 +1282,41 @@ class Worker {
   std::atomic<uint64_t> next_batch_req_id_{1};
   std::atomic<uint64_t> next_client_info_req_id_{1};
 
+  // Mutex for protecting connections_ map (NO SHARING architecture)
+  std::mutex connections_mutex_;
+
   absl::flat_hash_map<uint64_t, std::shared_ptr<Connection>> connections_;
 
   // Reference to all workers for cross-worker communication
   std::vector<Worker*> all_workers_;
-
-  asio::steady_timer response_timer_{
-      io_context_};  // Timer for checking response queue
 
   std::thread io_thread_;
   std::thread exec_thread_;
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> next_conn_id_{0};
   std::mutex batch_mutex_;  // For pending_batch_reqs_ access
+
+  // Condition variable and mutex for ExecutorLoop (absl for better performance)
+  absl::Mutex executor_mutex_;
+  absl::CondVar executor_cv_;
+  bool has_work_{false};  // Flag to indicate if there's work to do
+
+  // Condition variable and mutex for batch response notification
+  absl::Mutex batch_response_mutex_;
+  absl::CondVar batch_response_cv_;
+  std::atomic<size_t> pending_batch_responses_{0};
+
+  // Notify ExecutorLoop that there's work to do
+  inline void NotifyExecutorLoop() {
+    absl::MutexLock lock(&executor_mutex_);
+    executor_cv_.Signal();
+  }
+
+  // Notify that a batch response is ready
+  inline void NotifyBatchResponseReady() {
+    absl::MutexLock lock(&batch_response_mutex_);
+    batch_response_cv_.Signal();
+  }
 
   // Blocking manager for blocking commands (BLPOP, BRPOP, etc.)
   std::unique_ptr<commands::BlockingManager> blocking_manager_;
@@ -1259,27 +1418,38 @@ inline std::vector<std::string> Worker::SendBatchRequest(
   }
 
   // Wait for all cross-worker responses with timeout
-  // Note: This is still blocking, but we call ProcessBatchResponses
-  // periodically
+  // OPTIMIZATION: Use condition variable instead of sleep to avoid 1ms delay
   auto start_time = absl::Now();
   size_t completed = 0;
+
+  // Register pending responses for notification
+  pending_batch_responses_.fetch_add(futures.size());
 
   while (completed < futures.size()) {
     // Process batch responses (this is called from ExecutorLoop, so we need to
     // do it here)
     ProcessBatchResponses();
 
-    // Check if any future is ready
+    // Check if any future is ready (with short timeout to avoid blocking too long)
+    bool any_ready = false;
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
         auto status = futures[i].wait_for(
-            absl::ToChronoMilliseconds(absl::Milliseconds(1)));
+            AbslToChronoMicroseconds(absl::Microseconds(100)));  // 100us instead of 1ms
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
           completed++;
+          any_ready = true;
         }
       }
+    }
+
+    // If no futures are ready, wait for batch response notification
+    if (!any_ready && completed < futures.size()) {
+      absl::MutexLock lock(&batch_response_mutex_);
+      // Wait for notification or timeout (100us)
+      batch_response_cv_.WaitWithTimeout(&batch_response_mutex_, absl::Microseconds(100));
     }
 
     // Check timeout
@@ -1295,10 +1465,10 @@ inline std::vector<std::string> Worker::SendBatchRequest(
       }
       break;
     }
-
-    // Small sleep to avoid busy waiting
-    absl::SleepFor(absl::Milliseconds(1));
   }
+
+  // Unregister pending responses
+  pending_batch_responses_.fetch_sub(futures.size());
 
   // Aggregate results based on command type
   absl::InlinedVector<std::string, 8> final_result;
@@ -1351,6 +1521,8 @@ inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
     ASTRADB_LOG_DEBUG("Worker {}: Enqueueing batch response to Worker {}",
                       worker_id_, req.source_worker_id);
     all_workers_[req.source_worker_id]->EnqueueBatchResponse(resp);
+    // OPTIMIZATION: Notify source worker that batch response is ready
+    all_workers_[req.source_worker_id]->NotifyBatchResponseReady();
     ASTRADB_LOG_DEBUG("Worker {}: Batch response enqueued successfully",
                       worker_id_);
   } else {
@@ -1359,9 +1531,11 @@ inline void Worker::ProcessBatchRequest(const BatchCrossWorkerRequest& req) {
   }
 }
 
-inline void Worker::ProcessBatchResponses() {
+inline bool Worker::ProcessBatchResponses() {
+  bool has_work = false;
   BatchCrossWorkerResponse resp;
   while (batch_resp_queue_.try_dequeue(resp)) {
+    has_work = true;
     ASTRADB_LOG_DEBUG("Worker {}: Received batch response for request {}",
                       worker_id_, resp.req_id);
     std::lock_guard<std::mutex> lock(batch_mutex_);
@@ -1381,11 +1555,13 @@ inline void Worker::ProcessBatchResponses() {
                         worker_id_, resp.req_id);
     }
   }
+  return has_work;
 }
 
 // Enqueue a client info response
 inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
   client_info_resp_queue_.enqueue(resp);
+  NotifyExecutorLoop();
 }
 
 // Send client info request to all workers (for CLIENT LIST command)
@@ -1399,7 +1575,7 @@ inline uint64_t Worker::SendClientInfoRequest(uint64_t conn_id) {
   pending_req->conn_id = conn_id;
   pending_req->responses_received = 0;
   pending_req->expected_responses = all_workers_.size();
-  pending_req->start_time = std::chrono::steady_clock::now();
+  pending_req->start_time = absl::Now();
 
   {
     std::lock_guard<std::mutex> lock(batch_mutex_);

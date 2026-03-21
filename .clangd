@@ -1,0 +1,13 @@
+CompileFlags:
+  Add:
+    - "-std=c++23"
+
+    - "-I.cpm-cache"
+    - "-I.cpm-cache/*/include"
+    - "-I.cpm-cache/*/src"
+    - "-I.cpm-cache/*/public"
+    - "-I.cpm-cache/*/headers"
+    - "-I.cpm-cache/**/include"
+    - "-I.cpm-cache/**/src"
+
+    - "-Isrc"

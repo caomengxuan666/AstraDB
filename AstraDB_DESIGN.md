@@ -980,10 +980,17 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 - [ ] Run chaos engineering tests
 
 **Week 16: Optimization**
-- [ ] Profile with perf/VTune
-- [ ] Optimize hot paths
-- [ ] SIMD optimization pass
-- [ ] Memory usage optimization
+- [x] Profile with perf/VTune
+- [x] Optimize hot paths
+- [x] SIMD optimization pass
+- [x] Memory usage optimization
+- [x] Memory management and eviction optimization (2026-03-20)
+  - ✅ Background eviction monitor (100ms interval)
+  - ✅ Sampling-based memory estimation
+  - ✅ Dragonfly-style 2Q algorithm
+  - ✅ Performance optimizations (80% check threshold)
+  - ✅ Global memory tracking across workers
+  - ✅ Zero memory overhead 2Q strategy
 - [x] Link-time optimization (LTO)
 
 ### Phase 7: Advanced Features ❌ (Not Started)

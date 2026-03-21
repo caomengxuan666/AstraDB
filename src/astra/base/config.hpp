@@ -32,6 +32,15 @@ struct ClusterConfig {
   std::vector<std::string> seeds;
 };
 
+// Memory configuration
+struct MemoryConfig {
+  uint64_t max_memory = 0;  // 0 = no limit
+  std::string eviction_policy = "noeviction";
+  double eviction_threshold = 0.9;  // 90%
+  uint32_t eviction_samples = 5;  // Number of samples for LRU/LFU
+  bool enable_tracking = true;
+};
+
 struct ServerConfig {
   // Network
   std::string host = "0.0.0.0";
@@ -83,11 +92,19 @@ struct ServerConfig {
   // Cluster
   ClusterConfig cluster;
 
-  // Metrics
+  // Memory
+  MemoryConfig memory;
+
+// Metrics
   struct MetricsConfig {
     bool enabled = true;
     std::string bind_addr = "0.0.0.0";
     uint16_t port = 9100;
+    // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
+    // Default: 10 seconds for optimal performance and monitoring
+    // Set to 0 for maximum performance (INFO command will return outdated data)
+    // Set to 1 for detailed monitoring (may impact performance)
+    int stats_frequency_seconds = 10;
   };
   MetricsConfig metrics;
 
