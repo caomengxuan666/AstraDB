@@ -1187,18 +1187,14 @@ class Worker {
     }
   }
 
-  // Trigger immediate response processing for low latency
-  // Reschedules the response timer with minimal delay (10us)
-  void NotifyResponseQueue() {
-    // Cancel existing timer and reschedule with minimal delay
-    response_timer_.cancel();
-    response_timer_.expires_after(AbslToChronoMicroseconds(absl::Microseconds(10)));
-    response_timer_.async_wait([this](asio::error_code ec) {
-      if (!ec && running_) {
-        ProcessResponseQueue();
-      }
-    });
-  }
+  // Trigger immediate response processing using asio::post()
+// This eliminates timer delays and follows asio best practices
+// ProcessResponseQueue() will run in the io_context_ thread
+void NotifyResponseQueue() {
+  asio::post(io_context_, [this]() {
+    ProcessResponseQueue();
+  });
+}
 
   void ProcessResponseQueue() {
     if (!running_) {
@@ -1250,23 +1246,9 @@ class Worker {
       }
     }
 
-    // OPTIMIZATION: Dynamic timer interval based on queue load
-    // High load: 0.1ms (allows 10K+ QPS per connection)
-    // Low load: 1ms (reduces CPU usage)
-    // Combined with NotifyResponseQueue() for ultra-low latency
-    if (!conn_responses.empty()) {
-      // High load: faster timer
-      response_timer_.expires_after(AbslToChronoMicroseconds(absl::Microseconds(100)));
-    } else {
-      // Low load: slower timer to reduce CPU
-      response_timer_.expires_after(AbslToChronoMilliseconds(absl::Milliseconds(1)));
-    }
-    
-    response_timer_.async_wait([this](asio::error_code ec) {
-      if (!ec && running_) {
-        ProcessResponseQueue();
-      }
-    });
+    // OPTIMIZATION: No periodic timer needed
+    // ProcessResponseQueue() is triggered by asio::post() when responses are ready
+    // This eliminates timer delays and follows Redis/Dragonfly best practices
   }
 
   size_t worker_id_;
@@ -1305,9 +1287,6 @@ class Worker {
 
   // Reference to all workers for cross-worker communication
   std::vector<Worker*> all_workers_;
-
-  asio::steady_timer response_timer_{
-      io_context_};  // Timer for checking response queue
 
   std::thread io_thread_;
   std::thread exec_thread_;
