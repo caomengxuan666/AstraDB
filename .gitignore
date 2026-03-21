@@ -47,6 +47,7 @@ coroutine_test_output.txt
 gdb_attach.txt
 gdb_debug.txt
 gdb_run.txt
+perf_results/
 
 # OS
 .DS_Store
