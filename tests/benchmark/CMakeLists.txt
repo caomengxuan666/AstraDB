@@ -9,7 +9,6 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     memory_bench.cpp
     zset_bench.cpp
     simd_bench.cpp
-    persistence_bench.cpp
     cluster_bench.cpp
     multi_database_bench.cpp
   )

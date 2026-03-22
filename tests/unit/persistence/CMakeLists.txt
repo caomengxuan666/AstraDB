@@ -3,9 +3,7 @@
 # ==============================================================================
 
 target_sources(astradb_tests PRIVATE
-  leveldb_test.cpp
   aof_test.cpp
-  snapshot_test.cpp
   aof_flatbuffers_test.cpp
   rdb_test.cpp
 )

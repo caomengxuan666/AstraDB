@@ -23,7 +23,6 @@ endif()
 target_link_libraries(astra_persistence INTERFACE
  astra_container
   astra_base
-  leveldb
   zstd::zstd
   absl::strings
   absl::time
