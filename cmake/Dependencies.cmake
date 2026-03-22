@@ -468,17 +468,19 @@ CPMAddPackage(
 
 # Google Test - Unit Testing Framework
 # Add before LevelDB to avoid any potential conflicts
-CPMAddPackage(
-        NAME
-        googletest
-        VERSION
-        1.14.0
-        URL
-        https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
-        OPTIONS
-        "BUILD_GMOCK ON"  # Enable Google Mock for unit tests
-        "INSTALL_GTEST OFF"
-        "gtest_force_shared_crt OFF")
+if(ASTRADB_BUILD_TESTS)
+  CPMAddPackage(
+          NAME
+          googletest
+          VERSION
+          1.14.0
+          URL
+          https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+          OPTIONS
+          "BUILD_GMOCK ON"  # Enable Google Mock for unit tests
+          "INSTALL_GTEST OFF"
+          "gtest_force_shared_crt OFF")
+endif()
 
 # LevelDB - Lightweight Key-Value Store
 CPMAddPackage(
@@ -585,31 +587,33 @@ CPMAddPackage(
 # ==============================================================================
 
 # Google Benchmark - Performance Benchmarking
-# Set environment variable to disable -Werror before adding the package
-set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "Disable -Werror for benchmark" FORCE)
-set(BENCHMARK_FORCE_WERROR OFF CACHE BOOL "Force disable -Werror" FORCE)
-CPMAddPackage(
-        NAME benchmark
-        VERSION 1.8.5
-        URL https://github.com/google/benchmark/archive/refs/tags/v1.8.5.tar.gz
-        OPTIONS "BENCHMARK_ENABLE_TESTING OFF" "BENCHMARK_ENABLE_GTEST_TESTS OFF" "BENCHMARK_ENABLE_INSTALL OFF" "BENCHMARK_ENABLE_WERROR OFF" "BENCHMARK_FORCE_WERROR OFF")
+if(ASTRADB_BUILD_BENCHMARKS)
+  # Set environment variable to disable -Werror before adding the package
+  set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "Disable -Werror for benchmark" FORCE)
+  set(BENCHMARK_FORCE_WERROR OFF CACHE BOOL "Force disable -Werror" FORCE)
+  CPMAddPackage(
+          NAME benchmark
+          VERSION 1.8.5
+          URL https://github.com/google/benchmark/archive/refs/tags/v1.8.5.tar.gz
+          OPTIONS "BENCHMARK_ENABLE_TESTING OFF" "BENCHMARK_ENABLE_GTEST_TESTS OFF" "BENCHMARK_ENABLE_INSTALL OFF" "BENCHMARK_ENABLE_WERROR OFF" "BENCHMARK_FORCE_WERROR OFF")
 
-# Disable specific warnings for benchmark
-if(benchmark_ADDED)
-  if(TARGET benchmark)
-    if(MSVC)
-      # MSVC: /wd4577 disables 'noexcept used with no exception handling' warning
-      # /wd4579 hides certain inlining issues
-      target_compile_options(benchmark PRIVATE /wd4577 /wd4579)
-    else()
-      target_compile_options(benchmark PRIVATE -Wno-invalid-offsetof -Wno-switch)
+  # Disable specific warnings for benchmark
+  if(benchmark_ADDED)
+    if(TARGET benchmark)
+      if(MSVC)
+        # MSVC: /wd4577 disables 'noexcept used with no exception handling' warning
+        # /wd4579 hides certain inlining issues
+        target_compile_options(benchmark PRIVATE /wd4577 /wd4579)
+      else()
+        target_compile_options(benchmark PRIVATE -Wno-invalid-offsetof -Wno-switch)
+      endif()
     endif()
-  endif()
-  if(TARGET benchmark_main)
-    if(MSVC)
-      target_compile_options(benchmark_main PRIVATE /wd4577 /wd4579)
-    else()
-      target_compile_options(benchmark_main PRIVATE -Wno-invalid-offsetof -Wno-switch)
+    if(TARGET benchmark_main)
+      if(MSVC)
+        target_compile_options(benchmark_main PRIVATE /wd4577 /wd4579)
+      else()
+        target_compile_options(benchmark_main PRIVATE -Wno-invalid-offsetof -Wno-switch)
+      endif()
     endif()
   endif()
 endif()
