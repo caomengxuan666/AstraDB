@@ -1299,7 +1299,7 @@ void NotifyResponseQueue() {
   // Condition variable and mutex for ExecutorLoop (absl for better performance)
   absl::Mutex executor_mutex_;
   absl::CondVar executor_cv_;
-  bool has_work_{false};  // Flag to indicate if there's work to do
+  [[maybe_unused]] bool has_work_{false};  // Flag to indicate if there's work to do
 
   // Condition variable and mutex for batch response notification
   absl::Mutex batch_response_mutex_;
