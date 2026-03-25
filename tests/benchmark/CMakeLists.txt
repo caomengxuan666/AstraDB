@@ -36,7 +36,9 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
 
   # Link RocksDB if available
   if(rocksdb_ADDED)
-    target_link_libraries(astradb_benchmarks PRIVATE rocksdb::rocksdb)
+    if(TARGET rocksdb)
+      target_link_libraries(astradb_benchmarks PRIVATE rocksdb)
+    endif()
   endif()
   
   # Link zset implementation

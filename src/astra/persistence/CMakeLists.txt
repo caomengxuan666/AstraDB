@@ -36,7 +36,10 @@ target_link_libraries(astra_persistence PUBLIC
 
 # Add RocksDB dependency if available
 if(rocksdb_ADDED)
-  target_link_libraries(astra_persistence PUBLIC rocksdb::rocksdb)
+  # Directly link to RocksDB library to avoid install export issues
+  if(TARGET rocksdb)
+    target_link_libraries(astra_persistence PUBLIC rocksdb)
+  endif()
   target_compile_definitions(astra_persistence PUBLIC ASTRADB_HAS_ROCKSDB=1)
 endif()
 

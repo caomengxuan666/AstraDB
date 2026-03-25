@@ -488,9 +488,9 @@ CPMAddPackage(
         NAME
         rocksdb
         VERSION
-        9.1.0
+        8.11.3
         URL
-        https://github.com/facebook/rocksdb/archive/refs/tags/v9.1.0.tar.gz
+        https://github.com/facebook/rocksdb/archive/refs/tags/v8.11.3.tar.gz
         OPTIONS
         "WITH_TESTS OFF"
         "WITH_BENCHMARK_TOOLS OFF"
@@ -499,13 +499,20 @@ CPMAddPackage(
         "WITH_FATAL_ERROR_HANDLER OFF"
         "WITH_XPRESS OFF"
         "WITH_ZSTD ON"
-        "WITH_LZ4 ON"
+        "WITH_LZ4 OFF"
         "WITH_ZLIB ON"
         "WITH_SNAPPY OFF"
+        "WITH_GFLAGS OFF"
         "USE_RTTI ON"
         "ROCKSDB_BUILD_SHARED OFF"
-        "ROCKSDB_INSTALL_OFF ON"
-        "FAIL_ON_WARNINGS OFF")
+        "ROCKSDB_INSTALL OFF"
+        "FAIL_ON_WARNINGS OFF"
+        "CMAKE_SKIP_INSTALL_RULES ON")
+
+# Create zstd_static alias for RocksDB
+if(TARGET zstd::zstd AND NOT TARGET zstd_static)
+  add_library(zstd_static ALIAS zstd::zstd)
+endif()
 
 # Disable -Werror for RocksDB to avoid warnings
 if(rocksdb_ADDED)
@@ -515,6 +522,11 @@ if(rocksdb_ADDED)
     else()
       target_compile_options(rocksdb PRIVATE -Wno-error)
     endif()
+  endif()
+  
+  # Create an alias target if it doesn't exist
+  if(TARGET rocksdb AND NOT TARGET rocksdb::rocksdb)
+    add_library(rocksdb::rocksdb ALIAS rocksdb)
   endif()
 endif()
 
