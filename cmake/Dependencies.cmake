@@ -488,9 +488,9 @@ CPMAddPackage(
         NAME
         rocksdb
         VERSION
-        8.11.3
+        10.10.1
         URL
-        https://github.com/facebook/rocksdb/archive/refs/tags/v8.11.3.tar.gz
+        https://github.com/facebook/rocksdb/archive/refs/tags/v10.10.1.tar.gz
         OPTIONS
         "WITH_TESTS OFF"
         "WITH_BENCHMARK_TOOLS OFF"

@@ -9,9 +9,11 @@
 #include <rocksdb/slice.h>
 #include <rocksdb/status.h>
 #include <rocksdb/write_batch.h>
+#include <rocksdb/table.h>
 #include <spdlog/spdlog.h>
 
 #include "astra/base/macros.hpp"
+#include "astra/base/logging.hpp"
 
 namespace astra {
 namespace persistence {
@@ -82,10 +84,6 @@ class RocksDBAdapter {
    * @brief Destructor
    */
   ~RocksDBAdapter();
-
-  // Disable copy and move
-  ASTRADB_DISALLOW_COPY(RocksDBAdapter);
-  ASTRADB_DISALLOW_MOVE(RocksDBAdapter);
 
   /**
    * @brief Put a key-value pair
@@ -158,6 +156,10 @@ class RocksDBAdapter {
    * @return Statistics string
    */
   std::string GetStatistics();
+
+// Prevent copying and moving
+  ASTRABI_DISABLE_COPY(RocksDBAdapter);
+  ASTRABI_DISABLE_MOVE(RocksDBAdapter);
 
  private:
   /**

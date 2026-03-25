@@ -71,7 +71,6 @@ target_link_libraries(
          cxxopts::cxxopts
          tomlplusplus::tomlplusplus
          absl::random_random
-         leveldb
          prometheus-cpp::core
          concurrentqueue)
 

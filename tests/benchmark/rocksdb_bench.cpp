@@ -152,7 +152,7 @@ static void BM_RocksDB_CompressionWrite(benchmark::State& state) {
 
   size_t counter = 0;
   for (auto _ : state) {
-    std::string key = "key_" + std::to_string(i);
+    std::string key = "key_" + std::to_string(counter);
     std::string value = "value_" + std::to_string(counter) + "_data_" + std::string(100, 'x');
     db.Put(key, value);
     counter++;
@@ -246,4 +246,4 @@ BENCHMARK(BM_RocksDB_MultiThreadWrite)
     ->Arg(8)
     ->Unit(benchmark::kMillisecond);
 
-BENCHMARK_MAIN();
+// Note: BENCHMARK_MAIN() is defined in main.cpp
