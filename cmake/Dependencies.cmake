@@ -467,7 +467,6 @@ CPMAddPackage(
 # ==============================================================================
 
 # Google Test - Unit Testing Framework
-# Add before LevelDB to avoid any potential conflicts
 if(ASTRADB_BUILD_TESTS)
   CPMAddPackage(
           NAME
@@ -482,32 +481,39 @@ if(ASTRADB_BUILD_TESTS)
           "gtest_force_shared_crt OFF")
 endif()
 
-# LevelDB - Lightweight Key-Value Store
+# RocksDB - High Performance Key-Value Store
+# Usage: Alternative to LevelDB for persistence (better write performance)
+# Benefits: Better write performance, compression, multithreading
 CPMAddPackage(
         NAME
-        leveldb
-        GITHUB_REPOSITORY
-        google/leveldb
-        GIT_TAG
-        main
+        rocksdb
+        VERSION
+        9.1.0
+        URL
+        https://github.com/facebook/rocksdb/archive/refs/tags/v9.1.0.tar.gz
         OPTIONS
-        "LEVELDB_BUILD_TESTS OFF"
-        "LEVELDB_BUILD_BENCHMARKS OFF"
-        "LEVELDB_INSTALL OFF")
+        "WITH_TESTS OFF"
+        "WITH_BENCHMARK_TOOLS OFF"
+        "WITH_TOOLS OFF"
+        "WITH_CORETOOLS OFF"
+        "WITH_FATAL_ERROR_HANDLER OFF"
+        "WITH_XPRESS OFF"
+        "WITH_ZSTD ON"
+        "WITH_LZ4 ON"
+        "WITH_ZLIB ON"
+        "WITH_SNAPPY OFF"
+        "USE_RTTI ON"
+        "ROCKSDB_BUILD_SHARED OFF"
+        "ROCKSDB_INSTALL_OFF ON"
+        "FAIL_ON_WARNINGS OFF")
 
-# Disable -Werror for LevelDB to avoid deprecated warnings
-if(leveldb_ADDED)
-  if(TARGET leveldb)
+# Disable -Werror for RocksDB to avoid warnings
+if(rocksdb_ADDED)
+  if(TARGET rocksdb)
     if(MSVC)
       # MSVC: No specific warnings to disable for now
     else()
-      target_compile_options(leveldb PRIVATE -Wno-error)
-      # Force disable -Werror in leveldb's compile flags
-      get_target_property(LEVELDB_COMPILE_OPTS leveldb COMPILE_OPTIONS)
-      if(LEVELDB_COMPILE_OPTS)
-        list(REMOVE_ITEM LEVELDB_COMPILE_OPTS "-Werror")
-        set_target_properties(leveldb PROPERTIES COMPILE_OPTIONS "${LEVELDB_COMPILE_OPTS}")
-      endif()
+      target_compile_options(rocksdb PRIVATE -Wno-error)
     endif()
   endif()
 endif()
