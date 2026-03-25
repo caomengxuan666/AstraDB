@@ -11,6 +11,7 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     simd_bench.cpp
     cluster_bench.cpp
     multi_database_bench.cpp
+    rocksdb_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE
