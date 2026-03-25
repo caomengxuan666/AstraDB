@@ -29,7 +29,6 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     astra_persistence
     astra_cluster
     astra_commands_whole
-    leveldb
     absl::flat_hash_map
     absl::hash
   )
