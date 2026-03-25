@@ -33,6 +33,12 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     absl::flat_hash_map
     absl::hash
   )
+
+  # Link RocksDB if available
+  if(rocksdb_ADDED)
+    target_link_libraries(astradb_benchmarks PRIVATE rocksdb::rocksdb)
+    target_compile_definitions(astradb_benchmarks PRIVATE ASTRADB_HAS_ROCKSDB=1)
+  endif()
   
   # Link zset implementation
   target_sources(astradb_benchmarks PRIVATE
