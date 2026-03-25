@@ -4,7 +4,16 @@
 #include <string>
 #include <filesystem>
 
+#ifdef ASTRADB_HAS_ROCKSDB
 #include "astra/persistence/rocksdb_adapter.hpp"
+#else
+// Skip RocksDB benchmarks if not available
+int main() {
+  return 0;
+}
+#endif
+
+#ifdef ASTRADB_HAS_ROCKSDB
 
 using namespace astra::persistence;
 
@@ -247,3 +256,5 @@ BENCHMARK(BM_RocksDB_MultiThreadWrite)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();
+
+#endif  // ASTRADB_HAS_ROCKSDB
