@@ -295,7 +295,6 @@ endif()
 target_link_libraries(astradb PRIVATE
   mimalloc-static
   spdlog::spdlog
-  leveldb
   flatbuffers
   fmt::fmt
 )

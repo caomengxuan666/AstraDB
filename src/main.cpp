@@ -262,6 +262,13 @@ int main(int argc, char** argv) {
   server_config.memory.eviction_samples = config.memory.eviction_samples;
   server_config.memory.enable_tracking = config.memory.enable_tracking;
 
+  // Copy RocksDB config
+  server_config.rocksdb.enabled = config.rocksdb.enabled;
+  server_config.rocksdb.data_dir = config.rocksdb.data_dir;
+  server_config.rocksdb.enable_wal = config.rocksdb.enable_wal;
+  server_config.rocksdb.cache_size = config.rocksdb.cache_size;
+  server_config.rocksdb.create_if_missing = config.rocksdb.create_if_missing;
+
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
   ASTRADB_LOG_INFO("  Port: {}", server_config.port);

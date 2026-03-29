@@ -105,6 +105,9 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     // Copy Memory configuration
     config.memory = base_config.memory;
 
+    // Copy RocksDB configuration
+    config.rocksdb = base_config.rocksdb;
+
     return config;
   }
 };

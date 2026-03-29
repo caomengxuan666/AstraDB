@@ -14,6 +14,11 @@ target_include_directories(astra_persistence PUBLIC
   ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
+# Add RocksDB include directory if available
+if(rocksdb_ADDED)
+  target_include_directories(astra_persistence PUBLIC ${rocksdb_SOURCE_DIR}/include)
+endif()
+
 # FlatBuffers headers are now generated in prebuild.cmake (MUST COMPILE FIRST!)
 if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::flatc)
   # CRITICAL: Force flatbuffers_generated to compile BEFORE ANYTHING ELSE

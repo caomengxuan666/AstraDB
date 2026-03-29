@@ -22,6 +22,15 @@ struct PersistenceConfig {
   bool sync_writes = false;
 };
 
+// RocksDB configuration for cold data storage
+struct RocksDBConfig {
+  bool enabled = false;
+  std::string data_dir = "./data/rocksdb";
+  bool enable_wal = true;
+  size_t cache_size = 256 * 1024 * 1024;  // 256MB
+  bool create_if_missing = true;
+};
+
 // Cluster configuration
 struct ClusterConfig {
   bool enabled = false;
@@ -69,8 +78,11 @@ struct ServerConfig {
   bool use_per_worker_io = false;  // Use per-worker IO architecture (SO_REUSEPORT)
   bool use_so_reuseport = true;    // Enable SO_REUSEPORT for kernel load balancing
 
-  // Persistence (LevelDB)
+  // Persistence (ROCKSDB)
   PersistenceConfig persistence;
+
+  // RocksDB for cold data storage
+  RocksDBConfig rocksdb;
 
   // AOF (NO SHARING architecture)
   struct AofConfig {

@@ -47,12 +47,12 @@ enable_compression = false
 use_async_commands = true
 
 # =============================================================================
-# Persistence Configuration (LevelDB)
+# Persistence Configuration (ROCKSDB)
 # =============================================================================
 [persistence]
-# Enable persistence (RDB-like snapshots + AOF-like WAL via LevelDB)
+# Enable persistence (RDB-like snapshots + AOF-like WAL via ROCKSDB)
 enabled = false
-# Data directory for LevelDB storage
+# Data directory for ROCKSDB storage
 data_dir = "./data/astradb"
 # Write buffer size (4MB default)
 write_buffer_size = 4194304
@@ -121,6 +121,21 @@ shard_count = 256
 # Seed nodes for cluster join (format: "ip:port")
 # Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
 seeds = []
+
+# =============================================================================
+# RocksDB Cold Data Storage Configuration (NO SHARING Architecture)
+# =============================================================================
+[rocksdb]
+# Enable RocksDB for cold data storage (evicted keys are written to RocksDB)
+enabled = true
+# Data directory for RocksDB storage (per-worker shards will be created as rocksdb/shard_N/)
+data_dir = "./data/rocksdb"
+# Write-Ahead Log (WAL) enabled for durability
+enable_wal = true
+# Cache size in bytes (256MB default)
+cache_size = 268435456
+# Create database if missing
+create_if_missing = true
 
 # =============================================================================
 # Memory and Eviction Configuration (NO SHARING Architecture)

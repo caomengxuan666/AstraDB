@@ -44,7 +44,6 @@ class WorkerScheduler;
 }
 
 namespace astra::persistence {
-class LevelDBAdapter;
 class AofWriter;
 }  // namespace astra::persistence
 
@@ -108,9 +107,6 @@ class CommandContext {
 
   // Persistence operations (optional - return nullptr/false if not available)
   virtual bool IsPersistenceEnabled() const { return false; }
-  virtual persistence::LevelDBAdapter* GetPersistence() const {
-    return nullptr;
-  }
 
   // Database manager for multi-database support (optional - return nullptr if
   // not available)

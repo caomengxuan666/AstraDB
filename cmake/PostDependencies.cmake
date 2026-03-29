@@ -32,13 +32,6 @@ endif()
 # Exclude unnecessary third-party targets from build
 # ==============================================================================
 
-# Exclude LevelDB utility
-if(TARGET leveldbutil)
-  set_target_properties(leveldbutil PROPERTIES EXCLUDE_FROM_ALL ON)
-  set_target_properties(leveldbutil PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD ON)
-  message(STATUS "✅ Excluded leveldbutil from default build")
-endif()
-
 # Exclude Prometheus sample servers and tests
 if(TARGET sample_server)
   set_target_properties(sample_server PROPERTIES EXCLUDE_FROM_ALL ON)

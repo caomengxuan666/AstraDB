@@ -12,7 +12,7 @@ This document outlines the coding standards, conventions, and architectural guid
 
 **Serialization & Storage**
 - **FlatBuffers 24.3.25** - Zero-copy serialization for AOF/RDB persistence
-- **LevelDB** - Lightweight key-value storage
+- **ROCKSDB** - Lightweight key-value storage
 - **zstd 1.5.6** - Fast compression algorithm for data compression
 
 **Memory & Containers**
@@ -261,7 +261,7 @@ std::optional<int64_t> GetExpireTime(const std::string& key);
 6. **Persistence**
    - AOF (Append Only File)
    - RDB snapshots
-   - LevelDB for cold storage
+   - ROCKSDB for cold storage
 
 ### Performance Targets
 
@@ -282,7 +282,7 @@ src/astra/
 ├── core/           # Core functionality (memory, metrics)
 ├── network/        # Networking layer (RESP protocol)
 ├── server/         # Server core (Server, Shard, Worker)
-├── persistence/    # Persistence layer (AOF, RDB, LevelDB)
+├── persistence/    # Persistence layer (AOF, RDB, ROCKSDB)
 ├── cluster/        # Cluster management (Gossip)
 ├── security/       # Security layer (ACL)
 ├── replication/    # Replication manager

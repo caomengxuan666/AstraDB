@@ -106,6 +106,19 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
           persistence["sync_writes"].value_or<bool>(false);
     }
 
+    // RocksDB for cold data storage
+    if (data["rocksdb"]) {
+      auto rocksdb = *data["rocksdb"].as_table();
+      config.rocksdb.enabled = rocksdb["enabled"].value_or<bool>(false);
+      config.rocksdb.data_dir =
+          rocksdb["data_dir"].value_or<std::string>("./data/rocksdb");
+      config.rocksdb.enable_wal = rocksdb["enable_wal"].value_or<bool>(true);
+      config.rocksdb.cache_size =
+          rocksdb["cache_size"].value_or<size_t>(256 * 1024 * 1024);
+      config.rocksdb.create_if_missing =
+          rocksdb["create_if_missing"].value_or<bool>(true);
+    }
+
     // AOF (NO SHARING architecture)
     if (data["aof"]) {
       auto aof = *data["aof"].as_table();

@@ -43,6 +43,19 @@ CommandResult HandleGet(const astra::protocol::Command& command,
     astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
     return CommandResult(RespValue(std::string(value->value)));
   } else {
+    // Try to read from RocksDB (cold data)
+    auto* rocksdb_adapter = db->GetRocksDBAdapter();
+    if (rocksdb_adapter) {
+      auto cold_value = rocksdb_adapter->Get(key);
+      if (cold_value.has_value()) {
+        // Found in RocksDB - reload to memory
+        db->Set(key, *cold_value);
+        ASTRADB_LOG_DEBUG("GET: key {} found in RocksDB, reloaded to memory", key);
+        astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
+        return CommandResult(RespValue(*cold_value));
+      }
+    }
+    
     astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }

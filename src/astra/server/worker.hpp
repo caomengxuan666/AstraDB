@@ -25,6 +25,7 @@
 #include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
+#include "astra/persistence/rocksdb_adapter.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
@@ -222,16 +223,36 @@ class DataShard {
 
   // Set memory configuration
   void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config, 
-                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
-    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}",
+                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
+                      bool enable_rocksdb = false) {
+    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}, rocksdb={}",
                      shard_id_, config.max_memory_limit,
                      static_cast<int>(config.eviction_policy),
-                     config.eviction_threshold);
+                     config.eviction_threshold, enable_rocksdb);
     memory_tracker_.SetMaxMemory(config.max_memory_limit);
     memory_tracker_.SetEvictionPolicy(config.eviction_policy);
     memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
     memory_tracker_.SetEvictionSamples(config.eviction_samples);
     memory_tracker_.SetTrackingEnabled(config.enable_tracking);
+    
+    // Initialize RocksDB if enabled
+    if (enable_rocksdb && !rocksdb_adapter_) {
+      std::string db_path = "data/rocksdb/shard_" + std::to_string(shard_id_);
+      persistence::RocksDBAdapter::Config rocksdb_config;
+      rocksdb_config.db_path = db_path;
+      rocksdb_config.create_if_missing = true;
+      rocksdb_config.enable_wal = true;
+      rocksdb_config.cache_size = 256 * 1024 * 1024;  // 256MB cache
+      
+      rocksdb_adapter_ = std::make_unique<persistence::RocksDBAdapter>(rocksdb_config);
+      if (rocksdb_adapter_->IsOpen()) {
+        database_.SetRocksDBAdapter(rocksdb_adapter_.get());
+        ASTRADB_LOG_INFO("Shard {}: RocksDB initialized at {}", shard_id_, db_path);
+      } else {
+        ASTRADB_LOG_ERROR("Shard {}: Failed to initialize RocksDB at {}", shard_id_, db_path);
+        rocksdb_adapter_.reset();
+      }
+    }
     
     // Initialize eviction manager after config is set
     database_.InitializeEvictionManager(std::move(get_total_memory_callback));
@@ -285,6 +306,7 @@ class DataShard {
   core::memory::MemoryTracker memory_tracker_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
+  std::unique_ptr<persistence::RocksDBAdapter> rocksdb_adapter_;
 };
 
 // Cross-worker request (forwarded from one worker to another)

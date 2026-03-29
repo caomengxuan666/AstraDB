@@ -27,6 +27,8 @@
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/core/memory/object_size_estimator.hpp"
 #include "astra/core/memory/string_pool.hpp"
+#include "astra/persistence/rocksdb_adapter.hpp"
+#include "astra/persistence/data_serializer.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
 
@@ -113,6 +115,16 @@ class Database {
     return memory_tracker_;
   }
 
+  // Set RocksDB adapter for cold data storage (called by Shard)
+  void SetRocksDBAdapter(persistence::RocksDBAdapter* adapter) {
+    rocksdb_adapter_ = adapter;
+  }
+
+  // Get RocksDB adapter
+  persistence::RocksDBAdapter* GetRocksDBAdapter() const {
+    return rocksdb_adapter_;
+  }
+
   // Initialize eviction manager (called after SetMemoryTracker)
   void InitializeEvictionManager(core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
     if (memory_tracker_ && !eviction_manager_) {
@@ -132,6 +144,71 @@ class Database {
     (void)type;  // Type is already known from metadata
 
     ASTRADB_LOG_DEBUG("EvictKey: attempting to evict key: {}", key);
+
+    // Save to RocksDB before removal (if enabled)
+    if (rocksdb_adapter_) {
+      auto* serializer = persistence::SerializerFactory::GetSerializer(type);
+      if (serializer) {
+        bool success = false;
+        std::string serialized;
+
+        switch (type) {
+          case astra::storage::KeyType::kString: {
+            StringValue value;
+            if (strings_.Get(key, &value)) {
+              serialized = serializer->Serialize(key, &value.value);
+              success = !serialized.empty();
+            }
+            break;
+          }
+          case astra::storage::KeyType::kHash: {
+            auto hash_data = hashes_.GetAllKeyValuePairs();
+            serialized = serializer->Serialize(key, &hash_data);
+            success = !serialized.empty();
+            break;
+          }
+          case astra::storage::KeyType::kSet: {
+            auto set_data = sets_.GetAllKeys();
+            serialized = serializer->Serialize(key, &set_data);
+            success = !serialized.empty();
+            break;
+          }
+          case astra::storage::KeyType::kZSet: {
+            std::shared_ptr<ZSetType> zset;
+            if (zsets_.Get(key, &zset)) {
+              auto zset_data = zset->GetRangeByRank(0, -1, false, true);
+              serialized = serializer->Serialize(key, &zset_data);
+              success = !serialized.empty();
+            }
+            break;
+          }
+          case astra::storage::KeyType::kList: {
+            std::shared_ptr<ListType> list;
+            if (lists_.Get(key, &list)) {
+              auto list_data = list->Range(0, -1);
+              serialized = serializer->Serialize(key, &list_data);
+              success = !serialized.empty();
+            }
+            break;
+          }
+          case astra::storage::KeyType::kStream: {
+            // TODO: Implement stream serialization
+            ASTRADB_LOG_WARN("EvictKey: Stream type not yet supported for RocksDB");
+            break;
+          }
+          default:
+            break;
+        }
+
+        if (success && !serialized.empty()) {
+          if (!rocksdb_adapter_->Put(key, serialized)) {
+            ASTRADB_LOG_WARN("EvictKey: failed to write key to RocksDB: {}", key);
+          } else {
+            ASTRADB_LOG_DEBUG("EvictKey: saved key to RocksDB: {}", key);
+          }
+        }
+      }
+    }
 
     // Remove from all data structures
     bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
@@ -1943,6 +2020,7 @@ class Database {
   std::unique_ptr<core::memory::StringPool> string_pool_;
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned
   std::unique_ptr<core::memory::EvictionManager> eviction_manager_;  // Owned
+  persistence::RocksDBAdapter* rocksdb_adapter_ = nullptr;  // Not owned, managed by Worker
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
   std::function<void(const std::string&)> aof_callback_;  // For persistence
 };

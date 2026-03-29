@@ -99,10 +99,6 @@ if(ASTRADB_STATIC_BUILD)
 endif()
 
 # Use target-based linking for dependencies that provide targets
-if(TARGET leveldb)
-  target_link_libraries(astradb PUBLIC leveldb)
-endif()
-
 if(TARGET fmt::fmt)
   target_link_libraries(astradb PUBLIC fmt::fmt)
 endif()
@@ -136,10 +132,6 @@ endif()
 
 if(TARGET spdlog::spdlog)
   target_link_libraries(astradb PUBLIC spdlog::spdlog)
-endif()
-
-if(TARGET leveldb)
-  target_link_libraries(astradb PUBLIC leveldb)
 endif()
 
 if(TARGET libgossip::libgossip)

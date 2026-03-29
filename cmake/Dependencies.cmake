@@ -482,7 +482,7 @@ if(ASTRADB_BUILD_TESTS)
 endif()
 
 # RocksDB - High Performance Key-Value Store
-# Usage: Alternative to LevelDB for persistence (better write performance)
+# Usage: Alternative to ROCKSDB for persistence (better write performance)
 # Benefits: Better write performance, compression, multithreading
 CPMAddPackage(
         NAME

@@ -52,11 +52,11 @@ class RocksDBAdapter {
     // Maximum level 1 file size (default: 64MB)
     size_t max_file_size = 64 * 1024 * 1024;
 
-    // Enable compression (default: true)
-    bool enable_compression = true;
+    // Enable compression (default: false - compression requires external libraries)
+    bool enable_compression = false;
 
-    // Compression type (default: kZSTD)
-    rocksdb::CompressionType compression_type = rocksdb::kZSTD;
+    // Compression type (default: kNoCompression)
+    rocksdb::CompressionType compression_type = rocksdb::kNoCompression;
 
     // Enable WAL (default: true)
     bool enable_wal = true;
