@@ -230,6 +230,7 @@ int main(int argc, char** argv) {
   server_config.num_databases = config.num_databases;
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
+  server_config.num_workers = config.thread_count > 0 ? config.thread_count : std::thread::hardware_concurrency();
   server_config.use_async_commands = config.use_async_commands;
   server_config.use_per_worker_io = config.use_per_worker_io;
   server_config.use_so_reuseport = config.use_so_reuseport;
