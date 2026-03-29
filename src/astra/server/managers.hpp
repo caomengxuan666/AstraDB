@@ -445,7 +445,8 @@ class MetricsManager {
       }
 
       // Initialize AstraMetrics (creates Prometheus metrics)
-      astra::metrics::AstraMetrics::Instance().Init(config);
+      // PERF: Disabled metrics to investigate 21万QPS bottleneck
+      // astra::metrics::AstraMetrics::Instance().Init(config);
 
       // Create dedicated io_context for metrics HTTP server
       metrics_io_context_ = std::make_unique<asio::io_context>();
@@ -485,7 +486,8 @@ class MetricsManager {
               ->uptime_seconds.store(uptime, std::memory_order_relaxed);
 
           // Sync ServerStats to Prometheus
-          astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
+          // PERF: Disabled metrics to investigate 21万QPS bottleneck
+          // astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
 
           // Update memory usage (placeholder)
           // TODO: Implement actual memory tracking

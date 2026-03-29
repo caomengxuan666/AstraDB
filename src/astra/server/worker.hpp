@@ -847,8 +847,8 @@ class Worker {
         connections_[conn_id] = conn;
         conn->Start();
 
-        // Record connection in metrics
-        astra::metrics::AstraMetrics::Instance().IncrementConnections();
+        // PERF: Disabled metrics to investigate 210k QPS bottleneck
+        // astra::metrics::AstraMetrics::Instance().IncrementConnections();
 
         ASTRADB_LOG_INFO(
             "Worker {}: Connection {} started, total connections: {}",
@@ -887,8 +887,8 @@ class Worker {
                         conn_id_);
       // Close socket to avoid CLOSE_WAIT
       Close();
-      // Record connection in metrics
-      astra::metrics::AstraMetrics::Instance().DecrementConnections();
+      // PERF: Disabled metrics to investigate 21万QPS bottleneck
+      // astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
 
     void Start() {
@@ -919,9 +919,8 @@ class Worker {
       if (!ec) {
         ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
                           worker_id_, conn_id_, bytes_written);
-        // Record network output traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
-            bytes_written);
+        // PERF: Disabled metrics to investigate 21万QPS bottleneck
+        // astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(bytes_written);
       } else {
         ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
                           worker_id_, conn_id_, ec.message());
@@ -986,9 +985,8 @@ class Worker {
         // Append to receive buffer
         receive_buffer_.append(buffer_.data(), bytes_transferred);
 
-        // Record network input traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(
-            bytes_transferred);
+        // PERF: Disabled metrics to investigate 21万QPS bottleneck
+        // astra::metrics::AstraMetrics::Instance().RecordNetworkInput(bytes_transferred);
 
         // Process commands (minimal parsing only)
         ProcessCommands();
@@ -1017,7 +1015,8 @@ class Worker {
         if (!value_opt) {
           ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse RESP",
                             worker_id_, conn_id_);
-          astra::metrics::AstraMetrics::Instance().RecordError("protocol");
+          // PERF: Disabled metrics to investigate 21万QPS bottleneck
+          // astra::metrics::AstraMetrics::Instance().RecordError("protocol");
           // Send error via response queue
           SendResponseViaQueue("ERR invalid RESP protocol");
           break;
@@ -1033,7 +1032,8 @@ class Worker {
         if (!command_opt) {
           ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse command",
                             worker_id_, conn_id_);
-          astra::metrics::AstraMetrics::Instance().RecordError("syntax");
+          // PERF: Disabled metrics to investigate 21万QPS bottleneck
+          // astra::metrics::AstraMetrics::Instance().RecordError("syntax");
           SendResponseViaQueue("ERR invalid command format");
           continue;
         }

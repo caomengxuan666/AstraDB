@@ -40,7 +40,8 @@ CommandResult HandleGet(const astra::protocol::Command& command,
   auto value = db->Get(key);
 
   if (value.has_value()) {
-    astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
+    // PERF: Disabled metrics to investigate 21万QPS bottleneck
+    // astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
     return CommandResult(RespValue(std::string(value->value)));
   } else {
     // Try to read from RocksDB (cold data)
@@ -51,12 +52,14 @@ CommandResult HandleGet(const astra::protocol::Command& command,
         // Found in RocksDB - reload to memory
         db->Set(key, *cold_value);
         ASTRADB_LOG_DEBUG("GET: key {} found in RocksDB, reloaded to memory", key);
-        astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
+        // PERF: Disabled metrics to investigate 21万QPS bottleneck
+        // astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
         return CommandResult(RespValue(*cold_value));
       }
     }
     
-    astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
+    // PERF: Disabled metrics to investigate 21万QPS bottleneck
+    // astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
 }
