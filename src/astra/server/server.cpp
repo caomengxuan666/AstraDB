@@ -175,10 +175,9 @@ void Server::Start() {
   ASTRADB_LOG_INFO("Server started successfully with {} workers",
                    workers_.size());
   // Start stats aggregation (NO SHARING architecture)
-  // PERF: Disabled metrics to investigate 21万QPS bottleneck
-  // if (config_.metrics_enabled) {
-  //   StartStatsAggregation();
-  // }
+  if (config_.metrics_enabled) {
+    StartStatsAggregation();
+  }
 }
 
 void Server::Stop() {
@@ -195,14 +194,13 @@ void Server::Stop() {
   }
 
   // Shutdown managers (in reverse order)
-  // PERF: Disabled metrics to investigate 21万QPS bottleneck
-  // if (metrics_manager_) {
-  //   ASTRADB_LOG_INFO("Shutting down metrics manager...");
-  //   // Stop stats aggregation (NO SHARING architecture)
-  //   StopStatsAggregation();
-  //   metrics_manager_->Shutdown();
-  //   metrics_manager_.reset();
-  // }
+  if (metrics_manager_) {
+    ASTRADB_LOG_INFO("Shutting down metrics manager...");
+    // Stop stats aggregation (NO SHARING architecture)
+    StopStatsAggregation();
+    metrics_manager_->Shutdown();
+    metrics_manager_.reset();
+  }
 
   if (acl_manager_) {
     ASTRADB_LOG_INFO("Shutting down ACL manager...");
@@ -331,18 +329,15 @@ bool Server::InitMetrics() noexcept {
     ASTRADB_LOG_INFO("Initializing metrics...");
 
     // Create metrics manager
-    // PERF: Disabled metrics to investigate 21万QPS bottleneck
-    // metrics_manager_ = std::make_unique<MetricsManager>();
+    metrics_manager_ = std::make_unique<MetricsManager>();
 
     // Initialize with bind address and port
-    // if (!metrics_manager_->Init(config_.metrics_bind_addr,
-    //                             config_.metrics_port)) {
-    //   ASTRADB_LOG_ERROR("Failed to initialize metrics manager");
-    //   metrics_manager_.reset();
-    //   return false;
-    // }
-
-    ASTRADB_LOG_INFO("Metrics disabled for performance investigation");
+    if (!metrics_manager_->Init(config_.metrics_bind_addr,
+                                config_.metrics_port)) {
+      ASTRADB_LOG_ERROR("Failed to initialize metrics manager");
+      metrics_manager_.reset();
+      return false;
+    }
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Metrics initialization exception: {}", e.what());
@@ -435,8 +430,7 @@ void Server::AggregateStats() {
   global_stats->uptime_seconds.store(uptime, std::memory_order_relaxed);
 
   // Sync to Prometheus
-  // PERF: Disabled metrics to investigate 21万QPS bottleneck
-  // ::astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
+  ::astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
 }
 
 }  // namespace astra::server

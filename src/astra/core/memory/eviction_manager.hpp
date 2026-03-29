@@ -215,11 +215,9 @@ class EvictionManager {
 
     // Record metrics
     if (evicted) {
-      // PERF: Disabled metrics to investigate 21万QPS bottleneck
-      // astra::metrics::AstraMetrics::Instance().RecordEvictionKey();
+      astra::metrics::AstraMetrics::Instance().RecordEvictionKey();
     }
-    // PERF: Disabled metrics to investigate 21万QPS bottleneck
-    // astra::metrics::AstraMetrics::Instance().RecordEvictionOperation();
+    astra::metrics::AstraMetrics::Instance().RecordEvictionOperation();
 
     return evicted;
   }
