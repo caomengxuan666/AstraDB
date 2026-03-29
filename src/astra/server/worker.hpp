@@ -1200,13 +1200,16 @@ class Worker {
         ProcessClientInfoRequest(client_info_req);
       }
 
-      // Wait if no work (using absl condition variable for better performance)
-      // OPTIMIZATION: Reduce timeout from 1s to 100ms for better responsiveness
-      // 100ms is a good balance: fast enough for responsiveness, low CPU overhead
+      // Wait if no work (using absl condition variable for best performance)
+      // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might be missed
+      // This provides a balance between:
+      // - Zero latency (when notification works correctly)
+      // - Fallback timeout (when notification is missed, prevents deadlock)
+      // Spurious wakeups are handled by the outer while loop
       if (!has_work) {
         absl::MutexLock lock(&executor_mutex_);
-        // Wait until there's work or timeout (100ms timeout for responsiveness)
-        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
+        // Wait for notification with 1ms timeout (prevents potential deadlock)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(1));
       }
     }
   }
