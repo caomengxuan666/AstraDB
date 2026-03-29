@@ -581,6 +581,9 @@ class Worker {
   void AddTask(F&& func) {
     ASTRADB_LOG_DEBUG("Worker {}: Task added to scheduler queue", worker_id_);
     task_queue_.enqueue(std::function<void()>(std::forward<F>(func)));
+    // NOTE: Not calling NotifyExecutorLoop() here to avoid frequent wakeups
+    // Scheduler tasks are less latency-sensitive than client commands
+    // ExecutorLoop will process them on next iteration or after timeout
   }
 
   // Get blocking manager (for blocking commands)
