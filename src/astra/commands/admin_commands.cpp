@@ -1452,6 +1452,33 @@ CommandResult HandleKeys(const astra::protocol::Command& command,
   std::string pattern = pattern_arg.AsString();
   ASTRADB_LOG_TRACE("HandleKeys: pattern='{}'", pattern);
 
+  // Try to use WorkerScheduler to query all workers (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    std::vector<RespValue> result;
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect keys from all workers
+    for (auto* worker : all_workers) {
+      auto all_keys = worker->GetDataShard().GetDatabase().GetAllKeys();
+      
+      // Pattern matching for each key
+      for (const auto& key : all_keys) {
+        // Simple pattern matching: only support * wildcard
+        if (pattern == "*" || key.find(pattern.substr(1)) != std::string::npos) {
+          RespValue key_val;
+          key_val.SetString(key, protocol::RespType::kBulkString);
+          result.push_back(key_val);
+        }
+      }
+    }
+
+    ASTRADB_LOG_TRACE("HandleKeys: returning {} keys from {} workers",
+                      result.size(), all_workers.size());
+    return CommandResult(RespValue(std::move(result)));
+  }
+
+  // Fallback: single worker mode
   auto all_keys = db->GetAllKeys();
   ASTRADB_LOG_TRACE("HandleKeys: got {} keys", all_keys.size());
 
