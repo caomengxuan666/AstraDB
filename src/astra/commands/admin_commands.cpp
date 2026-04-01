@@ -1512,6 +1512,53 @@ CommandResult HandleRandomKey(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all keys from all workers
+    std::vector<std::future<std::vector<std::string>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      
+      all_workers[worker_id]->AddTask([target_worker, promise]() {
+        try {
+          std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+          promise->set_value(keys);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate all keys from all workers
+    std::vector<std::string> all_keys;
+    for (auto& future : futures) {
+      auto keys = future.get();
+      all_keys.insert(all_keys.end(), keys.begin(), keys.end());
+    }
+    
+    if (all_keys.empty()) {
+      return CommandResult(RespValue(RespType::kNullBulkString));
+    }
+
+    // Use absl::BitGen for random selection
+    static absl::BitGen bitgen;
+    size_t idx = absl::Uniform<size_t>(bitgen, 0, all_keys.size());
+
+    RespValue result;
+    result.SetString(all_keys[idx], protocol::RespType::kBulkString);
+    return CommandResult(result);
+  }
+
+  // Fallback: single worker mode
   auto all_keys = db->GetAllKeys();
   if (all_keys.empty()) {
     return CommandResult(RespValue(RespType::kNullBulkString));
@@ -2039,6 +2086,115 @@ CommandResult HandleScan(const protocol::Command& command,
     return CommandResult(RespValue(std::move(result)));
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all keys from all workers
+    std::vector<std::future<std::vector<std::string>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      
+      all_workers[worker_id]->AddTask([target_worker, promise]() {
+        try {
+          std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+          promise->set_value(keys);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate all keys from all workers
+    std::vector<std::string> keys;
+    for (auto& future : futures) {
+      auto worker_keys = future.get();
+      keys.insert(keys.end(), worker_keys.begin(), worker_keys.end());
+    }
+    
+    // Filter keys by pattern
+    std::vector<std::string> filtered_keys;
+    for (const auto& key : keys) {
+      // Glob pattern matching
+      bool matches = false;
+      if (match_pattern == "*") {
+        matches = true;
+      } else if (match_pattern.find('*') == std::string::npos &&
+                 match_pattern.find('?') == std::string::npos) {
+        matches = (key == match_pattern);
+      } else {
+        std::string pattern = match_pattern;
+        std::string target = key;
+
+        if (pattern[0] == '*' && pattern.back() == '*' && pattern.size() > 1) {
+          std::string middle = pattern.substr(1, pattern.size() - 2);
+          matches = (target.find(middle) != std::string::npos);
+        } else if (pattern[0] == '*' && pattern.size() > 1) {
+          std::string suffix = pattern.substr(1);
+          matches = (target.size() >= suffix.size() &&
+                     target.substr(target.size() - suffix.size()) == suffix);
+        } else if (pattern.back() == '*' && pattern.size() > 1) {
+          std::string prefix = pattern.substr(0, pattern.size() - 1);
+          matches = (target.size() >= prefix.size() &&
+                     target.substr(0, prefix.size()) == prefix);
+        } else {
+          matches = (target.find(pattern) != std::string::npos);
+        }
+      }
+
+      if (matches) {
+        filtered_keys.push_back(key);
+      }
+    }
+
+    // Use scan state manager for proper cursor-based iteration
+    uint64_t new_cursor = 0;
+    std::vector<std::string> batch_keys;
+
+    if (cursor == 0) {
+      // Start new scan
+      new_cursor = ScanStateManager::Instance().StartScan(filtered_keys);
+      batch_keys =
+          ScanStateManager::Instance().GetNextBatch(new_cursor, count).second;
+    } else {
+      // Continue existing scan
+      auto result = ScanStateManager::Instance().GetNextBatch(cursor, count);
+      new_cursor = result.first;
+      batch_keys = result.second;
+    }
+
+    // Build response
+    std::vector<RespValue> response;
+
+    // New cursor
+    RespValue cursor_val;
+    cursor_val.SetString(std::to_string(new_cursor),
+                         protocol::RespType::kBulkString);
+    response.push_back(cursor_val);
+
+    // Keys array
+    std::vector<RespValue> keys_array;
+    for (const auto& key : batch_keys) {
+      RespValue key_val;
+      key_val.SetString(key, protocol::RespType::kBulkString);
+      keys_array.push_back(key_val);
+    }
+
+    RespValue keys_val;
+    keys_val.SetArray(std::move(keys_array));
+    response.push_back(keys_val);
+
+    return CommandResult(RespValue(std::move(response)));
+  }
+
+  // Fallback: single worker mode
   // Get all keys and filter by pattern
   auto keys = db->GetAllKeys();
 

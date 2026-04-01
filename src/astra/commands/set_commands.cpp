@@ -9,6 +9,9 @@
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "command_auto_register.hpp"
 #include "pubsub_commands.hpp"
+#include "astra/server/worker_scheduler.hpp"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 
 namespace astra::commands {
 
@@ -277,6 +280,81 @@ CommandResult HandleSInter(const astra::protocol::Command& command,
     keys.push_back(arg.AsString());
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all members from all sets across all workers
+    std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      std::vector<std::string> keys_copy = keys;
+      
+      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+        try {
+          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+          Database* db = &target_worker->GetDataShard().GetDatabase();
+          
+          for (const auto& key : keys_copy) {
+            auto members = db->SMembers(key);
+            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+          }
+          
+          promise->set_value(worker_sets);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate results from all workers
+    absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> all_sets;
+    for (auto& future : futures) {
+      auto worker_sets = future.get();
+      for (const auto& [key, members] : worker_sets) {
+        all_sets[key].insert(members.begin(), members.end());
+      }
+    }
+    
+    // Compute intersection
+    if (all_sets.empty()) {
+      RespValue result;
+      result.SetArray({});
+      return CommandResult(result);
+    }
+    
+    absl::flat_hash_set<std::string> intersection = all_sets[keys[0]];
+    for (size_t i = 1; i < keys.size(); ++i) {
+      const auto& current_set = all_sets[keys[i]];
+      absl::flat_hash_set<std::string> new_intersection;
+      for (const auto& member : intersection) {
+        if (current_set.find(member) != current_set.end()) {
+          new_intersection.insert(member);
+        }
+      }
+      intersection = std::move(new_intersection);
+    }
+    
+    // Build response
+    std::vector<RespValue> resp_members;
+    resp_members.reserve(intersection.size());
+    for (const auto& member : intersection) {
+      resp_members.push_back(RespValue(member));
+    }
+    
+    RespValue result;
+    result.SetArray(std::move(resp_members));
+    return CommandResult(result);
+  }
+
+  // Fallback: single worker mode
   auto members = db->SInter(keys);
 
   RespValue result;
@@ -311,6 +389,62 @@ CommandResult HandleSUnion(const astra::protocol::Command& command,
     keys.push_back(arg.AsString());
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all members from all sets across all workers
+    std::vector<std::future<std::vector<absl::flat_hash_set<std::string>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<absl::flat_hash_set<std::string>>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      std::vector<std::string> keys_copy = keys;
+      
+      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+        try {
+          std::vector<absl::flat_hash_set<std::string>> worker_sets;
+          Database* db = &target_worker->GetDataShard().GetDatabase();
+          
+          for (const auto& key : keys_copy) {
+            auto members = db->SMembers(key);
+            worker_sets.push_back(absl::flat_hash_set<std::string>(members.begin(), members.end()));
+          }
+          
+          promise->set_value(worker_sets);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate union results from all workers
+    absl::flat_hash_set<std::string> union_result;
+    for (auto& future : futures) {
+      auto worker_sets = future.get();
+      for (const auto& worker_set : worker_sets) {
+        union_result.insert(worker_set.begin(), worker_set.end());
+      }
+    }
+    
+    // Build response
+    std::vector<RespValue> resp_members;
+    resp_members.reserve(union_result.size());
+    for (const auto& member : union_result) {
+      resp_members.push_back(RespValue(member));
+    }
+    
+    RespValue result;
+    result.SetArray(std::move(resp_members));
+    return CommandResult(result);
+  }
+
+  // Fallback: single worker mode
   auto members = db->SUnion(keys);
 
   RespValue result;
@@ -345,6 +479,81 @@ CommandResult HandleSDiff(const astra::protocol::Command& command,
     keys.push_back(arg.AsString());
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all members from all sets across all workers
+    std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      std::vector<std::string> keys_copy = keys;
+      
+      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+        try {
+          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+          Database* db = &target_worker->GetDataShard().GetDatabase();
+          
+          for (const auto& key : keys_copy) {
+            auto members = db->SMembers(key);
+            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+          }
+          
+          promise->set_value(worker_sets);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate results from all workers
+    absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> all_sets;
+    for (auto& future : futures) {
+      auto worker_sets = future.get();
+      for (const auto& [key, members] : worker_sets) {
+        all_sets[key].insert(members.begin(), members.end());
+      }
+    }
+    
+    // Compute difference: first set minus all other sets
+    if (all_sets.empty()) {
+      RespValue result;
+      result.SetArray({});
+      return CommandResult(result);
+    }
+    
+    absl::flat_hash_set<std::string> difference = all_sets[keys[0]];
+    for (size_t i = 1; i < keys.size(); ++i) {
+      const auto& current_set = all_sets[keys[i]];
+      absl::flat_hash_set<std::string> new_difference;
+      for (const auto& member : difference) {
+        if (current_set.find(member) == current_set.end()) {
+          new_difference.insert(member);
+        }
+      }
+      difference = std::move(new_difference);
+    }
+    
+    // Build response
+    std::vector<RespValue> resp_members;
+    resp_members.reserve(difference.size());
+    for (const auto& member : difference) {
+      resp_members.push_back(RespValue(member));
+    }
+    
+    RespValue result;
+    result.SetArray(std::move(resp_members));
+    return CommandResult(result);
+  }
+
+  // Fallback: single worker mode
   auto members = db->SDiff(keys);
 
   RespValue result;
@@ -519,6 +728,80 @@ CommandResult HandleSInterCard(const astra::protocol::Command& command,
     ++pos;
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Collect all members from all sets across all workers
+    std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      std::vector<std::string> keys_copy = keys;
+      
+      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+        try {
+          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+          Database* db = &target_worker->GetDataShard().GetDatabase();
+          
+          for (const auto& key : keys_copy) {
+            auto members = db->SMembers(key);
+            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+          }
+          
+          promise->set_value(worker_sets);
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
+      });
+    }
+    
+    // Aggregate results from all workers
+    absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> all_sets;
+    for (auto& future : futures) {
+      auto worker_sets = future.get();
+      for (const auto& [key, members] : worker_sets) {
+        all_sets[key].insert(members.begin(), members.end());
+      }
+    }
+    
+    // Compute intersection
+    if (all_sets.empty()) {
+      return CommandResult(RespValue(static_cast<int64_t>(0)));
+    }
+    
+    absl::flat_hash_set<std::string> intersection = all_sets[keys[0]];
+    for (size_t i = 1; i < keys.size(); ++i) {
+      const auto& current_set = all_sets[keys[i]];
+      absl::flat_hash_set<std::string> new_intersection;
+      for (const auto& member : intersection) {
+        if (current_set.find(member) != current_set.end()) {
+          new_intersection.insert(member);
+        }
+      }
+      intersection = std::move(new_intersection);
+      
+      // Early exit if intersection is empty
+      if (intersection.empty()) {
+        break;
+      }
+    }
+    
+    // Apply LIMIT
+    if (limit > 0 && intersection.size() > limit) {
+      return CommandResult(RespValue(static_cast<int64_t>(limit)));
+    }
+    
+    return CommandResult(RespValue(static_cast<int64_t>(intersection.size())));
+  }
+
+  // Fallback: single worker mode
   // Compute intersection
   auto intersection = db->SInter(keys);
 
