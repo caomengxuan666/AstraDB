@@ -114,7 +114,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   }
 
   // Get current worker (for cross-shard operations)
-  class Worker* GetWorker() const { return worker_; }
+  class Worker* GetWorker() const override { return worker_; }
 
   // Set worker scheduler (called by Worker after worker scheduler is
   // initialized)
