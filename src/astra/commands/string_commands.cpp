@@ -265,6 +265,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Group keys by worker_id
     std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(all_workers.size());
@@ -282,36 +283,59 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
         continue;
       }
       
-      auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
-      auto future = promise->get_future();
-      futures.push_back(std::move(future));
-      
-      // Capture necessary data by value to make lambda copyable
-      std::vector<std::pair<size_t, std::string>> keys_for_worker = worker_keys[worker_id];
       server::Worker* target_worker = all_workers[worker_id];
       
-      all_workers[worker_id]->AddTask([keys_for_worker, target_worker, promise]() {
-        try {
-          std::vector<std::pair<size_t, std::optional<std::string>>> results;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& [index, key] : keys_for_worker) {
-            auto result = db->Get(key);
-            if (result.has_value()) {
-              results.push_back({index, std::optional<std::string>(result->value)});
-            } else {
-              results.push_back({index, std::optional<std::string>()});
-            }
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<size_t, std::optional<std::string>>> results;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& [index, key] : worker_keys[worker_id]) {
+          auto result = db->Get(key);
+          if (result.has_value()) {
+            results.push_back({index, std::optional<std::string>(result->value)});
+          } else {
+            results.push_back({index, std::optional<std::string>()});
           }
-          
-          promise->set_value(results);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
         }
-      });
-      
-      // Notify worker to process task immediately
-      all_workers[worker_id]->NotifyTaskProcessing();
+        
+        // Create a satisfied future
+        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        promise->set_value(results);
+        futures.push_back(promise->get_future());
+      } else {
+        // Execute on other worker via queue
+        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        auto future = promise->get_future();
+        futures.push_back(std::move(future));
+        
+        // Capture necessary data by value to make lambda copyable
+        std::vector<std::pair<size_t, std::string>> keys_for_worker = worker_keys[worker_id];
+        
+        all_workers[worker_id]->AddTask([keys_for_worker, target_worker, promise]() {
+          try {
+            std::vector<std::pair<size_t, std::optional<std::string>>> results;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& [index, key] : keys_for_worker) {
+              auto result = db->Get(key);
+              if (result.has_value()) {
+                results.push_back({index, std::optional<std::string>(result->value)});
+              } else {
+                results.push_back({index, std::optional<std::string>()});
+              }
+            }
+            
+            promise->set_value(results);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Collect results in order

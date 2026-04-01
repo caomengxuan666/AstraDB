@@ -113,11 +113,17 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     return worker_scheduler_;
   }
 
+  // Get current worker (for cross-shard operations)
+  class Worker* GetWorker() const { return worker_; }
+
   // Set worker scheduler (called by Worker after worker scheduler is
   // initialized)
   void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
     worker_scheduler_ = worker_scheduler;
   }
+
+  // Set current worker (called by Worker during initialization)
+  void SetWorker(class Worker* worker) { worker_ = worker; }
 
   // Get connection (for async response)
   astra::network::Connection* GetConnection() const override {
@@ -189,6 +195,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   class commands::BlockingManager* blocking_manager_ = nullptr;
   class commands::CommandRegistry* command_registry_ = nullptr;
   class WorkerScheduler* worker_scheduler_ = nullptr;
+  class Worker* worker_ = nullptr;
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
@@ -523,6 +530,9 @@ class Worker {
     // Set command registry in command context (required for COMMAND command)
     data_shard_.GetCommandContext()->SetCommandRegistry(
         data_shard_.GetCommandRegistry());
+
+    // Set current worker in command context (required for cross-shard operations)
+    data_shard_.GetCommandContext()->SetWorker(this);
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
