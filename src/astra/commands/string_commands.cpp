@@ -309,6 +309,9 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
           promise->set_exception(std::current_exception());
         }
       });
+      
+      // Notify worker to process task immediately
+      all_workers[worker_id]->NotifyTaskProcessing();
     }
     
     // Collect results in order
@@ -392,6 +395,9 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
         Database* db = &target_worker->GetDataShard().GetDatabase();
         db->Set(key, StringValue(value));
       });
+      
+      // Notify worker to process task immediately
+      all_workers[worker_id]->NotifyTaskProcessing();
     }
     
     // Log to AOF (zero-copy with string_view from const std::string&)

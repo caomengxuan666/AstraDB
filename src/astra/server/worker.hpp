@@ -586,6 +586,12 @@ class Worker {
     // ExecutorLoop will process them on next iteration or after timeout
   }
 
+  // Notify the executor loop to process pending tasks immediately
+  // This should be called after AddTask when immediate processing is needed
+  void NotifyTaskProcessing() {
+    NotifyExecutorLoop();
+  }
+
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() {
     return blocking_manager_.get();
