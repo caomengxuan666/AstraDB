@@ -4,6 +4,10 @@
 #include "cluster_commands.hpp"
 
 #include "astra/base/logging.hpp"
+#include "astra/cluster/gossip_manager.hpp"
+#include "astra/cluster/shard_manager.hpp"
+#include "astra/server/server.hpp"
+#include "core/gossip_core.hpp"  // For libgossip types
 
 namespace astra::commands {
 
@@ -45,19 +49,56 @@ CommandResult HandleClusterInfo(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster info' command");
   }
 
-  // Return default cluster info (cluster not enabled)
+  auto* server = static_cast<server::Server*>(context->GetServer());
+  auto* cluster_manager = server->GetClusterManager();
+  auto* gossip_manager = server->GetGossipManager();
+  auto* shard_manager = server->GetShardManager();
+
+  // Check if cluster is enabled
+  if (!cluster_manager || !gossip_manager || !shard_manager) {
+    std::string info = "cluster_state:fail\n";
+    protocol::RespValue resp;
+    resp.SetString(info, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+  }
+
+  // Build cluster info string
   std::string info;
-  info += "cluster_state:fail\n";
-  info += "cluster_slots_assigned:0\n";
-  info += "cluster_slots_ok:0\n";
-  info += "cluster_slots_pfail:0\n";
-  info += "cluster_slots_fail:0\n";
-  info += "cluster_known_nodes:1\n";
-  info += "cluster_size:1\n";
-  info += "cluster_current_epoch:0\n";
-  info += "cluster_my_epoch:0\n";
-  info += "cluster_stats_messages_sent:0\n";
-  info += "cluster_stats_messages_received:0\n";
+  
+  // Cluster state
+  info += "cluster_state:ok\n";
+  
+  // Slots information
+  if (shard_manager) {
+    info += "cluster_slots_assigned:" + std::to_string(cluster::kHashSlotCount) + "\n";
+    info += "cluster_slots_ok:" + std::to_string(cluster::kHashSlotCount) + "\n";
+    info += "cluster_slots_pfail:0\n";
+    info += "cluster_slots_fail:0\n";
+  }
+  
+  // Nodes information
+  if (gossip_manager) {
+    size_t node_count = gossip_manager->GetNodeCount();
+    info += "cluster_known_nodes:" + std::to_string(node_count) + "\n";
+    info += "cluster_size:" + std::to_string(node_count) + "\n";
+  } else {
+    info += "cluster_known_nodes:1\n";
+    info += "cluster_size:1\n";
+  }
+  
+  // Epoch information (default values for now)
+  info += "cluster_current_epoch:1\n";
+  info += "cluster_my_epoch:1\n";
+  
+  // Gossip statistics
+  if (gossip_manager) {
+    auto stats = gossip_manager->GetStats();
+    info += "cluster_stats_messages_sent:" + std::to_string(stats.sent_messages) + "\n";
+    info += "cluster_stats_messages_received:" + std::to_string(stats.received_messages) + "\n";
+  } else {
+    info += "cluster_stats_messages_sent:0\n";
+    info += "cluster_stats_messages_received:0\n";
+  }
 
   protocol::RespValue resp;
   resp.SetString(info, protocol::RespType::kBulkString);
@@ -72,8 +113,54 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster nodes' command");
   }
 
-  // Return empty nodes list
-  std::string result = "";
+  auto* server = static_cast<server::Server*>(context->GetServer());
+  auto* gossip_manager = server->GetGossipManager();
+
+  // Check if cluster is enabled
+  if (!gossip_manager) {
+    std::string result = "";
+    protocol::RespValue resp;
+    resp.SetString(result, protocol::RespType::kBulkString);
+    return CommandResult(resp);
+  }
+
+  // Get all nodes from gossip manager
+  auto nodes = gossip_manager->GetNodes();
+  
+  // Build nodes string in Redis cluster format
+  std::string result;
+  for (const auto& node : nodes) {
+    // Format: <id> <ip>:<port@bus-port> <flags> <master> <ping-sent> <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
+    std::string node_str = cluster::GossipManager::NodeIdToString(node.id);
+    node_str += " " + node.ip + ":" + std::to_string(node.port) + "@" + std::to_string(node.port + 10000);  // bus port = data port + 10000
+    
+    // Flags
+    uint32_t flags = 0;
+    if (node.status == libgossip::node_status::online) {
+      flags |= 0x1000;  // master
+    }
+    node_str += " " + std::to_string(flags);
+    
+    // Master ID (self for master nodes)
+    node_str += " " + std::to_string(-1);
+    
+    // Ping and pong timestamps
+    node_str += " " + std::to_string(0) + " " + std::to_string(0);
+    
+    // Config epoch
+    node_str += " " + std::to_string(node.config_epoch);
+    
+    // Link state
+    node_str += " connected";
+    
+    // Slots (not assigned yet)
+    // node_str += "\n";  // Redis cluster format has newlines
+    
+    if (!result.empty()) {
+      result += "\n";
+    }
+    result += node_str;
+  }
 
   protocol::RespValue resp;
   resp.SetString(result, protocol::RespType::kBulkString);
@@ -88,7 +175,26 @@ CommandResult HandleClusterMeet(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster meet' command");
   }
 
-  return CommandResult(false, "ERR This instance has cluster support disabled");
+  auto* server = static_cast<server::Server*>(context->GetServer());
+  auto* gossip_manager = server->GetGossipManager();
+
+  if (!gossip_manager) {
+    return CommandResult(false, "ERR This instance has cluster support disabled");
+  }
+
+  std::string ip = command[0].AsString();
+  std::string port_str = command[1].AsString();
+  
+  try {
+    int port = std::stoi(port_str);
+    if (gossip_manager->MeetNode(ip, port)) {
+      return CommandResult(true, "OK");
+    } else {
+      return CommandResult(false, "ERR Failed to meet node");
+    }
+  } catch (const std::exception& e) {
+    return CommandResult(false, "ERR Invalid port number");
+  }
 }
 
 // CLUSTER FORGET - Remove a node from the cluster
@@ -211,8 +317,17 @@ CommandResult HandleClusterKeySlot(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster keyslot' command");
   }
 
+  auto* server = static_cast<server::Server*>(context->GetServer());
+  auto* shard_manager = server->GetShardManager();
+
+  if (!shard_manager) {
+    return CommandResult(false, "ERR This instance has cluster support disabled");
+  }
+
   const std::string& key = command[0].AsString();
-  uint16_t slot = GetSlotForKey(key);
+  
+  // Use ShardManager's HashSlotCalculator
+  uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
 
   protocol::RespValue resp;
   resp.SetInteger(slot);
