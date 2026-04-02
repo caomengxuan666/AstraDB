@@ -5,6 +5,9 @@
 #include "worker_scheduler.hpp"
 
 #include "astra/security/acl_manager.hpp"  // For AclManager
+#include "astra/cluster/cluster_manager.hpp"  // For ClusterManager
+#include "astra/cluster/gossip_manager.hpp"   // For GossipManager
+#include "astra/cluster/shard_manager.hpp"    // For ShardManager
 #include "absl/time/time.h"
 
 namespace astra::server {
@@ -215,7 +218,11 @@ void Server::Stop() {
 
   if (cluster_manager_) {
     ASTRADB_LOG_INFO("Shutting down cluster manager...");
-    cluster_manager_->Shutdown();
+    // Stop gossip manager first
+    if (gossip_manager_) {
+      gossip_manager_->Stop();
+      gossip_manager_.reset();
+    }
     cluster_manager_.reset();
   }
 
@@ -284,22 +291,63 @@ bool Server::InitCluster() noexcept {
   try {
     ASTRADB_LOG_INFO("Initializing cluster...");
 
-    // Create cluster manager
-    cluster_manager_ = std::make_unique<ClusterManager>();
+    if (!config_.cluster_enabled) {
+      ASTRADB_LOG_INFO("Cluster is disabled in configuration");
+      return true;
+    }
 
-    // Initialize with node ID
-    if (!cluster_manager_->Init(config_.cluster_node_id)) {
+    // Create and initialize cluster manager
+    cluster_manager_ = std::make_unique<cluster::ClusterManager>();
+    if (!cluster_manager_->Init(config_.cluster_node_id, config_.host,
+                                config_.port, config_.cluster_gossip_port)) {
       ASTRADB_LOG_ERROR("Failed to initialize cluster manager");
       cluster_manager_.reset();
       return false;
     }
 
-    ASTRADB_LOG_INFO("Cluster initialized successfully (enabled: {})",
-                     config_.cluster_enabled ? "yes" : "no");
+    // Create and initialize gossip manager
+    gossip_manager_ = std::make_unique<cluster::GossipManager>();
+    cluster::ClusterConfig gossip_config;
+    gossip_config.node_id = config_.cluster_node_id;
+    gossip_config.bind_ip = config_.cluster_bind_addr;
+    gossip_config.gossip_port = config_.cluster_gossip_port;
+    gossip_config.data_port = config_.port;
+    gossip_config.shard_count = config_.cluster_shard_count;
+    
+    if (!gossip_manager_->Init(gossip_config)) {
+      ASTRADB_LOG_ERROR("Failed to initialize gossip manager");
+      gossip_manager_.reset();
+      cluster_manager_.reset();
+      return false;
+    }
+
+    // Start gossip manager
+    if (!gossip_manager_->Start()) {
+      ASTRADB_LOG_ERROR("Failed to start gossip manager");
+      gossip_manager_.reset();
+      cluster_manager_.reset();
+      return false;
+    }
+
+    // Meet seed nodes if configured
+    for (const auto& seed : config_.cluster_seeds) {
+      // Parse seed address (format: "ip:port")
+      size_t colon_pos = seed.find(':');
+      if (colon_pos != std::string::npos) {
+        std::string seed_ip = seed.substr(0, colon_pos);
+        int seed_port = std::stoi(seed.substr(colon_pos + 1));
+        gossip_manager_->MeetNode(seed_ip, seed_port);
+        ASTRADB_LOG_INFO("Meeting seed node: {}", seed);
+      }
+    }
+
+    ASTRADB_LOG_INFO("Cluster initialized successfully (enabled: yes, node_id: {})",
+                     config_.cluster_node_id);
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Cluster initialization exception: {}", e.what());
     cluster_manager_.reset();
+    gossip_manager_.reset();
     return false;
   }
 }

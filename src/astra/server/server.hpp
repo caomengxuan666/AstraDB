@@ -13,6 +13,11 @@
 #include "managers.hpp"  // Manager class definitions
 #include "worker.hpp"
 
+// Include cluster headers for full type definitions
+#include "astra/cluster/cluster_manager.hpp"
+#include "astra/cluster/gossip_manager.hpp"
+#include "astra/cluster/shard_manager.hpp"
+
 namespace astra::server {
 
 // Forward declarations
@@ -20,9 +25,8 @@ namespace astra::persistence {
 class PersistenceManager;
 }
 
-namespace astra::cluster {
-class ClusterManager;
-}
+// Note: ClusterManager, GossipManager, and ShardManager are included in server.cpp
+// to avoid circular dependencies
 
 namespace astra::commands {
 class PubSubManager;
@@ -135,7 +139,9 @@ class Server {
   class PersistenceManager* GetPersistenceManager() {
     return persistence_manager_.get();
   }
-  class ClusterManager* GetClusterManager() { return cluster_manager_.get(); }
+  cluster::ClusterManager* GetClusterManager() { return cluster_manager_.get(); }
+  cluster::GossipManager* GetGossipManager() { return gossip_manager_.get(); }
+  cluster::ShardManager* GetShardManager() { return shard_manager_.get(); }
   ::astra::replication::ReplicationManager* GetReplicationManager() {
     return replication_manager_.get();
   }
@@ -202,7 +208,9 @@ class Server {
 
   // Server-level managers (shared by all workers via MPSC if needed)
   std::unique_ptr<PersistenceManager> persistence_manager_;
-  std::unique_ptr<ClusterManager> cluster_manager_;
+  std::unique_ptr<cluster::ClusterManager> cluster_manager_;
+  std::unique_ptr<cluster::GossipManager> gossip_manager_;
+  std::unique_ptr<cluster::ShardManager> shard_manager_;
   std::unique_ptr<::astra::security::AclManager> acl_manager_;
   std::unique_ptr<MetricsManager> metrics_manager_;
   std::unique_ptr<::astra::replication::ReplicationManager>

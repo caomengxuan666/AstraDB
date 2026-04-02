@@ -403,20 +403,8 @@ class PersistenceManager {
   std::thread bg_save_thread_;
 };
 
-// Simple cluster manager stub
-// TODO: Implement full cluster with Gossip, ShardManager
-class ClusterManager {
- public:
-  ClusterManager() = default;
-  ~ClusterManager() = default;
-
-  bool Init(const std::string& node_id) {
-    ASTRADB_LOG_INFO("ClusterManager: Init with node_id={}", node_id);
-    return true;
-  }
-
-  void Shutdown() { ASTRADB_LOG_INFO("ClusterManager: Shutdown"); }
-};
+// Note: ClusterManager has been moved to astra/cluster/cluster_manager.hpp
+// This stub has been removed to avoid naming conflicts
 
 // Metrics Manager - Prometheus metrics collection and HTTP server
 // Uses prometheus-cpp built-in Exposer for NO SHARING architecture
