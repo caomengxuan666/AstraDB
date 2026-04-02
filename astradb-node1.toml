@@ -1,0 +1,55 @@
+# Node 1 Configuration
+[server]
+host = "0.0.0.0"
+port = 7001
+max_connections = 10000
+thread_count = 4
+use_per_worker_io = false
+use_so_reuseport = false
+
+[database]
+num_databases = 16
+num_shards = 16
+
+[logging]
+level = "info"
+file = "./logs/astradb-node1.log"
+async = true
+queue_size = 8192
+
+[performance]
+enable_pipeline = true
+enable_compression = false
+
+[async]
+use_async_commands = true
+
+[persistence]
+enabled = false
+
+[aof]
+enabled = false
+
+[rdb]
+enabled = false
+
+[metrics]
+enabled = false
+
+[cluster]
+enabled = true
+node_id = "00000000000000000000000000000001"
+bind_addr = "0.0.0.0"
+gossip_port = 17001
+shard_count = 16384
+seeds = []
+
+[rocksdb]
+enabled = false
+
+[memory]
+max_memory = 0
+eviction_policy = "noeviction"
+eviction_threshold = 0.9
+eviction_samples = 5
+enable_tracking = true

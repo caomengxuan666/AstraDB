@@ -66,7 +66,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   // Metrics
   bool metrics_enabled = true;
   std::string metrics_bind_addr = "0.0.0.0";
-  uint16_t metrics_port = 9999;
+  [[maybe_unused]]uint16_t metrics_port = 9999;
   
   // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
   // Default: 10 seconds for optimal performance and monitoring
@@ -108,6 +108,9 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.cluster_shard_count = base_config.cluster.shard_count;
     
     config.metrics = base_config.metrics;
+    config.metrics_enabled = base_config.metrics.enabled;
+    config.metrics_bind_addr = base_config.metrics.bind_addr;
+    config.metrics_port = base_config.metrics.port;
     config.stats_frequency_seconds = base_config.metrics.stats_frequency_seconds;
 
     // Copy AOF configuration
@@ -251,6 +254,9 @@ class Server {
   // Stats aggregation thread (NO SHARING architecture)
   std::thread stats_aggregation_thread_;
   std::atomic<bool> stats_aggregation_running_{false};
+
+  // Gossip tick thread (NO SHARING architecture)
+  std::thread gossip_tick_thread_;
 
   // Disable copy and move
   Server(const Server&) = delete;

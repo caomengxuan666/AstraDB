@@ -128,6 +128,7 @@ void Server::Start() {
   }
 
   // Initialize metrics if enabled
+  ASTRADB_LOG_INFO("Metrics enabled: {}", config_.metrics_enabled);
   if (config_.metrics_enabled) {
     if (!InitMetrics()) {
       ASTRADB_LOG_WARN(
@@ -200,9 +201,21 @@ void Server::Start() {
   running_ = true;
   ASTRADB_LOG_INFO("Server started successfully with {} workers",
                    workers_.size());
+  
   // Start stats aggregation (NO SHARING architecture)
   if (config_.metrics_enabled) {
     StartStatsAggregation();
+  }
+  
+  // Start gossip tick thread (NO SHARING architecture)
+  if (gossip_manager_ && config_.cluster_enabled) {
+    gossip_tick_thread_ = std::thread([this]() {
+      while (running_) {
+        gossip_manager_->Tick();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    });
+    ASTRADB_LOG_INFO("Gossip tick thread started");
   }
 }
 
@@ -239,6 +252,12 @@ void Server::Stop() {
     if (gossip_manager_) {
       gossip_manager_->Stop();
       gossip_manager_.reset();
+      
+      // Join gossip tick thread
+      if (gossip_tick_thread_.joinable()) {
+        gossip_tick_thread_.join();
+        ASTRADB_LOG_INFO("Gossip tick thread stopped");
+      }
     }
     // Reset shard manager
     if (shard_manager_) {
@@ -428,9 +447,11 @@ void Server::OnClusterEvent(cluster::ClusterEvent event,
     // Update cluster state based on event
     switch (event) {
       case cluster::ClusterEvent::kNodeJoined: {
+        ASTRADB_LOG_DEBUG("Processing kNodeJoined event");
         // Add new node to cluster state
         cluster::ClusterNodeInfo node_info;
         node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+        ASTRADB_LOG_DEBUG("Node ID: {}", node_info.id);
         node_info.ip = node_view.ip;
         node_info.port = node_view.port;
         node_info.bus_port = node_view.port + 10000;  // Default bus port
@@ -438,7 +459,9 @@ void Server::OnClusterEvent(cluster::ClusterEvent event,
                          ? cluster::ClusterRole::kMaster
                          : cluster::ClusterRole::kSlave;
         node_info.config_epoch = node_view.config_epoch;
+        ASTRADB_LOG_DEBUG("Creating new state with node added");
         new_state = new_state->WithNodeAdded(node_info);
+        ASTRADB_LOG_DEBUG("New state created");
         break;
       }
       case cluster::ClusterEvent::kNodeLeft:

@@ -263,6 +263,9 @@ int main(int argc, char** argv) {
   server_config.metrics.enabled = config.metrics.enabled;
   server_config.metrics.bind_addr = config.metrics.bind_addr;
   server_config.metrics.port = config.metrics.port;
+  server_config.metrics_enabled = config.metrics.enabled;
+  server_config.metrics_bind_addr = config.metrics.bind_addr;
+  server_config.metrics_port = config.metrics.port;
 
   // Copy memory config
   server_config.memory.max_memory = config.memory.max_memory;

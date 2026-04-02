@@ -252,9 +252,17 @@ class GossipManager {
     node.ip = std::string(ip);
     node.port = port;
     node.status = libgossip::node_status::unknown;
+    
+    // Generate temporary node_id from IP:port (will be replaced by real ID from gossip)
+    std::string temp_id = std::string(ip) + ":" + std::to_string(port);
+    NodeId temp_node_id{};
+    std::hash<std::string> hasher;
+    uint64_t hash = hasher(temp_id);
+    std::memcpy(temp_node_id.data(), &hash, sizeof(hash));
+    node.id = temp_node_id;
 
     gossip_core_->meet(node);
-    ASTRADB_LOG_INFO("Meeting node: {}:{}", ip, port);
+    ASTRADB_LOG_INFO("Meeting node: {}:{} (temp id: {})", ip, port, NodeIdToString(node.id));
     return true;
   }
 
@@ -330,9 +338,8 @@ class GossipManager {
 
   // Set event callback
   void SetEventCallback(ClusterEventCallback callback) noexcept {
-    // Note: In production, we'd store this properly
-    // For now, we use the libgossip event callback
-    (void)callback;
+    event_callback_ = std::move(callback);
+    event_callback_set_ = true;
   }
 
   // ========== Statistics ==========
@@ -491,7 +498,21 @@ class GossipManager {
                      NodeIdToString(node.id), libgossip::to_string(old_status),
                      libgossip::to_string(node.status));
 
-    (void)event;  // TODO: Notify event callbacks
+    // Notify event callbacks if set
+    if (event_callback_set_) {
+      AstraNodeView node_view;
+      node_view.id = node.id;
+      node_view.ip = node.ip;
+      node_view.port = node.port;
+      node_view.role = config_.role;
+      node_view.region = config_.region;
+      node_view.config_epoch = node.config_epoch;
+      node_view.heartbeat = node.heartbeat;
+      node_view.version = node.version;
+      node_view.status = node.status;
+      node_view.shard_count = config_.shard_count;
+      event_callback_(event, node_view);
+    }
   }
 
   ClusterConfig config_;
@@ -501,6 +522,8 @@ class GossipManager {
 
   std::atomic<bool> initialized_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> event_callback_set_{false};
+  std::function<void(ClusterEvent, const AstraNodeView&)> event_callback_;
 };
 
 }  // namespace astra::cluster
