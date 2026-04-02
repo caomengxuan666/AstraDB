@@ -484,6 +484,62 @@ endif()
 # RocksDB - High Performance Key-Value Store
 # Usage: Alternative to ROCKSDB for persistence (better write performance)
 # Benefits: Better write performance, compression, multithreading
+
+# Windows: Download zlib-msvc-x64 NuGet package for RocksDB
+if(WIN32)
+  message(STATUS "🔧 Setting up zlib-msvc-x64 for RocksDB on Windows...")
+  
+  # Download NuGet package
+  set(ZLIB_NUGET_VERSION "1.2.11.8900")
+  set(ZLIB_NUGET_URL "https://www.nuget.org/api/v2/package/zlib-msvc-x64/${ZLIB_NUGET_VERSION}")
+  set(ZLIB_NUGET_ARCHIVE "${CMAKE_BINARY_DIR}/zlib-msvc-x64.nupkg")
+  set(ZLIB_EXTRACT_DIR "${CMAKE_BINARY_DIR}/zlib-msvc-x64")
+  
+  if(NOT EXISTS "${ZLIB_EXTRACT_DIR}/build/native/include/zlib.h")
+    message(STATUS "Downloading zlib-msvc-x64 ${ZLIB_NUGET_VERSION} from NuGet...")
+    file(DOWNLOAD
+      "${ZLIB_NUGET_URL}"
+      "${ZLIB_NUGET_ARCHIVE}"
+      SHOW_PROGRESS
+      STATUS DOWNLOAD_STATUS
+      TLS_VERIFY ON
+    )
+    
+    list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
+    if(NOT STATUS_CODE EQUAL 0)
+      message(FATAL_ERROR "Failed to download zlib-msvc-x64: ${DOWNLOAD_STATUS}")
+    endif()
+    
+    # Create temporary directory for extraction
+    file(MAKE_DIRECTORY "${ZLIB_EXTRACT_DIR}")
+    
+    # Extract NuGet package (nupkg is actually a zip file)
+    message(STATUS "Extracting zlib-msvc-x64 package...")
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E tar xf "${ZLIB_NUGET_ARCHIVE}"
+      WORKING_DIRECTORY "${ZLIB_EXTRACT_DIR}"
+      RESULT_VARIABLE EXTRACT_RESULT
+    )
+    
+    if(NOT EXTRACT_RESULT EQUAL 0)
+      message(FATAL_ERROR "Failed to extract zlib-msvc-x64 package")
+    endif()
+    
+    message(STATUS "✅ zlib-msvc-x64 extracted to ${ZLIB_EXTRACT_DIR}")
+  else()
+    message(STATUS "✅ zlib-msvc-x64 already extracted at ${ZLIB_EXTRACT_DIR}")
+  endif()
+  
+  # Set environment variables for RocksDB's thirdparty.inc
+  set(ENV{ZLIB_INCLUDE} "${ZLIB_EXTRACT_DIR}/build/native/include")
+  set(ENV{ZLIB_LIB_DEBUG} "${ZLIB_EXTRACT_DIR}/build/native/lib_debug/zlibstaticd.lib")
+  set(ENV{ZLIB_LIB_RELEASE} "${ZLIB_EXTRACT_DIR}/build/native/lib_release/zlibstatic.lib")
+  
+  message(STATUS "✅ Set ZLIB_INCLUDE=${ZLIB_EXTRACT_DIR}/build/native/include")
+  message(STATUS "✅ Set ZLIB_LIB_DEBUG=${ZLIB_EXTRACT_DIR}/build/native/lib_debug/zlibstaticd.lib")
+  message(STATUS "✅ Set ZLIB_LIB_RELEASE=${ZLIB_EXTRACT_DIR}/build/native/lib_release/zlibstatic.lib")
+endif()
+
 CPMAddPackage(
         NAME
         rocksdb
@@ -498,18 +554,18 @@ CPMAddPackage(
         "WITH_CORETOOLS OFF"
         "WITH_FATAL_ERROR_HANDLER OFF"
         "WITH_XPRESS OFF"
-        "WITH_ZSTD OFF"
-                "WITH_LZ4 OFF"        "WITH_ZLIB ON"
+                "WITH_ZSTD OFF"
+                "WITH_LZ4 OFF"
+                "WITH_ZLIB ON"
                 "WITH_SNAPPY OFF"
                 "WITH_GFLAGS OFF"
                 "USE_RTTI ON"
                 "ROCKSDB_BUILD_SHARED OFF"
-                "ROCKSDB_INSTALL ON"  # Enable install rules for packaging
+                "ROCKSDB_INSTALL OFF"
                 "FAIL_ON_WARNINGS OFF"
-                "CMAKE_SKIP_INSTALL_RULES OFF")  # Don't skip install rules
-
-# Create zstd_static alias for RocksDB
-if(TARGET zstd::zstd AND NOT TARGET zstd_static)
+                "CMAKE_SKIP_INSTALL_RULES ON")
+        
+        # Create zstd_static alias for RocksDBif(TARGET zstd::zstd AND NOT TARGET zstd_static)
   add_library(zstd_static ALIAS zstd::zstd)
 endif()
 

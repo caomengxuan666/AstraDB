@@ -56,7 +56,6 @@ endif()
 # Platform-specific settings
 if(WIN32)
   target_compile_definitions(astra_persistence PUBLIC
-    _WIN32_WINNT=0x0601
     WIN32_LEAN_AND_MEAN
     NOMINMAX
   )
