@@ -284,6 +284,7 @@ CommandResult HandleSInter(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members from all sets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
@@ -297,21 +298,39 @@ CommandResult HandleSInter(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            auto members = db->SMembers(key);
-            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
-          }
-          
-          promise->set_value(worker_sets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          auto members = db->SMembers(key);
+          worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
         }
-      });
+        
+        promise->set_value(worker_sets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              auto members = db->SMembers(key);
+              worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+            }
+            
+            promise->set_value(worker_sets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers
@@ -393,6 +412,7 @@ CommandResult HandleSUnion(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members from all sets across all workers
     std::vector<std::future<std::vector<absl::flat_hash_set<std::string>>>> futures;
@@ -406,21 +426,39 @@ CommandResult HandleSUnion(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<absl::flat_hash_set<std::string>> worker_sets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            auto members = db->SMembers(key);
-            worker_sets.push_back(absl::flat_hash_set<std::string>(members.begin(), members.end()));
-          }
-          
-          promise->set_value(worker_sets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<absl::flat_hash_set<std::string>> worker_sets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          auto members = db->SMembers(key);
+          worker_sets.push_back(absl::flat_hash_set<std::string>(members.begin(), members.end()));
         }
-      });
+        
+        promise->set_value(worker_sets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<absl::flat_hash_set<std::string>> worker_sets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              auto members = db->SMembers(key);
+              worker_sets.push_back(absl::flat_hash_set<std::string>(members.begin(), members.end()));
+            }
+            
+            promise->set_value(worker_sets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate union results from all workers
@@ -483,6 +521,7 @@ CommandResult HandleSDiff(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members from all sets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
@@ -496,21 +535,39 @@ CommandResult HandleSDiff(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            auto members = db->SMembers(key);
-            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
-          }
-          
-          promise->set_value(worker_sets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          auto members = db->SMembers(key);
+          worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
         }
-      });
+        
+        promise->set_value(worker_sets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              auto members = db->SMembers(key);
+              worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+            }
+            
+            promise->set_value(worker_sets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers
@@ -732,6 +789,7 @@ CommandResult HandleSInterCard(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members from all sets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
@@ -745,21 +803,39 @@ CommandResult HandleSInterCard(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            auto members = db->SMembers(key);
-            worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
-          }
-          
-          promise->set_value(worker_sets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          auto members = db->SMembers(key);
+          worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
         }
-      });
+        
+        promise->set_value(worker_sets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_sets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              auto members = db->SMembers(key);
+              worker_sets.push_back({key, absl::flat_hash_set<std::string>(members.begin(), members.end())});
+            }
+            
+            promise->set_value(worker_sets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers

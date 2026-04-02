@@ -1446,6 +1446,7 @@ CommandResult HandleZDiff(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members with scores from all zsets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>>>> futures;
@@ -1459,25 +1460,47 @@ CommandResult HandleZDiff(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            absl::flat_hash_map<std::string, double> zset_data;
-            auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
-            for (const auto& [member, score] : members_with_scores) {
-              zset_data[member] = score;
-            }
-            worker_zsets.push_back({key, std::move(zset_data)});
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          absl::flat_hash_map<std::string, double> zset_data;
+          auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+          for (const auto& [member, score] : members_with_scores) {
+            zset_data[member] = score;
           }
-          
-          promise->set_value(worker_zsets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+          worker_zsets.push_back({key, std::move(zset_data)});
         }
-      });
+        
+        promise->set_value(worker_zsets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              absl::flat_hash_map<std::string, double> zset_data;
+              auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+              for (const auto& [member, score] : members_with_scores) {
+                zset_data[member] = score;
+              }
+              worker_zsets.push_back({key, std::move(zset_data)});
+            }
+            
+            promise->set_value(worker_zsets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers
@@ -1726,6 +1749,7 @@ CommandResult HandleZInter(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members with scores from all zsets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>>>> futures;
@@ -1739,25 +1763,47 @@ CommandResult HandleZInter(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            absl::flat_hash_map<std::string, double> zset_data;
-            auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
-            for (const auto& [member, score] : members_with_scores) {
-              zset_data[member] = score;
-            }
-            worker_zsets.push_back({key, std::move(zset_data)});
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          absl::flat_hash_map<std::string, double> zset_data;
+          auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+          for (const auto& [member, score] : members_with_scores) {
+            zset_data[member] = score;
           }
-          
-          promise->set_value(worker_zsets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+          worker_zsets.push_back({key, std::move(zset_data)});
         }
-      });
+        
+        promise->set_value(worker_zsets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              absl::flat_hash_map<std::string, double> zset_data;
+              auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+              for (const auto& [member, score] : members_with_scores) {
+                zset_data[member] = score;
+              }
+              worker_zsets.push_back({key, std::move(zset_data)});
+            }
+            
+            promise->set_value(worker_zsets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers
@@ -1947,6 +1993,7 @@ CommandResult HandleZInterCard(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members with scores from all zsets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>>>> futures;
@@ -1960,25 +2007,47 @@ CommandResult HandleZInterCard(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_zsets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            absl::flat_hash_set<std::string> zset_data;
-            auto members_with_scores = db->ZRangeByRank(key, 0, -1, false, false);
-            for (const auto& [member, score] : members_with_scores) {
-              zset_data.insert(member);
-            }
-            worker_zsets.push_back({key, std::move(zset_data)});
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_zsets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          absl::flat_hash_set<std::string> zset_data;
+          auto members_with_scores = db->ZRangeByRank(key, 0, -1, false, false);
+          for (const auto& [member, score] : members_with_scores) {
+            zset_data.insert(member);
           }
-          
-          promise->set_value(worker_zsets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+          worker_zsets.push_back({key, std::move(zset_data)});
         }
-      });
+        
+        promise->set_value(worker_zsets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_set<std::string>>> worker_zsets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              absl::flat_hash_set<std::string> zset_data;
+              auto members_with_scores = db->ZRangeByRank(key, 0, -1, false, false);
+              for (const auto& [member, score] : members_with_scores) {
+                zset_data.insert(member);
+              }
+              worker_zsets.push_back({key, std::move(zset_data)});
+            }
+            
+            promise->set_value(worker_zsets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers
@@ -2132,6 +2201,7 @@ CommandResult HandleZUnion(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all members with scores from all zsets across all workers
     std::vector<std::future<std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>>>> futures;
@@ -2145,25 +2215,47 @@ CommandResult HandleZUnion(const astra::protocol::Command& command,
       server::Worker* target_worker = all_workers[worker_id];
       std::vector<std::string> keys_copy = keys;
       
-      all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
-        try {
-          std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
-          Database* db = &target_worker->GetDataShard().GetDatabase();
-          
-          for (const auto& key : keys_copy) {
-            absl::flat_hash_map<std::string, double> zset_data;
-            auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
-            for (const auto& [member, score] : members_with_scores) {
-              zset_data[member] = score;
-            }
-            worker_zsets.push_back({key, std::move(zset_data)});
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : keys_copy) {
+          absl::flat_hash_map<std::string, double> zset_data;
+          auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+          for (const auto& [member, score] : members_with_scores) {
+            zset_data[member] = score;
           }
-          
-          promise->set_value(worker_zsets);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
+          worker_zsets.push_back({key, std::move(zset_data)});
         }
-      });
+        
+        promise->set_value(worker_zsets);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, absl::flat_hash_map<std::string, double>>> worker_zsets;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : keys_copy) {
+              absl::flat_hash_map<std::string, double> zset_data;
+              auto members_with_scores = db->ZRangeByRank(key, 0, -1, true, false);
+              for (const auto& [member, score] : members_with_scores) {
+                zset_data[member] = score;
+              }
+              worker_zsets.push_back({key, std::move(zset_data)});
+            }
+            
+            promise->set_value(worker_zsets);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate results from all workers

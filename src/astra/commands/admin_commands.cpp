@@ -1516,6 +1516,7 @@ CommandResult HandleRandomKey(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all keys from all workers
     std::vector<std::future<std::vector<std::string>>> futures;
@@ -1528,14 +1529,25 @@ CommandResult HandleRandomKey(const astra::protocol::Command& command,
       
       server::Worker* target_worker = all_workers[worker_id];
       
-      all_workers[worker_id]->AddTask([target_worker, promise]() {
-        try {
-          std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
-          promise->set_value(keys);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
-        }
-      });
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+        promise->set_value(keys);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([target_worker, promise]() {
+          try {
+            std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+            promise->set_value(keys);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate all keys from all workers
@@ -2090,6 +2102,7 @@ CommandResult HandleScan(const protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
     
     // Collect all keys from all workers
     std::vector<std::future<std::vector<std::string>>> futures;
@@ -2102,14 +2115,25 @@ CommandResult HandleScan(const protocol::Command& command,
       
       server::Worker* target_worker = all_workers[worker_id];
       
-      all_workers[worker_id]->AddTask([target_worker, promise]() {
-        try {
-          std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
-          promise->set_value(keys);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
-        }
-      });
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+        promise->set_value(keys);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([target_worker, promise]() {
+          try {
+            std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+            promise->set_value(keys);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
     }
     
     // Aggregate all keys from all workers
