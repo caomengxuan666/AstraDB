@@ -159,6 +159,43 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     return rdb_save_callback_;
   }
 
+  // Cluster operations (NO SHARING architecture)
+  bool IsClusterEnabled() const override { return cluster_enabled_; }
+  bool ClusterMeet(const std::string& ip, int port) override {
+    if (gossip_manager_) {
+      return gossip_manager_->MeetNode(ip, port);
+    }
+    return false;
+  }
+  bool ClusterAddSlots(const std::vector<uint16_t>& slots) override;
+  bool ClusterDelSlots(const std::vector<uint16_t>& slots) override;
+  cluster::GossipManager* GetGossipManager() const override { return gossip_manager_; }
+  cluster::GossipManager* GetGossipManagerMutable() override { return gossip_manager_; }
+  cluster::ShardManager* GetClusterShardManager() const override { return shard_manager_; }
+
+  // Get cluster state (for slot management)
+  std::shared_ptr<cluster::ClusterState> GetClusterState() const;
+
+  // Set cluster managers (called by Worker after cluster initialization)
+  void SetClusterEnabled(bool enabled) { cluster_enabled_ = enabled; }
+  void SetGossipManager(cluster::GossipManager* gossip_manager) {
+    gossip_manager_ = gossip_manager;
+  }
+  void SetShardManager(cluster::ShardManager* shard_manager) {
+    shard_manager_ = shard_manager;
+  }
+
+  // Set worker ID (to avoid deadlock when updating cluster state)
+  void SetWorkerId(size_t worker_id) {
+    worker_id_ = worker_id;
+  }
+
+  // Set callback for updating cluster state across all workers
+  void SetClusterStateUpdateCallback(
+      std::function<void(std::shared_ptr<cluster::ClusterState>)> callback) {
+    cluster_state_update_callback_ = std::move(callback);
+  }
+
   // Log command to AOF
   void LogToAof(absl::string_view command,
                 absl::Span<const absl::string_view> args) override {
@@ -206,7 +243,19 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   std::function<void(const std::string&)> aof_callback_;
   std::function<std::string(bool)>
       rdb_save_callback_;  // bool = background save
+
+  // Cluster support (NO SHARING architecture)
+  bool cluster_enabled_ = false;
+  cluster::GossipManager* gossip_manager_ = nullptr;
+  cluster::ShardManager* shard_manager_ = nullptr;
+  size_t worker_id_ = 0;
+  
+  // Callback to update cluster state for all workers (set by Server)
+  // Uses WorkerScheduler::DispatchOnAll to avoid deadlock
+  std::function<void(std::shared_ptr<cluster::ClusterState>)> cluster_state_update_callback_;
 };
+
+// Note: WorkerCommandContext method implementations are defined after Worker class
 
 // DataShard - Contains a full Database instance
 class DataShard {
@@ -1419,6 +1468,63 @@ void NotifyResponseQueue() {
     ServerStats* stats_;
   };
 };
+
+// ==============================================================================
+// WorkerCommandContext Method Implementations
+// ==============================================================================
+
+inline std::shared_ptr<cluster::ClusterState> WorkerCommandContext::GetClusterState() const {
+  if (worker_) {
+    return worker_->GetClusterState();
+  }
+  return nullptr;
+}
+
+inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& slots) {
+  if (!worker_) {
+    return false;
+  }
+  auto current_state = worker_->GetClusterState();
+  if (!current_state) {
+    return false;
+  }
+  // Get self node ID from gossip manager
+  if (!gossip_manager_) {
+    return false;
+  }
+  auto self = gossip_manager_->GetSelf();
+  std::string self_id = cluster::GossipManager::NodeIdToString(self.id);
+  // Create new state with slots assigned
+  auto new_state = current_state->WithSlotsAssigned(self_id, slots);
+
+  // Update all workers' cluster state via callback (set by Server)
+  // This avoids circular dependency with WorkerScheduler
+  if (cluster_state_update_callback_) {
+    cluster_state_update_callback_(new_state);
+  }
+
+  return true;
+}
+
+inline bool WorkerCommandContext::ClusterDelSlots(const std::vector<uint16_t>& slots) {
+  if (!worker_) {
+    return false;
+  }
+  auto current_state = worker_->GetClusterState();
+  if (!current_state) {
+    return false;
+  }
+  // Create new state with slots removed
+  auto new_state = current_state->WithSlotsRemoved(slots);
+
+  // Update all workers' cluster state via callback (set by Server)
+  // This avoids circular dependency with WorkerScheduler
+  if (cluster_state_update_callback_) {
+    cluster_state_update_callback_(new_state);
+  }
+
+  return true;
+}
 
 // ==============================================================================
 // Batch Request Implementation (Inline)

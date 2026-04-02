@@ -84,7 +84,7 @@ class ClusterState {
 
   // Get slot owner
   std::optional<std::string> GetSlotOwner(uint16_t slot) const noexcept {
-    if (slot >= 16384 || !slot_owners_[slot].empty()) {
+    if (slot >= 16384 || slot_owners_[slot].empty()) {
       return std::nullopt;
     }
     return slot_owners_[slot];
@@ -114,6 +114,18 @@ class ClusterState {
     for (uint16_t slot : slots) {
       if (slot < 16384) {
         new_state->slot_owners_[slot] = node_id;
+      }
+    }
+    return new_state;
+  }
+
+  // Create a new state with removed slots
+  std::shared_ptr<ClusterState> WithSlotsRemoved(
+      const std::vector<uint16_t>& slots) const noexcept {
+    auto new_state = std::make_shared<ClusterState>(*this);
+    for (uint16_t slot : slots) {
+      if (slot < 16384) {
+        new_state->slot_owners_[slot].clear();
       }
     }
     return new_state;

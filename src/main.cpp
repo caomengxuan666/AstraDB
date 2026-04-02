@@ -251,6 +251,14 @@ int main(int argc, char** argv) {
   server_config.cluster.shard_count = config.cluster.shard_count;
   server_config.cluster.seeds = config.cluster.seeds;
 
+  // Also copy to direct member variables (used by Server)
+  server_config.cluster_enabled = config.cluster.enabled;
+  server_config.cluster_node_id = config.cluster.node_id;
+  server_config.cluster_bind_addr = config.cluster.bind_addr;
+  server_config.cluster_gossip_port = config.cluster.gossip_port;
+  server_config.cluster_shard_count = config.cluster.shard_count;
+  server_config.cluster_seeds = config.cluster.seeds;
+
   // Copy metrics config
   server_config.metrics.enabled = config.metrics.enabled;
   server_config.metrics.bind_addr = config.metrics.bind_addr;

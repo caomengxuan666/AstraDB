@@ -102,6 +102,22 @@ void Server::Start() {
           "Cluster initialization failed, running in standalone mode");
     }
     // Note: initial_cluster_state_ is set in InitCluster()
+
+    // Set cluster managers for all workers
+    if (cluster_manager_ && gossip_manager_ && shard_manager_) {
+      for (auto& worker : workers_) {
+        worker->GetDataShard().GetCommandContext()->SetClusterEnabled(true);
+        worker->GetDataShard().GetCommandContext()->SetGossipManager(gossip_manager_.get());
+        worker->GetDataShard().GetCommandContext()->SetShardManager(shard_manager_.get());
+        worker->GetDataShard().GetCommandContext()->SetWorkerId(worker->GetWorkerId());
+        // Set callback for updating cluster state across all workers
+        worker->GetDataShard().GetCommandContext()->SetClusterStateUpdateCallback(
+            [this](std::shared_ptr<cluster::ClusterState> new_state) {
+              this->UpdateClusterState(new_state);
+            });
+      }
+      ASTRADB_LOG_INFO("Cluster managers set for all workers");
+    }
   }
 
   // Initialize ACL if enabled
@@ -596,6 +612,24 @@ void Server::AggregateStats() {
 
   // Sync to Prometheus
   ::astra::metrics::AstraMetrics::Instance().UpdateFromServerStats();
+}
+
+// Update cluster state for all workers (NO SHARING architecture)
+void Server::UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state) {
+  if (!worker_scheduler_) {
+    ASTRADB_LOG_ERROR("WorkerScheduler not initialized");
+    return;
+  }
+  // Use DispatchOnAll (non-blocking) to avoid deadlock
+  // The cluster state update is idempotent and safe to process asynchronously
+  // We need to create a wrapper lambda that captures the worker pointer
+  for (size_t i = 0; i < workers_.size(); ++i) {
+    auto* worker = workers_[i].get();
+    worker->AddTask([worker, new_state]() {
+      worker->SetClusterState(new_state);
+    });
+  }
+  ASTRADB_LOG_INFO("Dispatched cluster state update to all workers");
 }
 
 }  // namespace astra::server

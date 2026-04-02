@@ -22,8 +22,6 @@ target_sources(astra_server PRIVATE
   worker.hpp
   worker_scheduler.hpp
   worker_scheduler.cpp
-  ../cluster/cluster_config.cpp
-  ../cluster/cluster_config.hpp
 )
 
 target_link_libraries(astra_server PUBLIC
@@ -31,6 +29,7 @@ target_link_libraries(astra_server PUBLIC
   astra_network
   astra_protocol_resp
   astra_commands_whole
+  astra_cluster
   flatbuffers_generated
   concurrentqueue
   astra_persistence

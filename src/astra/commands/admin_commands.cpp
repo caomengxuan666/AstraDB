@@ -874,10 +874,24 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     auto stats =
         gossip ? gossip->GetStats() : cluster::GossipManager::GossipStats{};
 
+    // Calculate actual slot assignment from ClusterState
+    uint32_t slots_assigned = 0;
+    if (auto* ctx = dynamic_cast<server::WorkerCommandContext*>(context)) {
+      auto cluster_state = ctx->GetClusterState();
+      if (cluster_state) {
+        // Count assigned slots
+        for (uint16_t slot = 0; slot < 16384; ++slot) {
+          if (cluster_state->GetSlotOwner(slot).has_value()) {
+            slots_assigned++;
+          }
+        }
+      }
+    }
+
     std::ostringstream oss;
     oss << "cluster_state:ok\r\n";
-    oss << "cluster_slots_assigned:16384\r\n";
-    oss << "cluster_slots_ok:16384\r\n";
+    oss << "cluster_slots_assigned:" << slots_assigned << "\r\n";
+    oss << "cluster_slots_ok:" << slots_assigned << "\r\n";
     oss << "cluster_slots_pfail:0\r\n";
     oss << "cluster_slots_fail:0\r\n";
     oss << "cluster_known_nodes:" << stats.known_nodes << "\r\n";
@@ -890,6 +904,21 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
     RespValue response;
     response.SetString(oss.str(), protocol::RespType::kBulkString);
+    return CommandResult(response);
+
+  } else if (subcommand == "KEYSLOT") {
+    // CLUSTER KEYSLOT <key>
+    // Returns the hash slot for the specified key
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false, "ERR wrong number of arguments for 'cluster|keyslot' command");
+    }
+
+    const auto& key = command[1].AsString();
+    uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+
+    RespValue response;
+    response.SetInteger(slot);
     return CommandResult(response);
 
   } else if (subcommand == "NODES") {
@@ -1089,9 +1118,77 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(response);
 
-  } else if (subcommand == "ADDSLOTS" || subcommand == "DELSLOTS") {
-    return CommandResult(false,
-                         "ERR cluster slot management not implemented yet");
+  } else if (subcommand == "ADDSLOTS") {
+    // CLUSTER ADDSLOTS <slot1> <slot2> ...
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false, "ERR wrong number of arguments for 'cluster|addslots' command");
+    }
+
+    // Parse slot numbers
+    std::vector<uint16_t> slots;
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      try {
+        int slot = std::stoi(command[i].AsString());
+        if (slot < 0 || slot >= 16384) {
+          return CommandResult(false, "ERR Invalid slot number");
+        }
+        slots.push_back(static_cast<uint16_t>(slot));
+      } catch (const std::exception& e) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+    }
+
+    // Check for duplicate slots
+    absl::flat_hash_set<uint16_t> slot_set(slots.begin(), slots.end());
+    if (slot_set.size() != slots.size()) {
+      return CommandResult(false, "ERR Duplicate slots provided");
+    }
+
+    // Add slots using context
+    if (context->ClusterAddSlots(slots)) {
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+    } else {
+      return CommandResult(false, "ERR Failed to add slots");
+    }
+
+  } else if (subcommand == "DELSLOTS") {
+    // CLUSTER DELSLOTS <slot1> <slot2> ...
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false, "ERR wrong number of arguments for 'cluster|delslots' command");
+    }
+
+    // Parse slot numbers
+    std::vector<uint16_t> slots;
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      try {
+        int slot = std::stoi(command[i].AsString());
+        if (slot < 0 || slot >= 16384) {
+          return CommandResult(false, "ERR Invalid slot number");
+        }
+        slots.push_back(static_cast<uint16_t>(slot));
+      } catch (const std::exception& e) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+    }
+
+    // Check for duplicate slots
+    absl::flat_hash_set<uint16_t> slot_set(slots.begin(), slots.end());
+    if (slot_set.size() != slots.size()) {
+      return CommandResult(false, "ERR Duplicate slots provided");
+    }
+
+    // Remove slots using context
+    if (context->ClusterDelSlots(slots)) {
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+    } else {
+      return CommandResult(false, "ERR Failed to remove slots");
+    }
   } else if (subcommand == "SETSLOT") {
     // CLUSTER SETSLOT <slot> IMPORTING|MIGRATING|STABLE|NODE <node_id>
     // Used during manual slot migration

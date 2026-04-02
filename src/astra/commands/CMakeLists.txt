@@ -71,6 +71,7 @@ target_link_libraries(
   PUBLIC astra_container
          astra_zset
          astra_base
+         astra_persistence
          astra_protocol
          asio::asio
          cxxopts::cxxopts
@@ -111,7 +112,9 @@ endif()
 # Create wrapper target for whole-archive linking
 add_library(astra_commands_whole INTERFACE)
 target_link_libraries(astra_commands_whole
-                      INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,astra_commands>")
+                      INTERFACE
+                      "$<LINK_LIBRARY:WHOLE_ARCHIVE,astra_cluster>"
+                      "$<LINK_LIBRARY:WHOLE_ARCHIVE,astra_commands>")
 # Link astra_network for Connection class
 if(TARGET astra_network)
   target_link_libraries(astra_commands PUBLIC astra_network)

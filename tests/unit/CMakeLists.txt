@@ -19,7 +19,9 @@ if(ASTRADB_BUILD_TESTS)
    target_include_directories(astradb_tests PRIVATE ${zstd_SOURCE_DIR}/lib)
   endif()
   
-  target_link_libraries(astradb_tests PRIVATE
+
+
+target_link_libraries(astradb_tests PRIVATE
    GTest::gtest
    GTest::gtest_main
    GTest::gmock
@@ -31,9 +33,9 @@ if(ASTRADB_BUILD_TESTS)
    absl::synchronization
    astra_base
    astra_persistence
-  astra_cluster
-  libgossip
-  zstd_static
+   astra_server
+   libgossip
+   zstd_static
   )
   
   # Directly link libgossip to get PUBLIC include directories

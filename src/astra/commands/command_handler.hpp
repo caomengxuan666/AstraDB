@@ -99,6 +99,8 @@ class CommandContext {
   // Cluster operations (optional - return nullptr/false if not available)
   virtual bool IsClusterEnabled() const { return false; }
   virtual bool ClusterMeet(const std::string& ip, int port) { return false; }
+  virtual bool ClusterAddSlots(const std::vector<uint16_t>& slots) { return false; }
+  virtual bool ClusterDelSlots(const std::vector<uint16_t>& slots) { return false; }
   virtual cluster::GossipManager* GetGossipManager() const { return nullptr; }
   virtual cluster::GossipManager* GetGossipManagerMutable() { return nullptr; }
   virtual cluster::ShardManager* GetClusterShardManager() const {

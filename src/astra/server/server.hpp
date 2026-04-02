@@ -178,12 +178,24 @@ class Server {
   }
 
   // Get worker scheduler (for cross-worker task dispatch)
-  class WorkerScheduler* GetWorkerScheduler() {
-    return worker_scheduler_.get();
-  }
 
- private:
-  // Initialize persistence
+    class WorkerScheduler* GetWorkerScheduler() {
+
+      return worker_scheduler_.get();
+
+    }
+
+  
+
+    // Update cluster state for all workers (uses DispatchOnAll to avoid deadlock)
+
+    // Implementation is in server.cpp to avoid circular dependency with worker.hpp
+
+    void UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state);
+
+  
+
+   private:  // Initialize persistence
   bool InitPersistence() noexcept;
 
   // Initialize RDB

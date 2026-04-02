@@ -3,6 +3,9 @@
 
 #include "cluster_commands.hpp"
 
+#include <set>
+#include <vector>
+
 #include "astra/base/logging.hpp"
 #include "astra/cluster/cluster_config.hpp"
 #include "astra/cluster/gossip_manager.hpp"
@@ -340,7 +343,32 @@ CommandResult HandleClusterAddSlots(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster addslots' command");
   }
 
-  return CommandResult(false, "ERR This instance has cluster support disabled");
+  // Parse slot numbers
+  std::vector<uint16_t> slots;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    try {
+      int slot = std::stoi(command[i].AsString());
+      if (slot < 0 || slot >= 16384) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+      slots.push_back(static_cast<uint16_t>(slot));
+    } catch (const std::exception& e) {
+      return CommandResult(false, "ERR Invalid slot number");
+    }
+  }
+
+  // Check for duplicate slots
+  std::set<uint16_t> slot_set(slots.begin(), slots.end());
+  if (slot_set.size() != slots.size()) {
+    return CommandResult(false, "ERR Duplicate slots provided");
+  }
+
+  // Add slots using context
+  if (context->ClusterAddSlots(slots)) {
+    return CommandResult(true, "OK");
+  } else {
+    return CommandResult(false, "ERR Failed to add slots");
+  }
 }
 
 // CLUSTER DELSLOTS - Remove slots from a node
@@ -351,7 +379,32 @@ CommandResult HandleClusterDelSlots(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster delslots' command");
   }
 
-  return CommandResult(false, "ERR This instance has cluster support disabled");
+  // Parse slot numbers
+  std::vector<uint16_t> slots;
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    try {
+      int slot = std::stoi(command[i].AsString());
+      if (slot < 0 || slot >= 16384) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+      slots.push_back(static_cast<uint16_t>(slot));
+    } catch (const std::exception& e) {
+      return CommandResult(false, "ERR Invalid slot number");
+    }
+  }
+
+  // Check for duplicate slots
+  std::set<uint16_t> slot_set(slots.begin(), slots.end());
+  if (slot_set.size() != slots.size()) {
+    return CommandResult(false, "ERR Duplicate slots provided");
+  }
+
+  // Remove slots using context
+  if (context->ClusterDelSlots(slots)) {
+    return CommandResult(true, "OK");
+  } else {
+    return CommandResult(false, "ERR Failed to remove slots");
+  }
 }
 
 // CLUSTER FLUSHSLOTS - Remove all slots from a node
