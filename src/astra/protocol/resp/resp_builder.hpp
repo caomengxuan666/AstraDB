@@ -62,6 +62,10 @@ class RespBuilder {
   // Build error response
   static std::string BuildError(std::string_view type, std::string_view msg);
 
+  // Build MOVED error for cluster redirection
+  // Format: "-MOVED <slot> <ip>:<port>\r\n"
+  static std::string BuildMoved(uint16_t slot, const std::string& ip, uint16_t port);
+
   // RESP3: Build boolean
   static std::string BuildBoolean(bool b);
 

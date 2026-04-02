@@ -317,12 +317,92 @@ class DataShard {
     database_.InitializeEvictionManager(std::move(get_total_memory_callback));
   }
 
+  // Check if command should be redirected due to cluster slot ownership
+  // Returns empty string if command should be handled locally
+  // Returns MOVED error if command should be redirected to another node
+  std::string CheckClusterSlot(const astra::protocol::Command& command) {
+    // Get the key from command (first argument for most commands)
+    if (command.args.empty()) {
+      return "";  // No key, handle locally
+    }
+
+    // Get key from command
+    std::string key;
+    if (command.args[0].IsBulkString() || command.args[0].IsSimpleString()) {
+      key = command.args[0].AsString();
+    } else {
+      return "";  // No valid key, handle locally
+    }
+
+    // Calculate hash slot
+    uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+    ASTRADB_LOG_DEBUG("Shard {}: CheckClusterSlot - key='{}', slot={}", shard_id_, key, slot);
+
+    // Get cluster state
+    auto cluster_state = context_.GetClusterState();
+    if (!cluster_state) {
+      ASTRADB_LOG_DEBUG("Shard {}: No cluster state, handling locally", shard_id_);
+      return "";  // No cluster state, handle locally
+    }
+
+    // Get slot owner
+    auto slot_owner = cluster_state->GetSlotOwner(slot);
+    if (!slot_owner.has_value()) {
+      ASTRADB_LOG_DEBUG("Shard {}: Slot {} not assigned, handling locally", shard_id_, slot);
+      return "";  // Slot not assigned, handle locally
+    }
+
+    // Get self node ID
+    auto* gossip_manager = context_.GetGossipManager();
+    if (!gossip_manager) {
+      ASTRADB_LOG_DEBUG("Shard {}: No gossip manager, handling locally", shard_id_);
+      return "";  // No gossip manager, handle locally
+    }
+
+    auto self = gossip_manager->GetSelf();
+    std::string self_id = cluster::GossipManager::NodeIdToString(self.id);
+
+    // Check if slot belongs to this node
+    if (slot_owner.value() == self_id) {
+      ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to this node ({})", shard_id_, slot, self_id);
+      return "";  // Slot belongs to this node, handle locally
+    }
+
+    // Slot belongs to another node, find target node information
+    ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to another node ({}), checking target node...", shard_id_, slot, slot_owner.value());
+
+    auto all_nodes = gossip_manager->GetNodes();
+    for (const auto& node : all_nodes) {
+      std::string node_id = cluster::GossipManager::NodeIdToString(node.id);
+      if (node_id == slot_owner.value()) {
+        // Return MOVED error with target node information
+        auto moved_response = astra::protocol::RespBuilder::BuildMoved(slot, node.ip, node.port);
+        ASTRADB_LOG_DEBUG("Shard {}: Returning MOVED error - slot={}, target={}:{}", shard_id_, slot, node.ip, node.port);
+        return moved_response;
+      }
+    }
+
+    // Slot owner not found in gossip, handle locally
+    ASTRADB_LOG_WARN("Shard {}: Slot {} owner {} not found in gossip, handling locally", shard_id_, slot, slot_owner.value());
+    return "";
+  }
+
   // Execute a command using the command registry
   std::string Execute(const astra::protocol::Command& command) {
     ASTRADB_LOG_DEBUG("Shard {}: Executing command: {}", shard_id_,
                       command.name);
     ASTRADB_LOG_DEBUG("Shard {}: Command args count: {}", shard_id_,
                       command.args.size());
+
+    // Check cluster slot if cluster is enabled
+    if (context_.IsClusterEnabled()) {
+      auto moved_error = CheckClusterSlot(command);
+      if (!moved_error.empty()) {
+        ASTRADB_LOG_DEBUG("Shard {}: Command '{}' redirected - {}", shard_id_,
+                          command.name, moved_error);
+        return moved_error;
+      }
+    }
 
     auto result = registry_.Execute(command, &context_);
     ASTRADB_LOG_DEBUG("Shard {}: Registry::Execute completed", shard_id_);
