@@ -499,18 +499,36 @@ CPMAddPackage(
         "WITH_FATAL_ERROR_HANDLER OFF"
         "WITH_XPRESS OFF"
         "WITH_ZSTD OFF"
-        "WITH_LZ4 OFF"        "WITH_ZLIB ON"
-        "WITH_SNAPPY OFF"
-        "WITH_GFLAGS OFF"
-        "USE_RTTI ON"
-        "ROCKSDB_BUILD_SHARED OFF"
-        "ROCKSDB_INSTALL OFF"
-        "FAIL_ON_WARNINGS OFF"
-        "CMAKE_SKIP_INSTALL_RULES ON")
+                "WITH_LZ4 OFF"        "WITH_ZLIB ON"
+                "WITH_SNAPPY OFF"
+                "WITH_GFLAGS OFF"
+                "USE_RTTI ON"
+                "ROCKSDB_BUILD_SHARED OFF"
+                "ROCKSDB_INSTALL ON"  # Enable install rules for packaging
+                "FAIL_ON_WARNINGS OFF"
+                "CMAKE_SKIP_INSTALL_RULES OFF")  # Don't skip install rules
 
 # Create zstd_static alias for RocksDB
 if(TARGET zstd::zstd AND NOT TARGET zstd_static)
   add_library(zstd_static ALIAS zstd::zstd)
+endif()
+
+# Ensure zlib is available for RocksDB (Windows fix)
+if(rocksdb_ADDED AND TARGET rocksdb AND MSVC)
+  # On Windows, RocksDB may need explicit zlib linking
+  # Check if zlib target exists
+  if(TARGET zlib)
+    target_link_libraries(rocksdb PRIVATE zlib)
+    message(STATUS "Linked zlib to RocksDB for Windows")
+  elseif(TARGET zlibstatic)
+    target_link_libraries(rocksdb PRIVATE zlibstatic)
+    message(STATUS "Linked zlibstatic to RocksDB for Windows")
+  elseif(TARGET zlib::zlib)
+    target_link_libraries(rocksdb PRIVATE zlib::zlib)
+    message(STATUS "Linked zlib::zlib to RocksDB for Windows")
+  else()
+    message(WARNING "zlib target not found for RocksDB, compilation may fail on Windows")
+  endif()
 endif()
 
 # Disable -Werror for RocksDB to avoid warnings
