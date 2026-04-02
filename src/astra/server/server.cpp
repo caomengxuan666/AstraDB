@@ -132,6 +132,12 @@ void Server::Start() {
     ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
   }
 
+  // Set worker scheduler for all workers
+  for (auto& worker : workers_) {
+    worker->SetWorkerScheduler(worker_scheduler_.get());
+  }
+  ASTRADB_LOG_INFO("Worker scheduler set for all workers");
+
   // Set memory configuration for all workers' data shards
   {
     ASTRADB_LOG_INFO("Memory configuration from file - max_memory={}, eviction_policy={}",

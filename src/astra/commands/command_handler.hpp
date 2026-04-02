@@ -24,6 +24,10 @@
 #include "command_cache_flatbuffers.hpp"
 #include "database.hpp"
 
+namespace astra::server {
+class Worker;  // Forward declaration
+}
+
 namespace astra::commands {
 class PubSubManager;  // Forward declaration
 }
@@ -67,6 +71,12 @@ class CommandContext {
 
   // Get worker scheduler
   virtual astra::server::WorkerScheduler* GetWorkerScheduler() const{
+    // return nullptr if not implemented
+    return nullptr;
+  }
+
+  // Get current worker (for cross-shard operations)
+  virtual astra::server::Worker* GetWorker() const {
     // return nullptr if not implemented
     return nullptr;
   }

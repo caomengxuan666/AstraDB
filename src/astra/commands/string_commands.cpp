@@ -14,6 +14,7 @@
 
 #include "astra/core/metrics.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/server/worker_scheduler.hpp"
 #include "command_auto_register.hpp"
 
 namespace astra::commands {
@@ -260,6 +261,108 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
     keys.push_back(arg.AsString());
   }
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
+    
+    // Group keys by worker_id
+    std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(all_workers.size());
+    for (size_t i = 0; i < keys.size(); ++i) {
+      size_t worker_id = std::hash<std::string>{}(keys[i]) % all_workers.size();
+      worker_keys[worker_id].push_back({i, keys[i]});
+    }
+    
+    // Collect results from all workers
+    std::vector<std::future<std::vector<std::pair<size_t, std::optional<std::string>>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      if (worker_keys[worker_id].empty()) {
+        continue;
+      }
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<size_t, std::optional<std::string>>> results;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& [index, key] : worker_keys[worker_id]) {
+          auto result = db->Get(key);
+          if (result.has_value()) {
+            results.push_back({index, std::optional<std::string>(result->value)});
+          } else {
+            results.push_back({index, std::optional<std::string>()});
+          }
+        }
+        
+        // Create a satisfied future
+        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        promise->set_value(results);
+        futures.push_back(promise->get_future());
+      } else {
+        // Execute on other worker via queue
+        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        auto future = promise->get_future();
+        futures.push_back(std::move(future));
+        
+        // Capture necessary data by value to make lambda copyable
+        std::vector<std::pair<size_t, std::string>> keys_for_worker = worker_keys[worker_id];
+        
+        all_workers[worker_id]->AddTask([keys_for_worker, target_worker, promise]() {
+          try {
+            std::vector<std::pair<size_t, std::optional<std::string>>> results;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& [index, key] : keys_for_worker) {
+              auto result = db->Get(key);
+              if (result.has_value()) {
+                results.push_back({index, std::optional<std::string>(result->value)});
+              } else {
+                results.push_back({index, std::optional<std::string>()});
+              }
+            }
+            
+            promise->set_value(results);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
+    }
+    
+    // Collect results in order
+    std::vector<std::optional<std::string>> ordered_results(keys.size());
+    for (auto& future : futures) {
+      auto worker_results = future.get();
+      for (const auto& [index, result] : worker_results) {
+        ordered_results[index] = result;
+      }
+    }
+    
+    // Build response array
+    absl::InlinedVector<RespValue, 16> array;
+    array.reserve(keys.size());
+    for (const auto& result : ordered_results) {
+      if (result.has_value()) {
+        array.emplace_back(RespValue(std::string(*result)));
+      } else {
+        array.emplace_back(RespValue(RespType::kNullBulkString));
+      }
+    }
+    
+    return CommandResult(
+        RespValue(std::vector<RespValue>(array.begin(), array.end())));
+  }
+
+  // Fallback: single worker mode
   auto results = db->MGet(keys);
 
   absl::InlinedVector<RespValue, 16> array;
@@ -289,6 +392,52 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
+  // Try to use WorkerScheduler for cross-shard operation (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    
+    // Distribute key-value pairs to respective workers
+    for (size_t i = 0; i < command.ArgCount(); i += 2) {
+      const auto& key_arg = command[i];
+      const auto& value_arg = command[i + 1];
+
+      if (!key_arg.IsBulkString() || !value_arg.IsBulkString()) {
+        return CommandResult(false, "ERR wrong type of key or value argument");
+      }
+
+      std::string key = key_arg.AsString();
+      std::string value = value_arg.AsString();
+      
+      // Hash key to determine which worker should handle it
+      size_t worker_id = std::hash<std::string>{}(key) % all_workers.size();
+      
+      // Capture necessary data by value to make lambda copyable
+      server::Worker* target_worker = all_workers[worker_id];
+      
+      all_workers[worker_id]->AddTask([key, value, target_worker]() {
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        db->Set(key, StringValue(value));
+      });
+      
+      // Notify worker to process task immediately
+      all_workers[worker_id]->NotifyTaskProcessing();
+    }
+    
+    // Log to AOF (zero-copy with string_view from const std::string&)
+    std::vector<absl::string_view> aof_args;
+    aof_args.reserve(command.ArgCount());
+    for (size_t i = 0; i < command.ArgCount(); ++i) {
+      aof_args.emplace_back(command[i].AsString());
+    }
+    context->LogToAof("MSET", absl::MakeSpan(aof_args));
+
+    RespValue response;
+    response.SetString("OK", RespType::kSimpleString);
+    return CommandResult(response);
+  }
+
+  // Fallback: single worker mode
   for (size_t i = 0; i < command.ArgCount(); i += 2) {
     const auto& key_arg = command[i];
     const auto& value_arg = command[i + 1];
