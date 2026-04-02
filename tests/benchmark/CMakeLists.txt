@@ -9,9 +9,9 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     memory_bench.cpp
     zset_bench.cpp
     simd_bench.cpp
-    persistence_bench.cpp
     cluster_bench.cpp
     multi_database_bench.cpp
+    rocksdb_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE
@@ -30,10 +30,16 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     astra_persistence
     astra_cluster
     astra_commands_whole
-    leveldb
     absl::flat_hash_map
     absl::hash
   )
+
+  # Link RocksDB if available
+  if(rocksdb_ADDED)
+    if(TARGET rocksdb)
+      target_link_libraries(astradb_benchmarks PRIVATE rocksdb)
+    endif()
+  endif()
   
   # Link zset implementation
   target_sources(astradb_benchmarks PRIVATE

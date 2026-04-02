@@ -10,6 +10,12 @@
 #include "command_handler.hpp"
 #include "database.hpp"
 
+namespace astra {
+
+class Worker;
+
+}  // namespace astra
+
 namespace astra::commands {
 
 // BITMAP Operations

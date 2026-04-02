@@ -33,7 +33,6 @@ if(ASTRADB_BUILD_TESTS)
    astra_persistence
   astra_cluster
   libgossip
-   leveldb
   zstd_static
   )
   

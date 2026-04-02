@@ -87,7 +87,8 @@ struct ServerStats {
   absl::Mutex command_stats_mutex_;
   absl::flat_hash_map<std::string, std::unique_ptr<CommandStats>> command_stats_;
 
-  // Get or create command stats
+  // Get or create command stats (with global lock - performance bottleneck!)
+  // TODO: This violates NO SHARING architecture - should be per-worker
   CommandStats* GetCommandStats(const std::string& command) {
     absl::MutexLock lock(&command_stats_mutex_);
     auto& stats = command_stats_[command];
@@ -97,6 +98,17 @@ struct ServerStats {
     return stats.get();
   }
 
+  // Fast path: record command without creating stats (lock-free)
+  // Returns nullptr if stats don't exist, to avoid lock contention
+  CommandStats* TryGetCommandStats(const std::string& command) {
+    absl::ReaderMutexLock lock(&command_stats_mutex_);
+    auto it = command_stats_.find(command);
+    if (it != command_stats_.end()) {
+      return it->second.get();
+    }
+    return nullptr;
+  }
+
   // Record command execution
   void RecordCommand(const std::string& command, bool success, uint64_t usec) {
     total_commands_processed.fetch_add(1, std::memory_order_relaxed);
@@ -104,7 +116,13 @@ struct ServerStats {
       total_commands_failed.fetch_add(1, std::memory_order_relaxed);
     }
 
-    auto* stats = GetCommandStats(command);
+    // Try fast path first (lock-free)
+    auto* stats = TryGetCommandStats(command);
+    if (!stats) {
+      // Fall back to slow path with lock (only happens for new commands)
+      stats = GetCommandStats(command);
+    }
+    
     stats->calls.fetch_add(1, std::memory_order_relaxed);
     stats->usec.fetch_add(usec, std::memory_order_relaxed);
     if (!success) {

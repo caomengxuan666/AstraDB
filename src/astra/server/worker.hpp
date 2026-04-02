@@ -25,6 +25,7 @@
 #include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
+#include "astra/persistence/rocksdb_adapter.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
@@ -112,11 +113,17 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     return worker_scheduler_;
   }
 
+  // Get current worker (for cross-shard operations)
+  class Worker* GetWorker() const override { return worker_; }
+
   // Set worker scheduler (called by Worker after worker scheduler is
   // initialized)
   void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
     worker_scheduler_ = worker_scheduler;
   }
+
+  // Set current worker (called by Worker during initialization)
+  void SetWorker(class Worker* worker) { worker_ = worker; }
 
   // Get connection (for async response)
   astra::network::Connection* GetConnection() const override {
@@ -188,6 +195,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   class commands::BlockingManager* blocking_manager_ = nullptr;
   class commands::CommandRegistry* command_registry_ = nullptr;
   class WorkerScheduler* worker_scheduler_ = nullptr;
+  class Worker* worker_ = nullptr;
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
@@ -222,16 +230,36 @@ class DataShard {
 
   // Set memory configuration
   void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config, 
-                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
-    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}",
+                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
+                      bool enable_rocksdb = false) {
+    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}, rocksdb={}",
                      shard_id_, config.max_memory_limit,
                      static_cast<int>(config.eviction_policy),
-                     config.eviction_threshold);
+                     config.eviction_threshold, enable_rocksdb);
     memory_tracker_.SetMaxMemory(config.max_memory_limit);
     memory_tracker_.SetEvictionPolicy(config.eviction_policy);
     memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
     memory_tracker_.SetEvictionSamples(config.eviction_samples);
     memory_tracker_.SetTrackingEnabled(config.enable_tracking);
+    
+    // Initialize RocksDB if enabled
+    if (enable_rocksdb && !rocksdb_adapter_) {
+      std::string db_path = "data/rocksdb/shard_" + std::to_string(shard_id_);
+      persistence::RocksDBAdapter::Config rocksdb_config;
+      rocksdb_config.db_path = db_path;
+      rocksdb_config.create_if_missing = true;
+      rocksdb_config.enable_wal = true;
+      rocksdb_config.cache_size = 256 * 1024 * 1024;  // 256MB cache
+      
+      rocksdb_adapter_ = std::make_unique<persistence::RocksDBAdapter>(rocksdb_config);
+      if (rocksdb_adapter_->IsOpen()) {
+        database_.SetRocksDBAdapter(rocksdb_adapter_.get());
+        ASTRADB_LOG_INFO("Shard {}: RocksDB initialized at {}", shard_id_, db_path);
+      } else {
+        ASTRADB_LOG_ERROR("Shard {}: Failed to initialize RocksDB at {}", shard_id_, db_path);
+        rocksdb_adapter_.reset();
+      }
+    }
     
     // Initialize eviction manager after config is set
     database_.InitializeEvictionManager(std::move(get_total_memory_callback));
@@ -285,6 +313,7 @@ class DataShard {
   core::memory::MemoryTracker memory_tracker_;
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
+  std::unique_ptr<persistence::RocksDBAdapter> rocksdb_adapter_;
 };
 
 // Cross-worker request (forwarded from one worker to another)
@@ -502,6 +531,9 @@ class Worker {
     data_shard_.GetCommandContext()->SetCommandRegistry(
         data_shard_.GetCommandRegistry());
 
+    // Set current worker in command context (required for cross-shard operations)
+    data_shard_.GetCommandContext()->SetWorker(this);
+
     // Start IO thread
     io_thread_ = std::thread([this]() {
       ASTRADB_LOG_DEBUG("Worker {}: IO thread started", worker_id_);
@@ -559,6 +591,15 @@ class Worker {
   void AddTask(F&& func) {
     ASTRADB_LOG_DEBUG("Worker {}: Task added to scheduler queue", worker_id_);
     task_queue_.enqueue(std::function<void()>(std::forward<F>(func)));
+    // NOTE: Not calling NotifyExecutorLoop() here to avoid frequent wakeups
+    // Scheduler tasks are less latency-sensitive than client commands
+    // ExecutorLoop will process them on next iteration or after timeout
+  }
+
+  // Notify the executor loop to process pending tasks immediately
+  // This should be called after AddTask when immediate processing is needed
+  void NotifyTaskProcessing() {
+    NotifyExecutorLoop();
   }
 
   // Get blocking manager (for blocking commands)
@@ -822,12 +863,12 @@ class Worker {
         connections_[conn_id] = conn;
         conn->Start();
 
-        // Record connection in metrics
-        astra::metrics::AstraMetrics::Instance().IncrementConnections();
+// Record connection in metrics
+      astra::metrics::AstraMetrics::Instance().IncrementConnections();
 
-        ASTRADB_LOG_INFO(
-            "Worker {}: Connection {} started, total connections: {}",
-            worker_id_, conn_id, connections_.size());
+      ASTRADB_LOG_INFO(
+        "Worker {}: Connection {} started, total connections: {}",
+        worker_id_, conn_id, connections_.size());
       }
 
       // Continue accepting
@@ -862,7 +903,6 @@ class Worker {
                         conn_id_);
       // Close socket to avoid CLOSE_WAIT
       Close();
-      // Record connection in metrics
       astra::metrics::AstraMetrics::Instance().DecrementConnections();
     }
 
@@ -894,9 +934,7 @@ class Worker {
       if (!ec) {
         ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
                           worker_id_, conn_id_, bytes_written);
-        // Record network output traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
-            bytes_written);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(bytes_written);
       } else {
         ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
                           worker_id_, conn_id_, ec.message());
@@ -961,9 +999,7 @@ class Worker {
         // Append to receive buffer
         receive_buffer_.append(buffer_.data(), bytes_transferred);
 
-        // Record network input traffic
-        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(
-            bytes_transferred);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(bytes_transferred);
 
         // Process commands (minimal parsing only)
         ProcessCommands();
@@ -1178,13 +1214,16 @@ class Worker {
         ProcessClientInfoRequest(client_info_req);
       }
 
-      // Wait if no work (using absl condition variable for better performance)
-      // OPTIMIZATION: Reduce timeout from 1s to 100ms for better responsiveness
-      // 100ms is a good balance: fast enough for responsiveness, low CPU overhead
+      // Wait if no work (using absl condition variable for best performance)
+      // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might be missed
+      // This provides a balance between:
+      // - Zero latency (when notification works correctly)
+      // - Fallback timeout (when notification is missed, prevents deadlock)
+      // Spurious wakeups are handled by the outer while loop
       if (!has_work) {
         absl::MutexLock lock(&executor_mutex_);
-        // Wait until there's work or timeout (100ms timeout for responsiveness)
-        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(100));
+        // Wait for notification with 1ms timeout (prevents potential deadlock)
+        executor_cv_.WaitWithTimeout(&executor_mutex_, absl::Milliseconds(1));
       }
     }
   }

@@ -132,6 +132,12 @@ void Server::Start() {
     ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
   }
 
+  // Set worker scheduler for all workers
+  for (auto& worker : workers_) {
+    worker->SetWorkerScheduler(worker_scheduler_.get());
+  }
+  ASTRADB_LOG_INFO("Worker scheduler set for all workers");
+
   // Set memory configuration for all workers' data shards
   {
     ASTRADB_LOG_INFO("Memory configuration from file - max_memory={}, eviction_policy={}",
@@ -145,7 +151,8 @@ void Server::Start() {
     memory_config.eviction_samples = config_.memory.eviction_samples;
     memory_config.enable_tracking = config_.memory.enable_tracking;
 
-    ASTRADB_LOG_INFO("Setting memory configuration for {} workers", workers_.size());
+    ASTRADB_LOG_INFO("Setting memory configuration for {} workers (RocksDB enabled: {})",
+                     workers_.size(), config_.rocksdb.enabled ? "yes" : "no");
     for (auto& worker : workers_) {
       // Create callback to get total memory across all workers
       core::memory::GetTotalMemoryCallback get_total_memory_callback;
@@ -159,7 +166,8 @@ void Server::Start() {
         };
       }
       
-      worker->GetDataShard().SetMemoryConfig(memory_config, std::move(get_total_memory_callback));
+      worker->GetDataShard().SetMemoryConfig(memory_config, std::move(get_total_memory_callback),
+                                              config_.rocksdb.enabled);
     }
     ASTRADB_LOG_INFO("Memory configuration set for all workers");
   }
@@ -336,15 +344,11 @@ bool Server::InitMetrics() noexcept {
       metrics_manager_.reset();
       return false;
     }
-
-    ASTRADB_LOG_INFO("Metrics initialized successfully (enabled: {}, port: {})",
-                     config_.metrics_enabled ? "yes" : "no",
-                     config_.metrics_port);
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Metrics initialization exception: {}", e.what());
-    metrics_manager_.reset();
-    return false;
+    // metrics_manager_.reset();
+    return true;  // Continue even if metrics fails
   }
 }
 

@@ -81,6 +81,9 @@ class PersistenceManager {
       return;
     }
 
+    // Signal the processing thread to wake up
+    command_cv_.Signal();
+
     if (processing_thread_.joinable()) {
       processing_thread_.join();
     }
@@ -98,6 +101,8 @@ class PersistenceManager {
       return;
     }
     command_queue_.enqueue(command);
+    // Notify processing thread that there's new data
+    command_cv_.Signal();
   }
 
   // Check if AOF is enabled
@@ -346,9 +351,11 @@ class PersistenceManager {
         aof_writer_.Flush();
       }
 
-      // Small sleep if no commands
+      // Wait for new commands or shutdown signal
       if (processed == 0) {
-        absl::SleepFor(absl::Milliseconds(1));
+        // Use condition variable to wait efficiently instead of sleeping
+        absl::MutexLock lock(&command_mutex_);
+        command_cv_.Wait(&command_mutex_);
       }
     }
 
@@ -383,6 +390,10 @@ class PersistenceManager {
 
   // MPSC queue for commands from all workers
   moodycamel::ConcurrentQueue<std::string> command_queue_;
+
+  // Condition variable and mutex for efficient waiting
+  absl::CondVar command_cv_;
+  absl::Mutex command_mutex_;
 
   // Background thread for AOF processing
   std::thread processing_thread_;

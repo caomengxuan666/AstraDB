@@ -63,7 +63,7 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 │  │  Key Metadata Manager                                      │  │
 │  │  AOF Writer (FlatBuffers-based) ✅                       │  │
 │  │  RDB Writer (FlatBuffers-based) ✅                       │  │
-│  │  LevelDB Adapter ✅                                       │  │
+│  │  ROCKSDB Adapter ✅                                       │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -185,7 +185,7 @@ std::string_view pooled = db->GetPooledString(key);
 | **Thread Pool** | Intel TBB | 2021.12.0 | ✅ Implemented |
 | **Concurrent Queue** | concurrentqueue | 1.0.4 | ✅ Implemented |
 | **Cluster** | libgossip | 1.2.0 | ✅ Implemented |
-| **Storage** | LevelDB | Latest | ✅ Implemented |
+| **Storage** | ROCKSDB | Latest | ✅ Implemented |
 | **Metrics** | Prometheus Client | 1.2.2 | ✅ Implemented |
 | **Compression** | zstd | 1.5.6 | ✅ Implemented |
 | **JSON** | nlohmann_json | 3.11.2 | ✅ Implemented |
@@ -265,7 +265,7 @@ AstraDB/
 │   │   │   ├── aof_writer.hpp       ✅ AOF writer
 │   │   │   ├── rdb_writer.hpp       ✅ RDB writer
 │   │   │   ├── snapshot_manager.hpp ✅ Snapshot management
-│   │   │   └── leveldb_adapter.hpp  ✅ LevelDB adapter
+│   │   │   └── ROCKSDB_adapter.hpp  ✅ ROCKSDB adapter
 │   │   ├── cluster/                  ✅ Cluster management
 │   │   │   ├── cluster_manager.hpp  ✅ Cluster manager
 │   │   │   ├── gossip_manager.hpp   ✅ Gossip protocol
@@ -884,7 +884,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 **Week 1: Project Setup**
 - [x] Create project structure
 - [x] Set up CMake with CMakeHub
-- [x] Configure dependencies (Asio, spdlog, LevelDB, libgossip)
+- [x] Configure dependencies (Asio, spdlog, ROCKSDB, libgossip)
 - [x] Set up CI/CD pipeline
 
 **Week 2: Core Abstractions**
@@ -952,7 +952,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 - [x] Implement coroutine scheduler
 
 **Week 12: Persistence**
-- [x] Implement LevelDB integration
+- [x] Implement ROCKSDB integration
 - [x] Implement snapshot management
 - [x] Implement AOF writer (FlatBuffers-based)
 - [x] Implement RDB writer (FlatBuffers-based)
@@ -1027,7 +1027,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 - [ ] 50% less memory usage than DragonflyDB
 - [x] Support for all Redis data types
 - [x] Cluster support with libgossip
-- [x] Persistence with LevelDB, AOF, RDB
+- [x] Persistence with ROCKSDB, AOF, RDB
 - [x] Comprehensive test suite
 - [x] Production-ready logging and monitoring
 - [ ] Real blocking mechanism
@@ -1057,7 +1057,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 
 5. **Asio over Boost.Asio**: Standalone Asio is faster to compile and has better coroutine support.
 
-6. **LevelDB over RocksDB**: LevelDB is lighter and sufficient for current use case. Can upgrade to RocksDB later if needed.
+6. **ROCKSDB over RocksDB**: ROCKSDB is lighter and sufficient for current use case. Can upgrade to RocksDB later if needed.
 
 7. **libgossip over Gossip Protocol**: libgossip provides a clean C++ API with SWIM protocol for robust failure detection.
 
@@ -1069,7 +1069,7 @@ CommandResult HandleLPush(const astra::protocol::Command& command, CommandContex
 |------|------------|
 | SIMD code complexity | Use native AVX2/SSE4.2/NEON intrinsics with runtime detection, fallback to scalar code |
 | C++23 compiler support | Use feature detection, fallback to C++20 |
-| LevelDB complexity | Use CPM for dependency management, well-documented API |
+| ROCKSDB complexity | Use CPM for dependency management, well-documented API |
 | Raft consensus complexity | Use etcd/raft as reference, extensive testing |
 | Cluster complexity | Start with single-shard, add clustering incrementally |
 | Blocking implementation complexity | Start with simplified version, iterate on real blocking |

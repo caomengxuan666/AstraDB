@@ -35,6 +35,11 @@ if(zstd_SOURCE_DIR)
   target_include_directories(astra_commands PUBLIC ${zstd_SOURCE_DIR}/lib)
 endif()
 
+# Add RocksDB include directory (required by rocksdb_adapter.hpp in persistence)
+if(rocksdb_SOURCE_DIR)
+  target_include_directories(astra_commands PUBLIC ${rocksdb_SOURCE_DIR}/include)
+endif()
+
 # All command files (including core registration logic)
 target_sources(
   astra_commands
@@ -71,7 +76,6 @@ target_link_libraries(
          cxxopts::cxxopts
          tomlplusplus::tomlplusplus
          absl::random_random
-         leveldb
          prometheus-cpp::core
          concurrentqueue)
 

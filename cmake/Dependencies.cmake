@@ -467,46 +467,65 @@ CPMAddPackage(
 # ==============================================================================
 
 # Google Test - Unit Testing Framework
-# Add before LevelDB to avoid any potential conflicts
+if(ASTRADB_BUILD_TESTS)
+  CPMAddPackage(
+          NAME
+          googletest
+          VERSION
+          1.14.0
+          URL
+          https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+          OPTIONS
+          "BUILD_GMOCK ON"  # Enable Google Mock for unit tests
+          "INSTALL_GTEST OFF"
+          "gtest_force_shared_crt OFF")
+endif()
+
+# RocksDB - High Performance Key-Value Store
+# Usage: Alternative to ROCKSDB for persistence (better write performance)
+# Benefits: Better write performance, compression, multithreading
 CPMAddPackage(
         NAME
-        googletest
+        rocksdb
         VERSION
-        1.14.0
+        10.10.1
         URL
-        https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+        https://github.com/facebook/rocksdb/archive/refs/tags/v10.10.1.tar.gz
         OPTIONS
-        "BUILD_GMOCK ON"  # Enable Google Mock for unit tests
-        "INSTALL_GTEST OFF"
-        "gtest_force_shared_crt OFF")
+        "WITH_TESTS OFF"
+        "WITH_BENCHMARK_TOOLS OFF"
+        "WITH_TOOLS OFF"
+        "WITH_CORETOOLS OFF"
+        "WITH_FATAL_ERROR_HANDLER OFF"
+        "WITH_XPRESS OFF"
+        "WITH_ZSTD OFF"
+        "WITH_LZ4 OFF"        "WITH_ZLIB ON"
+        "WITH_SNAPPY OFF"
+        "WITH_GFLAGS OFF"
+        "USE_RTTI ON"
+        "ROCKSDB_BUILD_SHARED OFF"
+        "ROCKSDB_INSTALL OFF"
+        "FAIL_ON_WARNINGS OFF"
+        "CMAKE_SKIP_INSTALL_RULES ON")
 
-# LevelDB - Lightweight Key-Value Store
-CPMAddPackage(
-        NAME
-        leveldb
-        GITHUB_REPOSITORY
-        google/leveldb
-        GIT_TAG
-        main
-        OPTIONS
-        "LEVELDB_BUILD_TESTS OFF"
-        "LEVELDB_BUILD_BENCHMARKS OFF"
-        "LEVELDB_INSTALL OFF")
+# Create zstd_static alias for RocksDB
+if(TARGET zstd::zstd AND NOT TARGET zstd_static)
+  add_library(zstd_static ALIAS zstd::zstd)
+endif()
 
-# Disable -Werror for LevelDB to avoid deprecated warnings
-if(leveldb_ADDED)
-  if(TARGET leveldb)
+# Disable -Werror for RocksDB to avoid warnings
+if(rocksdb_ADDED)
+  if(TARGET rocksdb)
     if(MSVC)
       # MSVC: No specific warnings to disable for now
     else()
-      target_compile_options(leveldb PRIVATE -Wno-error)
-      # Force disable -Werror in leveldb's compile flags
-      get_target_property(LEVELDB_COMPILE_OPTS leveldb COMPILE_OPTIONS)
-      if(LEVELDB_COMPILE_OPTS)
-        list(REMOVE_ITEM LEVELDB_COMPILE_OPTS "-Werror")
-        set_target_properties(leveldb PROPERTIES COMPILE_OPTIONS "${LEVELDB_COMPILE_OPTS}")
-      endif()
+      target_compile_options(rocksdb PRIVATE -Wno-error)
     endif()
+  endif()
+  
+  # Create an alias target if it doesn't exist
+  if(TARGET rocksdb AND NOT TARGET rocksdb::rocksdb)
+    add_library(rocksdb::rocksdb ALIAS rocksdb)
   endif()
 endif()
 
@@ -585,31 +604,33 @@ CPMAddPackage(
 # ==============================================================================
 
 # Google Benchmark - Performance Benchmarking
-# Set environment variable to disable -Werror before adding the package
-set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "Disable -Werror for benchmark" FORCE)
-set(BENCHMARK_FORCE_WERROR OFF CACHE BOOL "Force disable -Werror" FORCE)
-CPMAddPackage(
-        NAME benchmark
-        VERSION 1.8.5
-        URL https://github.com/google/benchmark/archive/refs/tags/v1.8.5.tar.gz
-        OPTIONS "BENCHMARK_ENABLE_TESTING OFF" "BENCHMARK_ENABLE_GTEST_TESTS OFF" "BENCHMARK_ENABLE_INSTALL OFF" "BENCHMARK_ENABLE_WERROR OFF" "BENCHMARK_FORCE_WERROR OFF")
+if(ASTRADB_BUILD_BENCHMARKS)
+  # Set environment variable to disable -Werror before adding the package
+  set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "Disable -Werror for benchmark" FORCE)
+  set(BENCHMARK_FORCE_WERROR OFF CACHE BOOL "Force disable -Werror" FORCE)
+  CPMAddPackage(
+          NAME benchmark
+          VERSION 1.8.5
+          URL https://github.com/google/benchmark/archive/refs/tags/v1.8.5.tar.gz
+          OPTIONS "BENCHMARK_ENABLE_TESTING OFF" "BENCHMARK_ENABLE_GTEST_TESTS OFF" "BENCHMARK_ENABLE_INSTALL OFF" "BENCHMARK_ENABLE_WERROR OFF" "BENCHMARK_FORCE_WERROR OFF")
 
-# Disable specific warnings for benchmark
-if(benchmark_ADDED)
-  if(TARGET benchmark)
-    if(MSVC)
-      # MSVC: /wd4577 disables 'noexcept used with no exception handling' warning
-      # /wd4579 hides certain inlining issues
-      target_compile_options(benchmark PRIVATE /wd4577 /wd4579)
-    else()
-      target_compile_options(benchmark PRIVATE -Wno-invalid-offsetof -Wno-switch)
+  # Disable specific warnings for benchmark
+  if(benchmark_ADDED)
+    if(TARGET benchmark)
+      if(MSVC)
+        # MSVC: /wd4577 disables 'noexcept used with no exception handling' warning
+        # /wd4579 hides certain inlining issues
+        target_compile_options(benchmark PRIVATE /wd4577 /wd4579)
+      else()
+        target_compile_options(benchmark PRIVATE -Wno-invalid-offsetof -Wno-switch)
+      endif()
     endif()
-  endif()
-  if(TARGET benchmark_main)
-    if(MSVC)
-      target_compile_options(benchmark_main PRIVATE /wd4577 /wd4579)
-    else()
-      target_compile_options(benchmark_main PRIVATE -Wno-invalid-offsetof -Wno-switch)
+    if(TARGET benchmark_main)
+      if(MSVC)
+        target_compile_options(benchmark_main PRIVATE /wd4577 /wd4579)
+      else()
+        target_compile_options(benchmark_main PRIVATE -Wno-invalid-offsetof -Wno-switch)
+      endif()
     endif()
   endif()
 endif()

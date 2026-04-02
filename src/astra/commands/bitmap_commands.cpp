@@ -8,6 +8,7 @@
 
 #include "astra/base/logging.hpp"
 #include "command_auto_register.hpp"
+#include "astra/server/worker_scheduler.hpp"
 
 namespace astra::commands {
 
@@ -137,6 +138,174 @@ CommandResult HandleBitOp(const protocol::Command& command,
   const std::string& operation = command[0].AsString();
   const std::string& destkey = command[1].AsString();
 
+  // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
+  auto* worker_scheduler = context->GetWorkerScheduler();
+  if (worker_scheduler && worker_scheduler->size() > 1) {
+    auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
+    
+    // Collect all source keys
+    std::vector<std::string> source_keys;
+    for (size_t i = 2; i < command.ArgCount(); ++i) {
+      source_keys.push_back(command[i].AsString());
+    }
+    
+    // For each worker, get values of keys that belong to it
+    std::vector<std::future<std::vector<std::pair<std::string, std::string>>>> futures;
+    futures.reserve(all_workers.size());
+    
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      auto promise = std::make_shared<std::promise<std::vector<std::pair<std::string, std::string>>>>();
+      auto future = promise->get_future();
+      futures.push_back(std::move(future));
+      
+      server::Worker* target_worker = all_workers[worker_id];
+      std::vector<std::string> source_keys_copy = source_keys;
+      
+      // Check if this is the current worker - execute directly to avoid deadlock
+      if (target_worker == current_worker) {
+        // Execute directly in current thread
+        std::vector<std::pair<std::string, std::string>> worker_values;
+        Database* db = &target_worker->GetDataShard().GetDatabase();
+        
+        for (const auto& key : source_keys_copy) {
+          auto value = db->Get(key);
+          if (value.has_value()) {
+            worker_values.push_back({key, value->value});
+          } else {
+            worker_values.push_back({key, ""});
+          }
+        }
+        
+        promise->set_value(worker_values);
+      } else {
+        // Execute on other worker via queue
+        all_workers[worker_id]->AddTask([source_keys_copy, target_worker, promise]() {
+          try {
+            std::vector<std::pair<std::string, std::string>> worker_values;
+            Database* db = &target_worker->GetDataShard().GetDatabase();
+            
+            for (const auto& key : source_keys_copy) {
+              auto value = db->Get(key);
+              if (value.has_value()) {
+                worker_values.push_back({key, value->value});
+              } else {
+                worker_values.push_back({key, ""});
+              }
+            }
+            
+            promise->set_value(worker_values);
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+          }
+        });
+        
+        // Notify worker to process task immediately
+        all_workers[worker_id]->NotifyTaskProcessing();
+      }
+    }
+    
+    // Aggregate results from all workers
+    std::vector<std::string> sources(source_keys.size(), "");
+    
+    size_t max_len = 0;
+    for (auto& future : futures) {
+      auto worker_values = future.get();
+      for (size_t i = 0; i < source_keys.size(); ++i) {
+        const std::string& key = source_keys[i];
+        for (const auto& [wk, wv] : worker_values) {
+          if (wk == key) {
+            sources[i] = wv;
+            max_len = std::max(max_len, sources[i].size());
+            break;
+          }
+        }
+      }
+    }
+    
+    // Perform operation
+    std::string result;
+    result.resize(max_len, '\0');
+
+    if (operation == "AND") {
+      for (size_t i = 0; i < max_len; ++i) {
+        uint8_t byte = 0xFF;
+        for (const auto& source : sources) {
+          if (i < source.size()) {
+            byte &= static_cast<uint8_t>(source[i]);
+          } else {
+            byte &= 0;
+          }
+        }
+        result[i] = static_cast<char>(byte);
+      }
+    } else if (operation == "OR") {
+      for (size_t i = 0; i < max_len; ++i) {
+        uint8_t byte = 0;
+        for (const auto& source : sources) {
+          if (i < source.size()) {
+            byte |= static_cast<uint8_t>(source[i]);
+          }
+        }
+        result[i] = static_cast<char>(byte);
+      }
+    } else if (operation == "XOR") {
+      for (size_t i = 0; i < max_len; ++i) {
+        uint8_t byte = 0;
+        for (const auto& source : sources) {
+          if (i < source.size()) {
+            byte ^= static_cast<uint8_t>(source[i]);
+          }
+        }
+        result[i] = static_cast<char>(byte);
+      }
+    } else if (operation == "NOT") {
+      if (sources.size() != 1) {
+        return CommandResult(
+            false, "ERR BITOP NOT must be called with a single source key");
+      }
+      for (size_t i = 0; i < max_len; ++i) {
+        result[i] = ~sources[0][i];
+      }
+    } else {
+      return CommandResult(false, "ERR syntax error, unknown BITOP operation");
+    }
+
+    // Store result in the worker that owns the destkey
+    size_t dest_worker_id = std::hash<std::string>{}(destkey) % all_workers.size();
+    server::Worker* dest_worker = all_workers[dest_worker_id];
+    std::string result_copy = result;
+    
+    // Check if dest worker is current worker - execute directly
+    if (dest_worker == current_worker) {
+      Database* db = &dest_worker->GetDataShard().GetDatabase();
+      db->Set(destkey, StringValue(result_copy));
+    } else {
+      auto result_promise = std::make_shared<std::promise<bool>>();
+      auto result_future = result_promise->get_future();
+      
+      all_workers[dest_worker_id]->AddTask([destkey, result_copy, dest_worker, result_promise]() {
+        try {
+          Database* db = &dest_worker->GetDataShard().GetDatabase();
+          db->Set(destkey, StringValue(result_copy));
+          result_promise->set_value(true);
+        } catch (...) {
+          result_promise->set_exception(std::current_exception());
+        }
+      });
+      
+      // Notify worker to process task immediately
+      all_workers[dest_worker_id]->NotifyTaskProcessing();
+      
+      result_future.get();
+    }
+
+    protocol::RespValue resp;
+    resp.SetInteger(result.size());
+    return CommandResult(resp);
+  }
+
+  // Fallback: single worker mode
   // Get source bitmaps
   std::vector<std::string> sources;
   size_t max_len = 0;

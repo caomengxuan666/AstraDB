@@ -21,7 +21,7 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Flexible Threading**: Support for both single-threaded and multi-threaded modes
 - **Dual Backend**: epoll (stable) and io_uring (high performance) support
 - **Rich Commands**: Support for 250+ Redis commands across all data types
-- **Persistence**: AOF (Append Only File), RDB snapshots, and LevelDB integration
+- **Persistence**: AOF (Append Only File), RDB snapshots, and ROCKSDB integration
 - **Cluster Support**: Gossip-based cluster management with libgossip
 - **Security**: Access Control List (ACL) support
 - **Monitoring**: Prometheus metrics integration
@@ -132,7 +132,7 @@ AstraDB outperforms Redis significantly in both throughput and latency, making i
 │                              ↓                                   │
 │  Storage Layer                                                 │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Key Metadata | AOF Writer | RDB Writer | LevelDB Adapter  │  │
+│  │  Key Metadata | AOF Writer | RDB Writer | ROCKSDB Adapter  │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -170,7 +170,7 @@ Cluster & Security:
 | **Thread Pool** | Intel TBB | 2021.12.0 | Work-stealing scheduler |
 | **Concurrent Queue** | concurrentqueue | 1.0.4 | Lock-free queue |
 | **Cluster** | libgossip | 1.2.0 | Gossip protocol |
-| **Storage** | LevelDB | Latest | Key-value store |
+| **Storage** | ROCKSDB | Latest | Key-value store |
 | **Metrics** | Prometheus Client | 1.2.4 | Metrics collection |
 | **Compression** | zstd | 1.5.6 | Fast compression |
 | **JSON** | nlohmann_json | 3.11.2 | JSON parsing |
@@ -200,7 +200,7 @@ AstraDB/
 │   │   ├── core/              # Core functionality (memory, metrics)
 │   │   ├── network/           # Networking layer (RESP protocol)
 │   │   ├── server/            # Server core (Server, Shard)
-│   │   ├── persistence/       # Persistence layer (AOF, RDB, LevelDB)
+│   │   ├── persistence/       # Persistence layer (AOF, RDB, ROCKSDB)
 │   │   ├── cluster/           # Cluster management (Gossip)
 │   │   ├── security/          # Security layer (ACL)
 │   │   ├── replication/       # Replication manager
@@ -404,7 +404,7 @@ Contributions are welcome! Please follow these guidelines:
 - [x] Core server infrastructure
 - [x] 250+ Redis commands (96%+ Redis 7.4.1 compatibility)
 - [x] All data types (String, Hash, List, Set, ZSet, Stream)
-- [x] Persistence (AOF, RDB, LevelDB)
+- [x] Persistence (AOF, RDB, ROCKSDB)
 - [x] Cluster support (Gossip)
 - [x] ACL support
 - [x] Lua scripting
@@ -572,7 +572,7 @@ All 250+ commands are registered and functional. We aim for **100% Redis 7.4.1 c
 | Single-threaded | ✅ | ❌ | ❌ |
 | Multi-threaded | ❌ | ✅ | ✅ |
 | Sharding | Manual | Automatic | Automatic |
-| Persistence | RDB/AOF | Snapshot | AOF/RDB/LevelDB |
+| Persistence | RDB/AOF | Snapshot | AOF/RDB/ROCKSDB |
 | Clustering | Redis Cluster | Built-in | Built-in |
 | ACL | ✅ | ✅ | ✅ |
 | Lua Scripting | ✅ | ✅ | ✅ |
@@ -635,7 +635,7 @@ Licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file 
 - **DragonflyDB**: Performance optimization ideas
 - **Asio**: Excellent async networking library
 - **FlatBuffers**: Zero-copy serialization
-- **LevelDB**: Lightweight key-value store
+- **ROCKSDB**: Lightweight key-value store
 - **libgossip**: Gossip protocol implementation
 - **spdlog**: High-performance logging
 - **mimalloc**: Fast memory allocator
