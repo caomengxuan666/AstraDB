@@ -14,6 +14,7 @@
 #include "worker.hpp"
 
 // Include cluster headers for full type definitions
+#include "astra/cluster/cluster_config.hpp"
 #include "astra/cluster/cluster_manager.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
@@ -181,6 +182,10 @@ class Server {
 
   // Initialize cluster
   bool InitCluster() noexcept;
+
+  // Handle cluster events (NO SHARING architecture - updates all workers' ClusterState)
+  void OnClusterEvent(cluster::ClusterEvent event,
+                     const cluster::AstraNodeView& node_view) noexcept;
 
   // Initialize ACL
   bool InitACL() noexcept;

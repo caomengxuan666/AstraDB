@@ -31,6 +31,9 @@
 #include "astra/protocol/resp/resp_types.hpp"
 #include "managers.hpp"
 
+// Cluster support
+#include "astra/cluster/cluster_config.hpp"
+
 namespace astra::server {
 
 // Helper function to convert absl::Duration to std::chrono::duration for asio
@@ -500,7 +503,7 @@ class Worker {
   ~Worker() { Stop(); }
 
   // Start the worker (starts both IO and executor threads)
-  void Start() {
+  void Start(std::shared_ptr<cluster::ClusterState> cluster_state = nullptr) {
     if (running_) {
       ASTRADB_LOG_WARN("Worker {} already running", worker_id_);
       return;
@@ -508,6 +511,13 @@ class Worker {
 
     running_ = true;
     ASTRADB_LOG_INFO("Worker {}: Starting", worker_id_);
+
+    // Initialize cluster state
+    if (cluster_state) {
+      cluster_state_ = std::move(cluster_state);
+      cluster::ClusterStateAccessor::Set(cluster_state_);
+      ASTRADB_LOG_INFO("Worker {}: Cluster state initialized", worker_id_);
+    }
 
     // Set batch request callback in database
     data_shard_.GetDatabase().SetBatchRequestCallback(
@@ -609,6 +619,18 @@ class Worker {
 
   // Get pubsub manager (for publish/subscribe commands)
   PubSubManager* GetPubSubManager() { return pubsub_manager_.get(); }
+
+  // Get cluster state (for cluster commands)
+  std::shared_ptr<cluster::ClusterState> GetClusterState() const {
+    return cluster_state_;
+  }
+
+  // Set cluster state (called by Server when cluster configuration changes)
+  void SetClusterState(std::shared_ptr<cluster::ClusterState> state) {
+    cluster_state_ = std::move(state);
+    // Also update thread-local accessor
+    cluster::ClusterStateAccessor::Set(cluster_state_);
+  }
 
   // Get local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats& GetLocalStats() { return local_stats_; }
@@ -1368,6 +1390,10 @@ void NotifyResponseQueue() {
 
   // Local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats local_stats_;
+
+  // Cluster state (NO SHARING architecture - each worker has its own thread-local snapshot)
+  // Following Dragonfly's pattern: zero-copy updates via shared_ptr
+  std::shared_ptr<cluster::ClusterState> cluster_state_;
 
   // RAII timer for command duration (NO SHARING architecture - uses local
   // stats)

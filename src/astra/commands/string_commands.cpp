@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "astra/cluster/cluster_config.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/server/worker_scheduler.hpp"
@@ -27,17 +28,29 @@ CommandResult HandleGet(const astra::protocol::Command& command,
                          "ERR wrong number of arguments for 'GET' command");
   }
 
-  Database* db = context->GetDatabase();
-  if (!db) {
-    return CommandResult(false, "ERR database not initialized");
-  }
-
   const auto& key_arg = command[0];
   if (!key_arg.IsBulkString()) {
     return CommandResult(false, "ERR wrong type of key argument");
   }
 
   std::string key = key_arg.AsString();
+
+  // Check if key should be redirected to another node (MOVED/ASK)
+  auto redirect_target = cluster::ClusterStateAccessor::CheckKeyRedirect(key);
+  if (redirect_target) {
+    // Calculate slot for MOVED error
+    uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+    std::string error = "-MOVED " + std::to_string(slot) + " " + *redirect_target;
+    RespValue resp;
+    resp.SetString(error, RespType::kSimpleString);
+    return CommandResult(false, error);
+  }
+
+  Database* db = context->GetDatabase();
+  if (!db) {
+    return CommandResult(false, "ERR database not initialized");
+  }
+
   auto value = db->Get(key);
 
   if (value.has_value()) {

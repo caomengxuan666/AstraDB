@@ -96,10 +96,17 @@ void Server::Start() {
   }
 
   // Initialize cluster if enabled
+  std::shared_ptr<cluster::ClusterState> initial_cluster_state;
   if (config_.cluster_enabled) {
     if (!InitCluster()) {
       ASTRADB_LOG_WARN(
           "Cluster initialization failed, running in standalone mode");
+    } else {
+      // Create initial cluster state for workers
+      initial_cluster_state = std::make_shared<cluster::ClusterState>(
+          config_.cluster_node_id, config_.host, config_.port,
+          config_.cluster_gossip_port);
+      ASTRADB_LOG_INFO("Initial cluster state created for workers");
     }
   }
 
@@ -177,7 +184,7 @@ void Server::Start() {
 
   // Start all workers
   for (auto& worker : workers_) {
-    worker->Start();
+    worker->Start(initial_cluster_state);
   }
 
   running_ = true;
@@ -333,6 +340,12 @@ bool Server::InitCluster() noexcept {
       return false;
     }
 
+    // Set event callback to update ClusterState for all workers (NO SHARING architecture)
+    gossip_manager_->SetEventCallback([this](cluster::ClusterEvent event,
+                                              const cluster::AstraNodeView& node_view) {
+      this->OnClusterEvent(event, node_view);
+    });
+
     // Create and initialize shard manager
     shard_manager_ = std::make_unique<cluster::ShardManager>();
     cluster::NodeId self_id{};
@@ -368,6 +381,82 @@ bool Server::InitCluster() noexcept {
     cluster_manager_.reset();
     gossip_manager_.reset();
     return false;
+  }
+}
+
+void Server::OnClusterEvent(cluster::ClusterEvent event,
+                             const cluster::AstraNodeView& node_view) noexcept {
+  // NO SHARING architecture: Update all workers' ClusterState
+  // This method is called from GossipManager's event callback
+
+  try {
+    ASTRADB_LOG_INFO("Cluster event: {} node_id={} ip={}:{}",
+                     static_cast<int>(event),
+                     cluster::GossipManager::NodeIdToString(node_view.id),
+                     node_view.ip, node_view.port);
+
+    // Get current cluster state from any worker (they should be in sync)
+    std::shared_ptr<cluster::ClusterState> new_state;
+    if (!workers_.empty() && workers_[0]->GetClusterState()) {
+      new_state = workers_[0]->GetClusterState();
+    } else {
+      // Create initial state if not exists
+      new_state = std::make_shared<cluster::ClusterState>(
+          config_.cluster_node_id, config_.host, config_.port,
+          config_.cluster_gossip_port);
+    }
+
+    // Update cluster state based on event
+    switch (event) {
+      case cluster::ClusterEvent::kNodeJoined: {
+        // Add new node to cluster state
+        cluster::ClusterNodeInfo node_info;
+        node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+        node_info.ip = node_view.ip;
+        node_info.port = node_view.port;
+        node_info.bus_port = node_view.port + 10000;  // Default bus port
+        node_info.role = (node_view.role == "master")
+                         ? cluster::ClusterRole::kMaster
+                         : cluster::ClusterRole::kSlave;
+        node_info.config_epoch = node_view.config_epoch;
+        new_state = new_state->WithNodeAdded(node_info);
+        break;
+      }
+      case cluster::ClusterEvent::kNodeLeft:
+      case cluster::ClusterEvent::kNodeFailed: {
+        // Remove node from cluster state
+        std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
+        new_state = new_state->WithNodeRemoved(node_id);
+        break;
+      }
+      case cluster::ClusterEvent::kNodeRecovered: {
+        // Node recovered - add back to cluster
+        cluster::ClusterNodeInfo node_info;
+        node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+        node_info.ip = node_view.ip;
+        node_info.port = node_view.port;
+        node_info.bus_port = node_view.port + 10000;
+        node_info.role = (node_view.role == "master")
+                         ? cluster::ClusterRole::kMaster
+                         : cluster::ClusterRole::kSlave;
+        node_info.config_epoch = node_view.config_epoch;
+        new_state = new_state->WithNodeAdded(node_info);
+        break;
+      }
+      default:
+        // Other events (kConfigChanged, kLeaderChanged) - just update metadata
+        break;
+    }
+
+    // Update all workers' ClusterState (zero-copy via shared_ptr)
+    for (auto& worker : workers_) {
+      worker->SetClusterState(new_state);
+    }
+
+    ASTRADB_LOG_INFO("Updated ClusterState for {} workers", workers_.size());
+
+  } catch (const std::exception& e) {
+    ASTRADB_LOG_ERROR("OnClusterEvent exception: {}", e.what());
   }
 }
 
