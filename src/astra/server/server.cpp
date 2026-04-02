@@ -223,6 +223,10 @@ void Server::Stop() {
       gossip_manager_->Stop();
       gossip_manager_.reset();
     }
+    // Reset shard manager
+    if (shard_manager_) {
+      shard_manager_.reset();
+    }
     cluster_manager_.reset();
   }
 
@@ -328,6 +332,21 @@ bool Server::InitCluster() noexcept {
       cluster_manager_.reset();
       return false;
     }
+
+    // Create and initialize shard manager
+    shard_manager_ = std::make_unique<cluster::ShardManager>();
+    cluster::NodeId self_id{};
+    cluster::GossipManager::ParseNodeId(config_.cluster_node_id, self_id);
+    
+    if (!shard_manager_->Init(config_.cluster_shard_count, self_id)) {
+      ASTRADB_LOG_ERROR("Failed to initialize shard manager");
+      shard_manager_.reset();
+      gossip_manager_.reset();
+      cluster_manager_.reset();
+      return false;
+    }
+
+    ASTRADB_LOG_INFO("ShardManager initialized: {} shards", config_.cluster_shard_count);
 
     // Meet seed nodes if configured
     for (const auto& seed : config_.cluster_seeds) {
