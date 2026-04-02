@@ -11,7 +11,7 @@ endif()
 
 if(WIN32)
   # Windows-specific settings
-  add_definitions(-DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -D_WIN32_WINNT=0x0601)
+  add_definitions(-DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -D_WIN32_WINNT=0x0602)
   
   # Windows-specific link libraries
   # pthread is not needed on Windows, use native threading
