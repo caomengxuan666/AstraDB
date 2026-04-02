@@ -111,15 +111,15 @@ stats_frequency_seconds = 10
 # =============================================================================
 [cluster]
 # Enable cluster mode
-enabled = false
+enabled = true
 # Unique node ID (32 hex characters, auto-generated if empty)
-node_id = ""
+node_id = "node1"
 # Bind address for gossip protocol
 bind_addr = "0.0.0.0"
 # Gossip protocol port (default: 7946, Redis uses 16379 for cluster bus)
 gossip_port = 7946
 # Number of hash slots / shards (16384 total slots, Redis compatible)
-shard_count = 256
+shard_count = 20
 # Seed nodes for cluster join (format: "ip:port")
 # Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
 seeds = []

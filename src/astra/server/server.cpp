@@ -96,18 +96,12 @@ void Server::Start() {
   }
 
   // Initialize cluster if enabled
-  std::shared_ptr<cluster::ClusterState> initial_cluster_state;
   if (config_.cluster_enabled) {
     if (!InitCluster()) {
       ASTRADB_LOG_WARN(
           "Cluster initialization failed, running in standalone mode");
-    } else {
-      // Create initial cluster state for workers
-      initial_cluster_state = std::make_shared<cluster::ClusterState>(
-          config_.cluster_node_id, config_.host, config_.port,
-          config_.cluster_gossip_port);
-      ASTRADB_LOG_INFO("Initial cluster state created for workers");
     }
+    // Note: initial_cluster_state_ is set in InitCluster()
   }
 
   // Initialize ACL if enabled
@@ -184,7 +178,7 @@ void Server::Start() {
 
   // Start all workers
   for (auto& worker : workers_) {
-    worker->Start(initial_cluster_state);
+    worker->Start(initial_cluster_state_);
   }
 
   running_ = true;
@@ -361,6 +355,11 @@ bool Server::InitCluster() noexcept {
 
     ASTRADB_LOG_INFO("ShardManager initialized: {} shards", config_.cluster_shard_count);
 
+    // Create initial ClusterState for all workers (NO SHARING architecture)
+    auto initial_cluster_state = std::make_shared<cluster::ClusterState>(
+        config_.cluster_node_id, config_.host, config_.port,
+        config_.cluster_gossip_port);
+
     // Meet seed nodes if configured
     for (const auto& seed : config_.cluster_seeds) {
       // Parse seed address (format: "ip:port")
@@ -372,6 +371,10 @@ bool Server::InitCluster() noexcept {
         ASTRADB_LOG_INFO("Meeting seed node: {}", seed);
       }
     }
+
+    // Set initial ClusterState for all workers (will be set during Worker::Start)
+    // Store it in a temporary variable and set it when workers start
+    initial_cluster_state_ = initial_cluster_state;
 
     ASTRADB_LOG_INFO("Cluster initialized successfully (enabled: yes, node_id: {})",
                      config_.cluster_node_id);

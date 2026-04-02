@@ -98,6 +98,15 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.use_so_reuseport = base_config.use_so_reuseport;
     config.persistence = base_config.persistence;
     config.cluster = base_config.cluster;
+    
+    // Map cluster fields
+    config.cluster_enabled = base_config.cluster.enabled;
+    config.cluster_node_id = base_config.cluster.node_id;
+    config.cluster_bind_addr = base_config.cluster.bind_addr;
+    config.cluster_gossip_port = base_config.cluster.gossip_port;
+    config.cluster_seeds = base_config.cluster.seeds;
+    config.cluster_shard_count = base_config.cluster.shard_count;
+    
     config.metrics = base_config.metrics;
     config.stats_frequency_seconds = base_config.metrics.stats_frequency_seconds;
 
@@ -220,6 +229,9 @@ class Server {
   std::unique_ptr<MetricsManager> metrics_manager_;
   std::unique_ptr<::astra::replication::ReplicationManager>
       replication_manager_;
+
+  // Initial ClusterState (set during InitCluster, used by Worker::Start)
+  std::shared_ptr<cluster::ClusterState> initial_cluster_state_;
 
   // Server state
   std::atomic<bool> running_{false};
