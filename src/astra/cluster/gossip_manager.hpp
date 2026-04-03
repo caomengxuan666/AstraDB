@@ -137,6 +137,10 @@ class GossipManager {
     self_view.version = 1;
     self_view.status = libgossip::node_status::joining;
 
+    // Initialize slot metadata
+    self_view.metadata["slots"] = "";
+    self_view.metadata["config_epoch"] = "1";
+
     // Create gossip core with callbacks
     try {
       gossip_core_ = std::make_shared<libgossip::gossip_core>(
@@ -245,6 +249,65 @@ class GossipManager {
     if (gossip_core_) {
       gossip_core_->tick_full_broadcast();
     }
+  }
+
+  // Update slot metadata and broadcast changes
+  void UpdateSlotMetadata(const std::string& slots_str) noexcept {
+    if (ASTRADB_UNLIKELY(!gossip_core_)) {
+      ASTRADB_LOG_WARN("GossipManager not initialized, cannot update slot metadata");
+      return;
+    }
+
+    // Store locally
+    slot_metadata_ = slots_str;
+    config_epoch_++;
+
+    ASTRADB_LOG_INFO("Updated slot metadata locally: {} bytes, config_epoch={}",
+                     slots_str.size(), config_epoch_);
+
+    // Create update message to inform gossip_core of the metadata change
+    libgossip::gossip_message msg;
+    msg.sender = self_id_;
+    msg.type = libgossip::message_type::update;
+    msg.timestamp = 0;
+
+    // Create updated node view with new metadata
+    libgossip::node_view updated_self;
+    updated_self.id = self_id_;
+    updated_self.ip = config_.bind_ip;
+    updated_self.port = config_.gossip_port;
+    updated_self.config_epoch = config_epoch_;
+    updated_self.heartbeat = 1;
+    updated_self.version = 1;
+    updated_self.metadata["slots"] = slots_str;
+    updated_self.metadata["config_epoch"] = std::to_string(config_epoch_);
+
+    msg.entries.push_back(updated_self);
+
+    // Send update message to gossip core (this updates self_ internally)
+    auto now = libgossip::clock::now();
+    gossip_core_->handle_message(msg, now);
+
+    ASTRADB_LOG_INFO("Gossip core self_ updated with new metadata");
+
+    // Force broadcast to propagate changes
+    BroadcastConfig();
+  }
+
+  // Increment config epoch and broadcast
+  void IncrementConfigEpoch() noexcept {
+    config_epoch_++;
+    ASTRADB_LOG_INFO("Config epoch incremented to {}", config_epoch_);
+  }
+
+  // Get current config epoch
+  uint64_t GetConfigEpoch() const noexcept {
+    return config_epoch_;
+  }
+
+  // Get slot metadata string
+  std::string GetSlotMetadata() const noexcept {
+    return slot_metadata_;
   }
 
   // ========== Node Management ==========
@@ -521,6 +584,18 @@ class GossipManager {
       node_view.status = node.status;
       node_view.shard_count = config_.shard_count;
 
+      // Copy metadata including slot assignments
+      for (const auto& [key, value] : node.metadata) {
+        node_view.metadata[key] = value;
+      }
+
+      // Check if this node has slot metadata
+      if (node.metadata.contains("slots")) {
+        const std::string& slots_str = node.metadata.at("slots");
+        ASTRADB_LOG_INFO("Node {} has slot metadata ({} bytes)",
+                         NodeIdToString(node.id), slots_str.size());
+      }
+
       // Lock and call callback to prevent race with Stop()
       std::function<void(ClusterEvent, const AstraNodeView&)> callback;
       {
@@ -548,6 +623,9 @@ class GossipManager {
   std::atomic<bool> event_callback_set_{false};
   std::function<void(ClusterEvent, const AstraNodeView&)> event_callback_;
   mutable std::mutex event_callback_mutex_;  // Protect event_callback_ access
+
+  uint64_t config_epoch_{1};  // Configuration version for conflict resolution
+  std::string slot_metadata_;  // Local slot metadata storage
 };
 
 }  // namespace astra::cluster

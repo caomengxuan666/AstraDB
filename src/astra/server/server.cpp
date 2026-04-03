@@ -513,8 +513,42 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         break;
       }
       default:
-        // Other events (kConfigChanged, kLeaderChanged) - just update metadata
+        // Other events (kConfigChanged, kLeaderChanged) - update metadata and slots
         break;
+    }
+
+    // Process slot metadata if present
+    if (node_view.metadata.contains("slots")) {
+      std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
+      const std::string& slots_str = node_view.metadata.at("slots");
+
+      // Check config epoch for conflict resolution
+      uint64_t remote_epoch = 0;
+      if (node_view.metadata.contains("config_epoch")) {
+        remote_epoch = std::stoull(node_view.metadata.at("config_epoch"));
+      }
+
+      // Check if remote config is newer
+      uint64_t local_epoch = gossip_manager_->GetConfigEpoch();
+      if (remote_epoch > local_epoch) {
+        ASTRADB_LOG_INFO("Remote node {} has newer config epoch ({} > {}), accepting slot assignments",
+                         node_id, remote_epoch, local_epoch);
+
+        // Deserialize slot assignments
+        auto slots = cluster::SlotSerializer::Deserialize(slots_str);
+        if (!slots.empty()) {
+          ASTRADB_LOG_INFO("Updating slot assignments for node {}: {} slots",
+                           node_id, slots.size());
+
+          // Update cluster state with slot assignments
+          for (uint16_t slot : slots) {
+            new_state = new_state->WithSlotAssigned(node_id, slot);
+          }
+        }
+      } else {
+        ASTRADB_LOG_DEBUG("Ignoring slot metadata from node {} (config_epoch {} <= local {})",
+                          node_id, remote_epoch, local_epoch);
+      }
     }
 
     // Update all workers' ClusterState (zero-copy via shared_ptr)

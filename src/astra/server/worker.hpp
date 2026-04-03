@@ -1599,6 +1599,21 @@ inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& s
     }
   }
 
+  // Serialize slot assignments to compact string
+  auto slots_str = cluster::SlotSerializer::Serialize(slots);
+  ASTRADB_LOG_INFO("ClusterAddSlots: Serialized {} slots to {} bytes: {}",
+                   slots.size(), slots_str.size(), slots_str);
+
+  // Update gossip manager's slot metadata
+  if (gossip_manager_) {
+    gossip_manager_->IncrementConfigEpoch();
+    gossip_manager_->UpdateSlotMetadata(slots_str);
+    gossip_manager_->BroadcastConfig();
+    ASTRADB_LOG_INFO("ClusterAddSlots: Broadcasted slot metadata to cluster");
+  } else {
+    ASTRADB_LOG_ERROR("ClusterAddSlots: gossip_manager_ is null, cannot broadcast!");
+  }
+
   // Update all workers' cluster state via callback (set by Server)
   // This avoids circular dependency with WorkerScheduler
   if (cluster_state_update_callback_) {
@@ -1622,6 +1637,35 @@ inline bool WorkerCommandContext::ClusterDelSlots(const std::vector<uint16_t>& s
   }
   // Create new state with slots removed
   auto new_state = current_state->WithSlotsRemoved(slots);
+
+  // Update gossip manager's slot metadata
+  if (gossip_manager_) {
+    gossip_manager_->IncrementConfigEpoch();
+
+    // Get remaining slots for this node
+    auto self = gossip_manager_->GetSelf();
+    std::string self_id = cluster::GossipManager::NodeIdToString(self.id);
+    std::vector<uint16_t> remaining_slots;
+
+    // Iterate through all slots to find ones still owned by this node
+    // Note: This is inefficient for large slot counts, but OK for now
+    for (uint16_t slot = 0; slot < 16384; ++slot) {
+      auto owner = current_state->GetSlotOwner(slot);
+      if (owner.has_value() && owner.value() == self_id) {
+        bool is_removed = std::find(slots.begin(), slots.end(), slot) != slots.end();
+        if (!is_removed) {
+          remaining_slots.push_back(slot);
+        }
+      }
+    }
+
+    // Serialize and broadcast remaining slots
+    auto slots_str = cluster::SlotSerializer::Serialize(remaining_slots);
+    gossip_manager_->UpdateSlotMetadata(slots_str);
+    gossip_manager_->BroadcastConfig();
+    ASTRADB_LOG_INFO("ClusterDelSlots: Broadcasted slot metadata ({} remaining slots)",
+                     remaining_slots.size());
+  }
 
   // Update all workers' cluster state via callback (set by Server)
   // This avoids circular dependency with WorkerScheduler
