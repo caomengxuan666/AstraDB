@@ -265,32 +265,15 @@ class GossipManager {
     ASTRADB_LOG_INFO("Updated slot metadata locally: {} bytes, config_epoch={}",
                      slots_str.size(), config_epoch_);
 
-    // Create update message to inform gossip_core of the metadata change
-    libgossip::gossip_message msg;
-    msg.sender = self_id_;
-    msg.type = libgossip::message_type::update;
-    msg.timestamp = 0;
+    // Update gossip_core's self metadata directly
+    std::map<std::string, std::string> metadata;
+    metadata["slots"] = slots_str;
+    metadata["config_epoch"] = std::to_string(config_epoch_);
+    gossip_core_->update_self_metadata(metadata);
 
-    // Create updated node view with new metadata
-    libgossip::node_view updated_self;
-    updated_self.id = self_id_;
-    updated_self.ip = config_.bind_ip;
-    updated_self.port = config_.gossip_port;
-    updated_self.config_epoch = config_epoch_;
-    updated_self.heartbeat = 1;
-    updated_self.version = 1;
-    updated_self.metadata["slots"] = slots_str;
-    updated_self.metadata["config_epoch"] = std::to_string(config_epoch_);
+    ASTRADB_LOG_INFO("Gossip core self metadata updated via update_self_metadata()");
 
-    msg.entries.push_back(updated_self);
-
-    // Send update message to gossip core (this updates self_ internally)
-    auto now = libgossip::clock::now();
-    gossip_core_->handle_message(msg, now);
-
-    ASTRADB_LOG_INFO("Gossip core self_ updated with new metadata");
-
-    // Force broadcast to propagate changes
+    // Trigger broadcast to propagate changes (gossip tick will include updated self_)
     BroadcastConfig();
   }
 
