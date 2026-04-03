@@ -351,14 +351,14 @@ class DataShard {
     // Get slot owner
     auto slot_owner = cluster_state->GetSlotOwner(slot);
     if (!slot_owner.has_value()) {
-      ASTRADB_LOG_DEBUG("Shard {}: Slot {} not assigned, handling locally", shard_id_, slot);
+      ASTRADB_LOG_WARN("Shard {}: Slot {} not assigned, handling locally", shard_id_, slot);
       return "";  // Slot not assigned, handle locally
     }
 
     // Get self node ID
     auto* gossip_manager = context_.GetGossipManager();
     if (!gossip_manager) {
-      ASTRADB_LOG_DEBUG("Shard {}: No gossip manager, handling locally", shard_id_);
+      ASTRADB_LOG_WARN("Shard {}: No gossip manager, handling locally", shard_id_);
       return "";  // No gossip manager, handle locally
     }
 
@@ -399,12 +399,14 @@ class DataShard {
 
     // Check cluster slot if cluster is enabled
     if (context_.IsClusterEnabled()) {
+      ASTRADB_LOG_DEBUG("Shard {}: Cluster enabled, checking slot for command '{}'", shard_id_, command.name);
       auto moved_error = CheckClusterSlot(command);
       if (!moved_error.empty()) {
         ASTRADB_LOG_DEBUG("Shard {}: Command '{}' redirected - {}", shard_id_,
                           command.name, moved_error);
         return moved_error;
       }
+      ASTRADB_LOG_DEBUG("Shard {}: Command '{}' slot check passed, handling locally", shard_id_, command.name);
     }
 
     auto result = registry_.Execute(command, &context_);
@@ -1564,26 +1566,47 @@ inline std::shared_ptr<cluster::ClusterState> WorkerCommandContext::GetClusterSt
 }
 
 inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& slots) {
+  ASTRADB_LOG_INFO("ClusterAddSlots: Adding {} slots to this node", slots.size());
+
   if (!worker_) {
+    ASTRADB_LOG_ERROR("ClusterAddSlots: worker_ is null");
     return false;
   }
   auto current_state = worker_->GetClusterState();
   if (!current_state) {
+    ASTRADB_LOG_ERROR("ClusterAddSlots: current_state is null");
     return false;
   }
   // Get self node ID from gossip manager
   if (!gossip_manager_) {
+    ASTRADB_LOG_ERROR("ClusterAddSlots: gossip_manager_ is null");
     return false;
   }
   auto self = gossip_manager_->GetSelf();
   std::string self_id = cluster::GossipManager::NodeIdToString(self.id);
+  ASTRADB_LOG_DEBUG("ClusterAddSlots: self_id={}, slots={}", self_id, slots.size());
+
   // Create new state with slots assigned
   auto new_state = current_state->WithSlotsAssigned(self_id, slots);
+
+  ASTRADB_LOG_INFO("ClusterAddSlots: After assignment, checking slot owners:");
+  for (auto slot : slots) {
+    auto owner = new_state->GetSlotOwner(slot);
+    if (owner.has_value()) {
+      ASTRADB_LOG_DEBUG("  Slot {} owner: {}", static_cast<int>(slot), owner.value());
+    } else {
+      ASTRADB_LOG_ERROR("  Slot {} has no owner!", static_cast<int>(slot));
+    }
+  }
 
   // Update all workers' cluster state via callback (set by Server)
   // This avoids circular dependency with WorkerScheduler
   if (cluster_state_update_callback_) {
+    ASTRADB_LOG_DEBUG("ClusterAddSlots: Calling cluster_state_update_callback_");
     cluster_state_update_callback_(new_state);
+    ASTRADB_LOG_DEBUG("ClusterAddSlots: cluster_state_update_callback_ completed");
+  } else {
+    ASTRADB_LOG_ERROR("ClusterAddSlots: cluster_state_update_callback_ is null!");
   }
 
   return true;
