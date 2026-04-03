@@ -435,26 +435,93 @@ void Server::OnClusterEvent(cluster::ClusterEvent event,
                              const cluster::AstraNodeView& node_view) noexcept {
   // NO SHARING architecture: Update all workers' ClusterState
   // This method is called from GossipManager's event callback
+  // CRITICAL: This runs in libgossip's tick thread, which holds gossip_core's mutex
+  // DO NOT call any function that might acquire gossip_core's mutex
 
-  // TEMPORARILY DISABLED FOR DEBUGGING
-  return;
+  ASTRADB_LOG_INFO("OnClusterEvent: event={}, node_id={}, ip={}:{}, this={}, workers_.size()={}",
+                   static_cast<int>(event),
+                   cluster::GossipManager::NodeIdToString(node_view.id),
+                   node_view.ip, node_view.port,
+                   (void*)this, workers_.size());
 
+  // IMPORTANT: Defer cluster state update to avoid holding libgossip's lock
+  // Post the event to worker thread for async processing
+  if (!workers_.empty()) {
+    ASTRADB_LOG_INFO("OnClusterEvent: Calling AddTask on worker 0");
+    workers_[0]->AddTask([this, event, node_view]() {
+      ASTRADB_LOG_INFO("ProcessClusterEventAsync: Starting");
+      ProcessClusterEventAsync(event, node_view);
+    });
+  }
+}
+
+// Process cluster event asynchronously (not in libgossip's tick thread)
+void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
+                                      const cluster::AstraNodeView& node_view) noexcept {
   try {
     // Get current cluster state from any worker (they should be in sync)
     std::shared_ptr<cluster::ClusterState> new_state;
     if (!workers_.empty() && workers_[0]->GetClusterState()) {
       new_state = workers_[0]->GetClusterState();
+      ASTRADB_LOG_INFO("Got existing ClusterState");
     } else {
       // Create initial state if not exists
       new_state = std::make_shared<cluster::ClusterState>(
           config_.cluster_node_id, config_.host, config_.port,
           config_.cluster_gossip_port);
+      ASTRADB_LOG_INFO("Created new ClusterState");
     }
 
-    // TODO: Enable ClusterState updates step by step
+    // Add/update node in cluster state based on event
+    switch (event) {
+      case cluster::ClusterEvent::kNodeJoined: {
+        // Add new node to cluster state
+        cluster::ClusterNodeInfo node_info;
+        node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+        node_info.ip = node_view.ip;
+        node_info.port = node_view.port;
+        node_info.bus_port = node_view.port + 10000;  // Default bus port
+        node_info.role = (node_view.role == "master")
+                         ? cluster::ClusterRole::kMaster
+                         : cluster::ClusterRole::kSlave;
+        node_info.config_epoch = node_view.config_epoch;
+        new_state = new_state->WithNodeAdded(node_info);
+        ASTRADB_LOG_INFO("Added node {} to ClusterState", node_info.id);
+        break;
+      }
+      case cluster::ClusterEvent::kNodeLeft:
+      case cluster::ClusterEvent::kNodeFailed: {
+        // Remove node from cluster state
+        std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
+        new_state = new_state->WithNodeRemoved(node_id);
+        ASTRADB_LOG_INFO("Removed node {} from ClusterState", node_id);
+        break;
+      }
+      case cluster::ClusterEvent::kNodeRecovered: {
+        // Node recovered - add back to cluster
+        cluster::ClusterNodeInfo node_info;
+        node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+        node_info.ip = node_view.ip;
+        node_info.port = node_view.port;
+        node_info.bus_port = node_view.port + 10000;
+        node_info.role = (node_view.role == "master")
+                         ? cluster::ClusterRole::kMaster
+                         : cluster::ClusterRole::kSlave;
+        node_info.config_epoch = node_view.config_epoch;
+        new_state = new_state->WithNodeAdded(node_info);
+        ASTRADB_LOG_INFO("Recovered node {} in ClusterState", node_info.id);
+        break;
+      }
+      default:
+        // Other events (kConfigChanged, kLeaderChanged) - just update metadata
+        break;
+    }
+
+    // Update all workers' ClusterState (zero-copy via shared_ptr)
+    UpdateClusterState(new_state);
 
   } catch (const std::exception& e) {
-    // Silent for now
+    ASTRADB_LOG_ERROR("ProcessClusterEventAsync exception: {}", e.what());
   }
 }
 

@@ -211,6 +211,10 @@ class Server {
   void OnClusterEvent(cluster::ClusterEvent event,
                      const cluster::AstraNodeView& node_view) noexcept;
 
+  // Process cluster event asynchronously (not in libgossip's tick thread)
+  void ProcessClusterEventAsync(cluster::ClusterEvent event,
+                                const cluster::AstraNodeView& node_view) noexcept;
+
   // Initialize ACL
   bool InitACL() noexcept;
 

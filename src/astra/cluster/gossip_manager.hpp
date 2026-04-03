@@ -95,9 +95,8 @@ enum class ClusterEvent : uint8_t {
   kConfigChanged,  // Cluster config changed
 };
 
-// Event callback type
-using ClusterEventCallback =
-    absl::FunctionRef<void(ClusterEvent, const AstraNodeView&)>;
+// Event callback type - use std::function to own the callback object
+using ClusterEventCallback = std::function<void(ClusterEvent, const AstraNodeView&)>;
 
 // ==============================================================================
 // GossipManager - Manages cluster membership using SWIM protocol
@@ -208,6 +207,14 @@ class GossipManager {
       return;  // Already stopped
     }
 
+    // CRITICAL: Clear event callback BEFORE stopping transport
+    // This prevents callbacks from executing while Server is being destroyed
+    {
+      std::lock_guard<std::mutex> lock(event_callback_mutex_);
+      event_callback_set_.store(false, std::memory_order_release);
+      event_callback_ = nullptr;
+    }
+
     if (transport_) {
       transport_->stop();
     }
@@ -253,7 +260,7 @@ class GossipManager {
     node.port = port;
     node.status = libgossip::node_status::unknown;
     
-    // Generate temporary node_id from IP:port (will be replaced by real ID from gossip)
+    // Generate temporary node_id from IP:port (will be updated to real ID via gossip)
     std::string temp_id = std::string(ip) + ":" + std::to_string(port);
     NodeId temp_node_id{};
     std::hash<std::string> hasher;
@@ -338,8 +345,9 @@ class GossipManager {
 
   // Set event callback
   void SetEventCallback(ClusterEventCallback callback) noexcept {
+    std::lock_guard<std::mutex> lock(event_callback_mutex_);
     event_callback_ = std::move(callback);
-    event_callback_set_ = true;
+    event_callback_set_.store(true, std::memory_order_release);
   }
 
   // ========== Statistics ==========
@@ -494,12 +502,13 @@ class GossipManager {
         break;
     }
 
-    ASTRADB_LOG_INFO("Node event: {} (status: {} -> {})",
+    ASTRADB_LOG_INFO("Node event: {} (status: {} -> {}), event_callback_set_={}",
                      NodeIdToString(node.id), libgossip::to_string(old_status),
-                     libgossip::to_string(node.status));
+                     libgossip::to_string(node.status), event_callback_set_.load());
 
     // Notify event callbacks if set
-    if (event_callback_set_) {
+    if (event_callback_set_.load(std::memory_order_acquire)) {
+      ASTRADB_LOG_INFO("Calling event callback for event {}", static_cast<int>(event));
       AstraNodeView node_view;
       node_view.id = node.id;
       node_view.ip = node.ip;
@@ -511,7 +520,21 @@ class GossipManager {
       node_view.version = node.version;
       node_view.status = node.status;
       node_view.shard_count = config_.shard_count;
-      event_callback_(event, node_view);
+
+      // Lock and call callback to prevent race with Stop()
+      std::function<void(ClusterEvent, const AstraNodeView&)> callback;
+      {
+        std::lock_guard<std::mutex> lock(event_callback_mutex_);
+        if (event_callback_set_.load(std::memory_order_acquire)) {
+          callback = event_callback_;
+        }
+      }
+
+      if (callback) {
+        callback(event, node_view);
+      }
+    } else {
+      ASTRADB_LOG_WARN("Event callback not set, skipping cluster event notification");
     }
   }
 
@@ -524,6 +547,7 @@ class GossipManager {
   std::atomic<bool> running_{false};
   std::atomic<bool> event_callback_set_{false};
   std::function<void(ClusterEvent, const AstraNodeView&)> event_callback_;
+  mutable std::mutex event_callback_mutex_;  // Protect event_callback_ access
 };
 
 }  // namespace astra::cluster
