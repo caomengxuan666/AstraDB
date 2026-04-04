@@ -416,13 +416,17 @@ if(asio_ADDED)
   # Disable libgossip logging for performance
   if(TARGET libgossip_core)
     target_compile_definitions(libgossip_core PUBLIC LIBGOSSIP_ENABLE_LOGGING=0)
+    target_compile_options(libgossip_core PRIVATE -Wno-deprecated-declarations)
     message(STATUS "✅ Disabled libgossip logging for better performance")
+    message(STATUS "✅ Disabled deprecated warnings for libgossip")
   elseif(TARGET libgossip::core)
     # For alias targets, we need to find the actual target
     get_target_property(actual_target libgossip::core ALIASED_TARGET)
     if(actual_target AND TARGET ${actual_target})
       target_compile_definitions(${actual_target} PUBLIC LIBGOSSIP_ENABLE_LOGGING=0)
+      target_compile_options(${actual_target} PRIVATE -Wno-deprecated-declarations)
       message(STATUS "✅ Disabled libgossip logging for better performance")
+      message(STATUS "✅ Disabled deprecated warnings for libgossip")
     endif()
   endif()
 

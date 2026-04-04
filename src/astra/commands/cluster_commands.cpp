@@ -16,19 +16,19 @@
 namespace astra::commands {
 
 // Get cluster slot for a key with hash tag support
-static uint16_t GetSlotForKey(const std::string& key) noexcept {
+[[maybe_unused]]static uint16_t GetSlotForKey(const std::string& key) noexcept {
   return cluster::HashSlotCalculator::CalculateWithTag(key);
 }
 
 // Check if a key should be redirected to another node
 // Returns std::nullopt if the key can be processed locally, otherwise returns the target node ID
-static std::optional<std::string> CheckKeyRedirect(const std::string& key,
+[[maybe_unused]] static std::optional<std::string> CheckKeyRedirect(const std::string& key,
                                                       CommandContext* context) {
   return cluster::ClusterStateAccessor::CheckKeyRedirect(key);
 }
 
 // Build MOVED error response
-static CommandResult BuildMovedError(uint16_t slot, const std::string& target_node) {
+[[maybe_unused]] static CommandResult BuildMovedError(uint16_t slot, const std::string& target_node) {
   std::string error = "-MOVED " + std::to_string(slot) + " " + target_node;
   protocol::RespValue resp;
   resp.SetString(error, protocol::RespType::kSimpleString);
@@ -36,7 +36,7 @@ static CommandResult BuildMovedError(uint16_t slot, const std::string& target_no
 }
 
 // Build ASK error response
-static CommandResult BuildAskError(uint16_t slot, const std::string& target_node) {
+[[maybe_unused]] static CommandResult BuildAskError(uint16_t slot, const std::string& target_node) {
   std::string error = "-ASK " + std::to_string(slot) + " " + target_node;
   protocol::RespValue resp;
   resp.SetString(error, protocol::RespType::kSimpleString);
