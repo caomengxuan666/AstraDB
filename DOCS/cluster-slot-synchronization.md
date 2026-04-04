@@ -307,3 +307,280 @@ None - uses existing dependencies:
 - **Phase 4**: Future work (optional enhancements)
 
 **Total**: 5-8 hours for complete implementation
+
+---
+
+## MOVED/ASK Redirection Implementation Plan
+
+### Overview
+
+MOVED/ASK redirection is a core feature of Redis Cluster that allows clients to automatically route requests to the correct node.
+
+- **MOVED Redirection**: Returned when a slot is permanently assigned to another node, client should update local cache
+- **ASK Redirection**: Returned when a slot is in the process of migration, client should temporarily redirect without updating cache
+
+### Implementation Approach
+
+#### 1. Command-Level Slot Checking
+
+Before command execution, check if the key's slot is owned by the current node:
+
+```cpp
+// Add in Worker::ExecuteCommand or similar location
+std::vector<std::string> keys = CommandExtractor::ExtractKeys(command);
+
+if (!keys.empty() && cluster_state->IsEnabled()) {
+    for (const auto& key : keys) {
+        uint16_t slot = HashSlotCalculator::CalculateWithTag(key);
+        auto owner = cluster_state->GetSlotOwner(slot);
+        
+        if (owner.has_value() && *owner != my_node_id_) {
+            // Return MOVED error
+            return BuildMovedError(slot, owner);
+        }
+    }
+}
+```
+
+#### 2. Existing Helper Functions (To Be Used)
+
+The following functions are already defined in `cluster_commands.cpp` and need to be integrated into the command execution flow:
+
+```cpp
+// Calculate hash slot for a key (with hash tag support)
+[[maybe_unused]] static uint16_t GetSlotForKey(const std::string& key) noexcept {
+    return cluster::HashSlotCalculator::CalculateWithTag(key);
+}
+
+// Check if a key needs redirection
+[[maybe_unused]] static std::optional<std::string> CheckKeyRedirect(
+    const std::string& key, CommandContext* context) {
+    return cluster::ClusterStateAccessor::CheckKeyRedirect(key);
+}
+
+// Build MOVED error response
+[[maybe_unused]] static CommandResult BuildMovedError(
+    uint16_t slot, const std::string& target_node) {
+    std::string error = "-MOVED " + std::to_string(slot) + " " + target_node;
+    protocol::RespValue resp;
+    resp.SetString(error, protocol::RespType::kSimpleString);
+    return CommandResult(false, error);
+}
+
+// Build ASK error response
+[[maybe_unused]] static CommandResult BuildAskError(
+    uint16_t slot, const std::string& target_node) {
+    std::string error = "-ASK " + std::to_string(slot) + " " + target_node;
+    protocol::RespValue resp;
+    resp.SetString(error, protocol::RespType::kSimpleString);
+    return CommandResult(false, error);
+}
+```
+
+#### 3. Integration Point: Worker::ExecuteCommand
+
+```cpp
+CommandResult Worker::ExecuteCommand(const protocol::Command& command) {
+    // ... existing code ...
+    
+    // If cluster mode is enabled and not a cluster command, check for redirection
+    if (cluster_state_ && cluster_state_->IsEnabled() && 
+        !IsClusterCommand(command.GetCommandName())) {
+        
+        auto redirect = CheckCommandRedirect(command);
+        if (redirect.has_value()) {
+            return *redirect; // Return MOVED/ASK error
+        }
+    }
+    
+    // ... continue command execution ...
+}
+```
+
+#### 4. Key Extractor
+
+Need to implement a helper function to extract all keys from a command:
+
+```cpp
+// cluster_config.hpp
+class KeyExtractor {
+public:
+    // Extract all affected keys from a command
+    static std::vector<std::string> ExtractKeys(const protocol::Command& command);
+    
+private:
+    // Command key position mapping
+    static const std::unordered_map<std::string, KeyPosition> kCommandKeyPositions;
+};
+
+// Implementation example
+std::vector<std::string> KeyExtractor::ExtractKeys(const protocol::Command& command) {
+    const auto& cmd_name = command.GetCommandName();
+    auto it = kCommandKeyPositions.find(cmd_name);
+    
+    if (it == kCommandKeyPositions.end()) {
+        return {}; // This command doesn't involve keys
+    }
+    
+    std::vector<std::string> keys;
+    const auto& args = command.GetArguments();
+    
+    for (int key_index : it->second.key_indices) {
+        if (key_index < args.size()) {
+            keys.push_back(args[key_index]);
+        }
+    }
+    
+    return keys;
+}
+```
+
+### Implementation Steps
+
+#### Phase 1: Redirection Check Foundation (Core)
+
+1. **Implement KeyExtractor**:
+   - Define key positions for all commands
+   - Implement ExtractKeys function
+   - Support multi-key commands like MSET/MGET
+
+2. **Implement CheckCommandRedirect**:
+   ```cpp
+   std::optional<CommandResult> Worker::CheckCommandRedirect(
+       const protocol::Command& command) {
+       
+       auto keys = KeyExtractor::ExtractKeys(command);
+       if (keys.empty()) {
+           return std::nullopt; // No keys, no check needed
+       }
+       
+       // Check if all keys are in the same slot
+       uint16_t first_slot = GetSlotForKey(keys[0]);
+       for (const auto& key : keys) {
+           if (GetSlotForKey(key) != first_slot) {
+               // Keys not in same slot, return error
+               return BuildCrossSlotError();
+           }
+       }
+       
+       // Check if slot is owned by current node
+       auto owner = cluster_state_->GetSlotOwner(first_slot);
+       if (!owner.has_value()) {
+           return std::nullopt; // Slot not assigned, process locally
+       }
+       
+       if (*owner != my_node_id_) {
+           // Get target node's address
+           auto target_node = cluster_state_->GetNodeInfo(*owner);
+           if (target_node) {
+               return BuildMovedError(first_slot, target_node->address);
+           }
+       }
+       
+       return std::nullopt;
+   }
+   ```
+
+3. **Integrate into command execution flow**:
+   - Modify `Worker::ExecuteCommand`
+   - Add redirection check before execution
+   - Skip cluster commands (CLUSTER INFO, CLUSTER NODES, etc.)
+
+#### Phase 2: Multi-Key Command Handling
+
+1. **Cross-slot error**:
+   ```cpp
+   CommandResult BuildCrossSlotError() {
+       std::string error = "-CROSSSLOT Keys in request don't hash to the same slot";
+       protocol::RespValue resp;
+       resp.SetString(error, protocol::RespType::kSimpleString);
+       return CommandResult(false, error);
+   }
+   ```
+
+2. **Special command support**:
+   - MSET/MGET: Allow different slots but need batch processing
+   - SUNION/SDIFF: Allow different slots but need cross-node aggregation
+   - ZUNION/ZINTER: Allow different slots but need cross-node aggregation
+
+#### Phase 3: ASK Redirection (Optional)
+
+For slot migration scenarios:
+
+```cpp
+// Check migration state in CheckCommandRedirect
+if (cluster_state_->IsSlotMigrating(first_slot)) {
+    auto importing_node = cluster_state_->GetSlotImportingFrom(first_slot);
+    if (importing_node.has_value()) {
+        return BuildAskError(first_slot, *importing_node);
+    }
+}
+```
+
+#### Phase 4: Testing
+
+1. **Unit tests**:
+   - Test GetSlotForKey correctness
+   - Test KeyExtractor extracting keys from various commands
+   - Test CheckCommandRedirect logic
+
+2. **Integration tests**:
+   - Start 3-node cluster
+   - Node 2 assigned slots 4-7
+   - Access slot 4 key from Node 1
+   - Verify MOVED error is returned
+
+3. **Redis client compatibility tests**:
+   ```bash
+   # Start cluster
+   ./astradb --config config/astradb-node1.toml &
+   ./astradb --config config/astradb-node2.toml &
+   
+   # Node 2 assign slot 4
+   redis-cli -p 7002 CLUSTER ADDSLOTS 4
+   
+   # Node 1 try to access slot 4 key
+   redis-cli -p 7001 SET test3330 value
+   # Expected: -MOVED 4 127.0.0.1:7002
+   
+   # Use cluster mode client
+   redis-cli -c -p 7001 SET test3330 value
+   # Expected: Automatically redirect to Node 2, success
+   ```
+
+### Code Changes Summary
+
+#### Files to Modify
+
+1. **`src/astra/cluster/cluster_config.hpp`**:
+   - Implement `KeyExtractor` class
+   - Add command key position mapping
+
+2. **`src/astra/server/worker.hpp`**:
+   - Add `CheckCommandRedirect()` method
+   - Modify `ExecuteCommand()` to add redirection check
+
+3. **`src/astra/commands/cluster_commands.cpp`**:
+   - Remove `[[maybe_unused]]` markers (functions will be officially used)
+
+#### New Dependencies
+
+None - uses existing dependencies
+
+### Success Criteria
+
+- ✅ Correctly identify key's slot
+- ✅ Return MOVED error when slot not owned by current node
+- ✅ Error format follows Redis specification: `-MOVED <slot> <ip:port>`
+- ✅ Redis clients can automatically handle MOVED redirection
+- ✅ Cross-slot multi-key commands return CROSSSLOT error
+- ✅ Performance impact < 5% (slot checking overhead)
+
+### Estimated Time
+
+- **Phase 1**: 2-3 hours (basic redirection check)
+- **Phase 2**: 1-2 hours (multi-key command handling)
+- **Phase 3**: 1 hour (ASK redirection, optional)
+- **Phase 4**: 2 hours (testing and validation)
+
+**Total**: 6-8 hours for complete implementation
