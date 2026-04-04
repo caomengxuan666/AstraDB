@@ -583,16 +583,16 @@ CPMAddPackage(
         "WITH_CORETOOLS OFF"
         "WITH_FATAL_ERROR_HANDLER OFF"
         "WITH_XPRESS OFF"
-                "WITH_ZSTD OFF"
-                "WITH_LZ4 OFF"
-                "WITH_ZLIB ON"
-                "WITH_SNAPPY OFF"
-                "WITH_GFLAGS OFF"
-                "USE_RTTI ON"
-                "ROCKSDB_BUILD_SHARED OFF"
-                "ROCKSDB_INSTALL ON"
-                "FAIL_ON_WARNINGS OFF"
-                "CMAKE_SKIP_INSTALL_RULES OFF")
+        "WITH_ZSTD OFF"
+        "WITH_LZ4 OFF"
+        "WITH_ZLIB ON"
+        "WITH_SNAPPY OFF"
+        "WITH_GFLAGS OFF"
+        "USE_RTTI ON"
+        "ROCKSDB_BUILD_SHARED OFF"
+        "ROCKSDB_INSTALL ON"
+        "FAIL_ON_WARNINGS OFF"
+        "CMAKE_SKIP_INSTALL_RULES OFF")
 
 # Create zstd_static alias for RocksDB
 if(TARGET zstd::zstd AND NOT TARGET zstd_static)
