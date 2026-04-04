@@ -248,6 +248,10 @@ ninja -C build-release
 cmake -B build-debug -G "Ninja" -DCMAKE_BUILD_TYPE=Debug
 ninja -C build-debug
 
+# Release mode with debug information (recommended for development)
+cmake --preset linux-release-debuginfo-clang
+ninja -C build-linux-release-debuginfo-clang
+
 # Enable LTO (Link-Time Optimization)
 cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_LTO=ON
 ninja -C build-release
@@ -256,8 +260,8 @@ ninja -C build-release
 cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_SIMD=ON
 ninja -C build-release
 
-# Enable TLS support (planned for v1.2.0)
-cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_ENABLE_TLS=ON
+# Build without examples (for package builds)
+cmake -B build-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DASTRADB_BUILD_EXAMPLES=OFF
 ninja -C build-release
 
 # Use io_uring backend (Linux 5.1+, high performance)

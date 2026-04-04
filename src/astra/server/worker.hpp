@@ -163,10 +163,10 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   bool IsClusterEnabled() const override { return cluster_enabled_; }
   bool ClusterMeet(const std::string& ip, int port) override {
     if (gossip_manager_) {
-      // Calculate gossip port from data port
-      // data port + 10000 = gossip port (e.g., 7001 + 10000 = 17001)
-      int gossip_port = port + 10000;
-      return gossip_manager_->MeetNode(ip, gossip_port);
+      // Directly use the port provided by CLUSTER MEET command
+      // User specifies the gossip port directly (e.g., CLUSTER MEET 127.0.0.1 17002)
+      // No automatic offset calculation needed
+      return gossip_manager_->MeetNode(ip, port);
     }
     return false;
   }

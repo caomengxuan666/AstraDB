@@ -501,6 +501,9 @@ class MetricsManager {
 
     ASTRADB_LOG_INFO("MetricsManager: Shutting down");
 
+    // Stop HTTP server first
+    astra::metrics::MetricsRegistry::Instance().StopHTTPServer();
+
     // Stop io_context
     if (metrics_io_context_) {
         metrics_io_context_->stop();

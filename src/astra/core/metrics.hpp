@@ -75,6 +75,9 @@ class MetricsRegistry {
   void StartHTTPServer(asio::io_context& io_context,
                        const MetricsConfig& config);
 
+  // Stop HTTP server
+  void StopHTTPServer();
+
   // Get the prometheus registry
   std::shared_ptr<prometheus::Registry> GetRegistry() const {
     return registry_;

@@ -1,7 +1,7 @@
-# Node 2 Configuration
+# Node 1 Configuration
 [server]
 host = "0.0.0.0"
-port = 7002
+port = 7001
 max_connections = 10000
 thread_count = 4
 use_per_worker_io = false
@@ -12,8 +12,8 @@ num_databases = 16
 num_shards = 16
 
 [logging]
-level = "info"
-file = "./logs/astradb-node2.log"
+level = "debug"
+file = "./logs/astradb-node1.log"
 async = true
 queue_size = 8192
 
@@ -35,14 +35,17 @@ enabled = false
 
 [metrics]
 enabled = false
+port = 9991
 
 [cluster]
 enabled = true
-node_id = "00000000000000000000000000000002"
-bind_addr = "0.0.0.0"
-gossip_port = 17002
+node_id = "00000000000000000000000000000001"
+bind_addr = "127.0.0.1"
+gossip_port = 17001
 shard_count = 16384
 seeds = []
+# Use UDP for gossip
+use_tcp = false
 
 [rocksdb]
 enabled = false

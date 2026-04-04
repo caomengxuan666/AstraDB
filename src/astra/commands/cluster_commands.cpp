@@ -120,9 +120,13 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
   // Get all nodes from cluster state
   const auto& nodes = cluster_state->GetNodes();
 
+  ASTRADB_LOG_DEBUG("CLUSTER NODES: {} nodes in cluster state", nodes.size());
+
   // Build nodes string in Redis cluster format
   std::string result;
   for (const auto& [node_id, node] : nodes) {
+    ASTRADB_LOG_DEBUG("CLUSTER NODES: processing node_id={}", node_id);
+    
     // Format: <id> <ip>:<port@bus-port> <flags> <master> <ping-sent> <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
     std::string node_str = node_id;
     node_str += " " + node.ip + ":" + std::to_string(node.port) + "@" + std::to_string(node.bus_port);
@@ -156,9 +160,16 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
     std::string slots_str;
     uint16_t slot_start = 0;
     bool in_range = false;
+    int owned_slots = 0;
     for (uint16_t slot = 0; slot < 16384; ++slot) {
       auto owner = cluster_state->GetSlotOwner(slot);
+      if (owner.has_value()) {
+        if (slot < 10 || (slot >= 4 && slot <= 7)) {
+          ASTRADB_LOG_DEBUG("CLUSTER NODES: slot {} owner={}", slot, owner.value());
+        }
+      }
       if (owner == node_id) {
+        owned_slots++;
         if (!in_range) {
           slot_start = slot;
           in_range = true;
@@ -178,6 +189,8 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
     if (in_range) {
       slots_str += " " + std::to_string(slot_start) + "-16383";
     }
+
+    ASTRADB_LOG_DEBUG("CLUSTER NODES: node_id={} owns {} slots, slots_str='{}'", node_id, owned_slots, slots_str);
 
     node_str += slots_str;
 

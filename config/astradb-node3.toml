@@ -12,7 +12,7 @@ num_databases = 16
 num_shards = 16
 
 [logging]
-level = "info"
+level = "debug"
 file = "./logs/astradb-node3.log"
 async = true
 queue_size = 8192
@@ -35,14 +35,17 @@ enabled = false
 
 [metrics]
 enabled = false
+port = 9993
 
 [cluster]
 enabled = true
 node_id = "00000000000000000000000000000003"
-bind_addr = "0.0.0.0"
+bind_addr = "127.0.0.1"
 gossip_port = 17003
 shard_count = 16384
 seeds = []
+# Use UDP for gossip
+use_tcp = false
 
 [rocksdb]
 enabled = false

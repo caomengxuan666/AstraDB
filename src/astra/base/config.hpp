@@ -38,6 +38,7 @@ struct ClusterConfig {
   std::string bind_addr = "0.0.0.0";
   uint16_t gossip_port = 7946;
   uint32_t shard_count = 256;
+  bool use_tcp = false;  // false = UDP, true = TCP
   std::vector<std::string> seeds;
 };
 

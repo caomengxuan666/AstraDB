@@ -373,10 +373,10 @@ endif()
 CPMAddPackage(
         NAME
         libgossip_download
-        VERSION
-        1.2.1.3
-        URL
-        https://github.com/caomengxuan666/libgossip/archive/refs/tags/v1.2.1.3.tar.gz
+        GITHUB_REPOSITORY
+        caomengxuan666/libgossip
+        GIT_TAG
+        master
         DOWNLOAD_ONLY
         YES)
 # Set LIBGOSSIP_SOURCE variable
@@ -412,6 +412,19 @@ if(asio_ADDED)
 
   # Now add the patched directory
   add_subdirectory("${LIBGOSSIP_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/libgossip")
+
+  # Disable libgossip logging for performance
+  if(TARGET libgossip_core)
+    target_compile_definitions(libgossip_core PUBLIC LIBGOSSIP_ENABLE_LOGGING=0)
+    message(STATUS "✅ Disabled libgossip logging for better performance")
+  elseif(TARGET libgossip::core)
+    # For alias targets, we need to find the actual target
+    get_target_property(actual_target libgossip::core ALIASED_TARGET)
+    if(actual_target AND TARGET ${actual_target})
+      target_compile_definitions(${actual_target} PUBLIC LIBGOSSIP_ENABLE_LOGGING=0)
+      message(STATUS "✅ Disabled libgossip logging for better performance")
+    endif()
+  endif()
 
   # Set the _ADDED variable manually
   set(libgossip_ADDED ON)
@@ -599,61 +612,33 @@ endif()
 # Disable unused language generators to speed up compilation
 
 CPMAddPackage(
-
         NAME
-
         flatbuffers
-
         VERSION
-
         24.3.25
-
         GITHUB_REPOSITORY
-
         google/flatbuffers
-
         GIT_TAG
-
         v24.3.25
-
         OPTIONS
-
         "FLATBUFFERS_BUILD_TESTS OFF"
-
         "FLATBUFFERS_BUILD_FLATC ON"  # Enable flatc compiler for code generation
-
         "FLATBUFFERS_BUILD_FLATHASH OFF"
-
         "FLATBUFFERS_BUILD_GRPCCPP OFF"
-
         "FLATBUFFERS_BUILD_JAVA OFF"  # Disable Java
-
         "FLATBUFFERS_BUILD_CSHARP OFF"  # Disable C#
-
         "FLATBUFFERS_BUILD_GO OFF"  # Disable Go
-
         "FLATBUFFERS_BUILD_PYTHON OFF"  # Disable Python
-
         "FLATBUFFERS_BUILD_PHP OFF"  # Disable PHP
-
         "FLATBUFFERS_BUILD_NODEJS OFF"  # Disable Node.js
-
         "FLATBUFFERS_BUILD_TS OFF"  # Disable TypeScript
-
         "FLATBUFFERS_BUILD_LOBBY OFF"  # Disable Lobster
-
         "FLATBUFFERS_BUILD_LUA OFF"  # Disable Lua
-
         "FLATBUFFERS_BUILD_RUST OFF"  # Disable Rust
-
         "FLATBUFFERS_BUILD_SWIFT OFF"  # Disable Swift
-
         "FLATBUFFERS_BUILD_KOTLIN OFF"  # Disable Kotlin
-
         "FLATBUFFERS_BUILD_DART OFF"  # Disable Dart
-
         "FLATBUFFERS_BUILD_GRPC OFF"  # Disable gRPC
-
         "FLATBUFFERS_BUILD_INSTALL OFF")
 
 # ==============================================================================

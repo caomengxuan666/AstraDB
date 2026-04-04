@@ -64,9 +64,9 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   std::string acl_default_password = "";
 
   // Metrics
-  bool metrics_enabled = true;
+  bool metrics_enabled = false;
   std::string metrics_bind_addr = "0.0.0.0";
-  [[maybe_unused]]uint16_t metrics_port = 9999;
+  [[maybe_unused]]uint16_t metrics_port = 9100;
   
   // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
   // Default: 10 seconds for optimal performance and monitoring
@@ -183,21 +183,11 @@ class Server {
   // Get worker scheduler (for cross-worker task dispatch)
 
     class WorkerScheduler* GetWorkerScheduler() {
-
       return worker_scheduler_.get();
-
     }
-
-  
-
     // Update cluster state for all workers (uses DispatchOnAll to avoid deadlock)
-
     // Implementation is in server.cpp to avoid circular dependency with worker.hpp
-
     void UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state);
-
-  
-
    private:  // Initialize persistence
   bool InitPersistence() noexcept;
 

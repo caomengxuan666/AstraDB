@@ -250,6 +250,7 @@ int main(int argc, char** argv) {
   server_config.cluster.gossip_port = config.cluster.gossip_port;
   server_config.cluster.shard_count = config.cluster.shard_count;
   server_config.cluster.seeds = config.cluster.seeds;
+  server_config.cluster.use_tcp = config.cluster.use_tcp;
 
   // Also copy to direct member variables (used by Server)
   server_config.cluster_enabled = config.cluster.enabled;

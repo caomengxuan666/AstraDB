@@ -360,6 +360,7 @@ bool Server::InitCluster() noexcept {
     gossip_config.gossip_port = config_.cluster_gossip_port;
     gossip_config.data_port = config_.port;
     gossip_config.shard_count = config_.cluster_shard_count;
+    gossip_config.use_tcp = config_.cluster.use_tcp;
     
     if (!gossip_manager_->Init(gossip_config)) {
       ASTRADB_LOG_ERROR("Failed to initialize gossip manager");
@@ -459,17 +460,23 @@ void Server::OnClusterEvent(cluster::ClusterEvent event,
 void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
                                       const cluster::AstraNodeView& node_view) noexcept {
   try {
+    ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: event={}, node_id={}, ip={}:{}, has_slots={}",
+                     static_cast<int>(event),
+                     cluster::GossipManager::NodeIdToString(node_view.id),
+                     node_view.ip, node_view.port,
+                     node_view.metadata.contains("slots"));
+
     // Get current cluster state from any worker (they should be in sync)
     std::shared_ptr<cluster::ClusterState> new_state;
     if (!workers_.empty() && workers_[0]->GetClusterState()) {
       new_state = workers_[0]->GetClusterState();
-      ASTRADB_LOG_INFO("Got existing ClusterState");
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Got existing ClusterState");
     } else {
       // Create initial state if not exists
       new_state = std::make_shared<cluster::ClusterState>(
           config_.cluster_node_id, config_.host, config_.port,
           config_.cluster_gossip_port);
-      ASTRADB_LOG_INFO("Created new ClusterState");
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Created new ClusterState");
     }
 
     // Add/update node in cluster state based on event
@@ -479,14 +486,19 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         cluster::ClusterNodeInfo node_info;
         node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
         node_info.ip = node_view.ip;
-        node_info.port = node_view.port;
-        node_info.bus_port = node_view.port + 10000;  // Default bus port
+        // Convert gossip port to data port: data_port = gossip_port - 10000
+        // E.g., gossip_port 17002 -> data_port 7002
+        node_info.port = node_view.port - 10000;
+        // Bus port is for Redis Cluster internal communication
+        // Using gossip port as bus port for simplicity
+        node_info.bus_port = node_view.port;
         node_info.role = (node_view.role == "master")
                          ? cluster::ClusterRole::kMaster
                          : cluster::ClusterRole::kSlave;
         node_info.config_epoch = node_view.config_epoch;
         new_state = new_state->WithNodeAdded(node_info);
-        ASTRADB_LOG_INFO("Added node {} to ClusterState", node_info.id);
+        ASTRADB_LOG_INFO("Added node {} to ClusterState: {}:{}@{}", node_info.id,
+                         node_info.ip, node_info.port, node_info.bus_port);
         break;
       }
       case cluster::ClusterEvent::kNodeLeft:
@@ -502,8 +514,10 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         cluster::ClusterNodeInfo node_info;
         node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
         node_info.ip = node_view.ip;
-        node_info.port = node_view.port;
-        node_info.bus_port = node_view.port + 10000;
+        // Convert gossip port to data port: data_port = gossip_port - 10000
+        node_info.port = node_view.port - 10000;
+        // Bus port is for Redis Cluster internal communication
+        node_info.bus_port = node_view.port;
         node_info.role = (node_view.role == "master")
                          ? cluster::ClusterRole::kMaster
                          : cluster::ClusterRole::kSlave;
@@ -514,6 +528,24 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
       }
       default:
         // Other events (kConfigChanged, kLeaderChanged) - update metadata and slots
+        // For kConfigChanged, ensure node is in cluster state before processing metadata
+        if (event == cluster::ClusterEvent::kConfigChanged) {
+          // Add or update node in cluster state
+          cluster::ClusterNodeInfo node_info;
+          node_info.id = cluster::GossipManager::NodeIdToString(node_view.id);
+          node_info.ip = node_view.ip;
+          // Convert gossip port to data port: data_port = gossip_port - 10000
+          node_info.port = node_view.port - 10000;
+          // Bus port is for Redis Cluster internal communication
+          node_info.bus_port = node_view.port;
+          node_info.role = (node_view.role == "master")
+                           ? cluster::ClusterRole::kMaster
+                           : cluster::ClusterRole::kSlave;
+          node_info.config_epoch = node_view.config_epoch;
+          new_state = new_state->WithNodeAdded(node_info);
+          ASTRADB_LOG_INFO("ConfigChanged: Added/updated node {} in ClusterState: {}:{}@{}", node_info.id,
+                           node_info.ip, node_info.port, node_info.bus_port);
+        }
         break;
     }
 
@@ -522,36 +554,52 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
       std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
       const std::string& slots_str = node_view.metadata.at("slots");
 
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Node {} has slot metadata: '{}', size={} bytes",
+                       node_id, slots_str, slots_str.size());
+
       // Check config epoch for conflict resolution
       uint64_t remote_epoch = 0;
       if (node_view.metadata.contains("config_epoch")) {
         remote_epoch = std::stoull(node_view.metadata.at("config_epoch"));
       }
 
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Remote config epoch={}, node_id={}", remote_epoch, node_id);
+
       // Check if remote config is newer
       uint64_t local_epoch = gossip_manager_->GetConfigEpoch();
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Local config epoch={}, node_id={}", local_epoch, node_id);
+
       if (remote_epoch > local_epoch) {
-        ASTRADB_LOG_INFO("Remote node {} has newer config epoch ({} > {}), accepting slot assignments",
+        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Remote node {} has newer config epoch ({} > {}), accepting slot assignments",
                          node_id, remote_epoch, local_epoch);
 
         // Deserialize slot assignments
         auto slots = cluster::SlotSerializer::Deserialize(slots_str);
+        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Deserialized {} slots from metadata: '{}'", slots.size(), slots_str);
+
         if (!slots.empty()) {
-          ASTRADB_LOG_INFO("Updating slot assignments for node {}: {} slots",
+          ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updating slot assignments for node {}: {} slots",
                            node_id, slots.size());
 
           // Update cluster state with slot assignments
           for (uint16_t slot : slots) {
             new_state = new_state->WithSlotAssigned(node_id, slot);
+            ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Assigned slot {} to node {}", slot, node_id);
           }
+
+          ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updated cluster state with {} slot assignments", slots.size());
         }
       } else {
-        ASTRADB_LOG_DEBUG("Ignoring slot metadata from node {} (config_epoch {} <= local {})",
+        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Ignoring slot metadata from node {} (config_epoch {} <= local {})",
                           node_id, remote_epoch, local_epoch);
       }
+    } else {
+      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Node {} has no slot metadata",
+                       cluster::GossipManager::NodeIdToString(node_view.id));
     }
 
     // Update all workers' ClusterState (zero-copy via shared_ptr)
+    ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updating cluster state in all workers");
     UpdateClusterState(new_state);
 
   } catch (const std::exception& e) {

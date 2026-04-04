@@ -1,6 +1,6 @@
 # Metrics Implementation Status
 
-**Last Updated**: 2026-03-15  
+**Last Updated**: 2026-04-04  
 **Status**: ✅ FULLY IMPLEMENTED
 
 ## Overview
@@ -12,13 +12,14 @@ All planned metrics functionality has been successfully implemented and tested.
 
 ### Completed Features
 
-#### 1. Infrastructure ✅ (Completed 2026-03-14)
+#### 1. Infrastructure ✅ (Completed 2026-04-04)
 - [x] Unified `ServerStats` structure in `src/astra/core/server_stats.hpp`
 - [x] `AstraMetrics` class for Prometheus metrics
 - [x] Custom ASIO HTTP server (CivetWeb disabled for WSL2 compatibility)
 - [x] CMake configuration with prometheus-cpp::core only (no pull/push)
 - [x] MetricsManager with dedicated io_context and thread
-- [x] HTTP server on port 9999 (configurable)
+- [x] HTTP server on configurable port (default: 9100)
+- [x] Fixed port configuration to use TOML settings instead of hardcoded 9999
 
 #### 2. Metrics Collection ✅ (Completed 2026-03-14)
 - [x] Connection count tracking (via `Connection` lifecycle)
@@ -288,6 +289,7 @@ port = 9999
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-04-04 | ✅ Fixed metrics port configuration (configurable port instead of hardcoded 9999) |
 | 2.0 | 2026-03-15 | ✅ Marked as FULLY IMPLEMENTED - all features working |
 | 1.1 | 2026-03-14 | Fixed command tracking and periodic updates |
 | 1.0 | 2026-03-14 | Initial implementation |

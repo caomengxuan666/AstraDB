@@ -212,6 +212,7 @@
         "ASTRADB_ENABLE_LTO": "ON",
         "ASTRADB_BUILD_TESTS": "OFF",
         "ASTRADB_BUILD_BENCHMARKS": "OFF",
+        "ASTRADB_BUILD_EXAMPLES": "OFF",
         "ASTRADB_ENABLE_IO_URING": "OFF"
       }
     },

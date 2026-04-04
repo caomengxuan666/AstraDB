@@ -54,13 +54,16 @@ class MetricsHTTPServer
         asio::detached);
   }
 
-  ~MetricsHTTPServer() {
-    ASTRADB_LOG_INFO("Shutting down Metrics HTTP server");
-
+  void Stop() {
     if (running_.exchange(false)) {
       std::error_code ec;
       acceptor_.close(ec);
     }
+  }
+
+  ~MetricsHTTPServer() {
+    ASTRADB_LOG_INFO("Shutting down Metrics HTTP server");
+    Stop();
   }
 
  private:
@@ -250,6 +253,14 @@ void MetricsRegistry::StartHTTPServer(asio::io_context& io_context,
   g_http_server = std::make_shared<MetricsHTTPServer>(
       io_context, config.bind_addr, config.port, registry_);
   g_http_server->Start();
+}
+
+// Stop HTTP server implementation
+void MetricsRegistry::StopHTTPServer() {
+  if (g_http_server) {
+    g_http_server->Stop();
+    g_http_server.reset();
+  }
 }
 
 }  // namespace astra::metrics

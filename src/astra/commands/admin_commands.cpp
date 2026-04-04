@@ -846,10 +846,11 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
   }
 
   const auto& subcommand = command[0].AsString();
+  std::string upper_subcommand = absl::AsciiStrToUpper(subcommand);
 
   if (!context || !context->IsClusterEnabled()) {
     // Return error for cluster commands when cluster is not enabled
-    if (subcommand == "INFO") {
+    if (upper_subcommand == "INFO") {
       std::string info =
           "cluster_state:down\r\n"
           "cluster_slots_assigned:0\r\n"
@@ -869,7 +870,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
   auto* gossip = context->GetGossipManagerMutable();
 
-  if (subcommand == "INFO") {
+  if (upper_subcommand == "INFO") {
     // Return real cluster info
     auto stats =
         gossip ? gossip->GetStats() : cluster::GossipManager::GossipStats{};
@@ -906,7 +907,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString(oss.str(), protocol::RespType::kBulkString);
     return CommandResult(response);
 
-  } else if (subcommand == "KEYSLOT") {
+  } else if (upper_subcommand == "KEYSLOT") {
     // CLUSTER KEYSLOT <key>
     // Returns the hash slot for the specified key
     if (command.ArgCount() < 2) {
@@ -921,10 +922,16 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetInteger(slot);
     return CommandResult(response);
 
-  } else if (subcommand == "NODES") {
-    // Return real node info
+  } else if (upper_subcommand == "NODES") {
+    // Return real node info with slot assignments from ClusterState
     std::ostringstream oss;
     auto* shard_manager = context->GetClusterShardManager();
+
+    // Get ClusterState for slot information
+    std::shared_ptr<cluster::ClusterState> cluster_state;
+    if (auto* ctx = dynamic_cast<server::WorkerCommandContext*>(context)) {
+      cluster_state = ctx->GetClusterState();
+    }
 
     if (gossip) {
       auto nodes = gossip->GetNodes();
@@ -962,8 +969,41 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
         oss << node.config_epoch << " ";
         oss << "connected ";  // link_state
 
-        // Add slots for self
-        if (self.id == node.id && shard_manager) {
+        // Add slots from ClusterState
+        if (cluster_state) {
+          std::string slots_str;
+          uint16_t slot_start = 0;
+          bool in_range = false;
+          for (uint16_t slot = 0; slot < 16384; ++slot) {
+            auto owner = cluster_state->GetSlotOwner(slot);
+            if (owner.has_value() && owner.value() == node_id) {
+              if (!in_range) {
+                slot_start = slot;
+                in_range = true;
+              }
+            } else {
+              if (in_range) {
+                if (slot_start == slot - 1) {
+                  slots_str += std::to_string(slot_start);
+                } else {
+                  slots_str += std::to_string(slot_start) + "-" + std::to_string(slot - 1);
+                }
+                slots_str += " ";
+                in_range = false;
+              }
+            }
+          }
+          // Handle last range
+          if (in_range) {
+            if (slot_start == 16383) {
+              slots_str += std::to_string(slot_start);
+            } else {
+              slots_str += std::to_string(slot_start) + "-16383";
+            }
+          }
+          oss << slots_str;
+        } else if (self.id == node.id && shard_manager) {
+          // Fallback: show all slots for self if no ClusterState
           oss << "0-16383";
         }
         oss << "\r\n";
@@ -983,7 +1023,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString(oss.str(), protocol::RespType::kBulkString);
     return CommandResult(response);
 
-  } else if (subcommand == "MEET") {
+  } else if (upper_subcommand == "MEET") {
     // CLUSTER MEET <ip> <port>
     if (command.ArgCount() < 3) {
       return CommandResult(
@@ -1008,7 +1048,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       return CommandResult(false, "ERR failed to meet node");
     }
 
-  } else if (subcommand == "SLOTS") {
+  } else if (upper_subcommand == "SLOTS") {
     // Return slot distribution
     std::vector<RespValue> result;
 
@@ -1040,7 +1080,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
     return CommandResult(RespValue(std::move(result)));
 
-  } else if (subcommand == "FORGET") {
+  } else if (upper_subcommand == "FORGET") {
     // CLUSTER FORGET <node_id>
     // Remove a node from the cluster
     if (command.ArgCount() < 2) {
@@ -1074,7 +1114,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(response);
 
-  } else if (subcommand == "REPLICATE") {
+  } else if (upper_subcommand == "REPLICATE") {
     // CLUSTER REPLICATE <master_node_id>
     // Configure this node as a replica of the specified master node
     if (command.ArgCount() < 2) {
@@ -1118,7 +1158,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(response);
 
-  } else if (subcommand == "ADDSLOTS") {
+  } else if (upper_subcommand == "ADDSLOTS") {
     // CLUSTER ADDSLOTS <slot1> <slot2> ...
     if (command.ArgCount() < 2) {
       return CommandResult(
@@ -1154,7 +1194,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       return CommandResult(false, "ERR Failed to add slots");
     }
 
-  } else if (subcommand == "DELSLOTS") {
+  } else if (upper_subcommand == "DELSLOTS") {
     // CLUSTER DELSLOTS <slot1> <slot2> ...
     if (command.ArgCount() < 2) {
       return CommandResult(
@@ -1189,7 +1229,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     } else {
       return CommandResult(false, "ERR Failed to remove slots");
     }
-  } else if (subcommand == "SETSLOT") {
+  } else if (upper_subcommand == "SETSLOT") {
     // CLUSTER SETSLOT <slot> IMPORTING|MIGRATING|STABLE|NODE <node_id>
     // Used during manual slot migration
     if (command.ArgCount() < 3) {
@@ -1275,7 +1315,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       return CommandResult(false, "ERR unknown setslot action");
     }
 
-  } else if (subcommand == "GETKEYSINSLOT") {
+  } else if (upper_subcommand == "GETKEYSINSLOT") {
     // CLUSTER GETKEYSINSLOT <slot> <count>
     // Returns keys in the specified slot
     if (command.ArgCount() < 3) {
