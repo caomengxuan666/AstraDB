@@ -2,8 +2,9 @@
 // Memory Tracker Unit Tests
 // =============================================================================
 
-#include <gtest/gtest.h>
 #include "astra/core/memory/memory_tracker.hpp"
+
+#include <gtest/gtest.h>
 
 namespace astra::core::memory {
 
@@ -12,7 +13,7 @@ class MemoryTrackerTest : public ::testing::Test {
   void SetUp() override {
     MemoryTrackerConfig config;
     config.max_memory_limit = 1000000;  // 1MB
-    config.eviction_threshold = 0.9;     // 90%
+    config.eviction_threshold = 0.9;    // 90%
     config.eviction_samples = 5;
     config.enable_tracking = true;
     tracker_ = std::make_unique<MemoryTracker>(config);

@@ -2,13 +2,13 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "server.hpp"
-#include "worker_scheduler.hpp"
 
-#include "astra/security/acl_manager.hpp"  // For AclManager
+#include "absl/time/time.h"
 #include "astra/cluster/cluster_manager.hpp"  // For ClusterManager
 #include "astra/cluster/gossip_manager.hpp"   // For GossipManager
 #include "astra/cluster/shard_manager.hpp"    // For ShardManager
-#include "absl/time/time.h"
+#include "astra/security/acl_manager.hpp"     // For AclManager
+#include "worker_scheduler.hpp"
 
 namespace astra::server {
 
@@ -17,9 +17,7 @@ Server::Server(const ServerConfig& config) : config_(config), running_(false) {
   // Set server start time for stats
   auto* stats = server::ServerStatsAccessor::Instance().GetStats();
   absl::Time start_time = absl::Now();
-  stats->start_time.store(
-      absl::ToTimeT(start_time),
-      std::memory_order_relaxed);
+  stats->start_time.store(absl::ToTimeT(start_time), std::memory_order_relaxed);
   ASTRADB_LOG_INFO("Config: host={}, port={}, workers={}", config.host,
                    config.port, config.num_workers);
 
@@ -107,14 +105,19 @@ void Server::Start() {
     if (cluster_manager_ && gossip_manager_ && shard_manager_) {
       for (auto& worker : workers_) {
         worker->GetDataShard().GetCommandContext()->SetClusterEnabled(true);
-        worker->GetDataShard().GetCommandContext()->SetGossipManager(gossip_manager_.get());
-        worker->GetDataShard().GetCommandContext()->SetShardManager(shard_manager_.get());
-        worker->GetDataShard().GetCommandContext()->SetWorkerId(worker->GetWorkerId());
+        worker->GetDataShard().GetCommandContext()->SetGossipManager(
+            gossip_manager_.get());
+        worker->GetDataShard().GetCommandContext()->SetShardManager(
+            shard_manager_.get());
+        worker->GetDataShard().GetCommandContext()->SetWorkerId(
+            worker->GetWorkerId());
         // Set callback for updating cluster state across all workers
-        worker->GetDataShard().GetCommandContext()->SetClusterStateUpdateCallback(
-            [this](std::shared_ptr<cluster::ClusterState> new_state) {
-              this->UpdateClusterState(new_state);
-            });
+        worker->GetDataShard()
+            .GetCommandContext()
+            ->SetClusterStateUpdateCallback(
+                [this](std::shared_ptr<cluster::ClusterState> new_state) {
+                  this->UpdateClusterState(new_state);
+                });
       }
       ASTRADB_LOG_INFO("Cluster managers set for all workers");
     }
@@ -150,7 +153,8 @@ void Server::Start() {
       worker_ptrs.push_back(worker.get());
     }
     worker_scheduler_ = std::make_unique<WorkerScheduler>(worker_ptrs);
-    ASTRADB_LOG_INFO("Worker scheduler created with {} workers", workers_.size());
+    ASTRADB_LOG_INFO("Worker scheduler created with {} workers",
+                     workers_.size());
   }
 
   // Set worker scheduler for all workers
@@ -161,19 +165,21 @@ void Server::Start() {
 
   // Set memory configuration for all workers' data shards
   {
-    ASTRADB_LOG_INFO("Memory configuration from file - max_memory={}, eviction_policy={}",
-                     config_.memory.max_memory, config_.memory.eviction_policy);
-    
+    ASTRADB_LOG_INFO(
+        "Memory configuration from file - max_memory={}, eviction_policy={}",
+        config_.memory.max_memory, config_.memory.eviction_policy);
+
     core::memory::MemoryTrackerConfig memory_config;
     memory_config.max_memory_limit = config_.memory.max_memory;
-    memory_config.eviction_policy = 
+    memory_config.eviction_policy =
         core::memory::StringToEvictionPolicy(config_.memory.eviction_policy);
     memory_config.eviction_threshold = config_.memory.eviction_threshold;
     memory_config.eviction_samples = config_.memory.eviction_samples;
     memory_config.enable_tracking = config_.memory.enable_tracking;
 
-    ASTRADB_LOG_INFO("Setting memory configuration for {} workers (RocksDB enabled: {})",
-                     workers_.size(), config_.rocksdb.enabled ? "yes" : "no");
+    ASTRADB_LOG_INFO(
+        "Setting memory configuration for {} workers (RocksDB enabled: {})",
+        workers_.size(), config_.rocksdb.enabled ? "yes" : "no");
     for (auto& worker : workers_) {
       // Create callback to get total memory across all workers
       core::memory::GetTotalMemoryCallback get_total_memory_callback;
@@ -181,14 +187,16 @@ void Server::Start() {
         get_total_memory_callback = [this]() -> size_t {
           size_t total_memory = 0;
           for (auto& worker : workers_) {
-            total_memory += worker->GetDataShard().GetMemoryTracker()->GetCurrentMemory();
+            total_memory +=
+                worker->GetDataShard().GetMemoryTracker()->GetCurrentMemory();
           }
           return total_memory;
         };
       }
-      
-      worker->GetDataShard().SetMemoryConfig(memory_config, std::move(get_total_memory_callback),
-                                              config_.rocksdb.enabled);
+
+      worker->GetDataShard().SetMemoryConfig(
+          memory_config, std::move(get_total_memory_callback),
+          config_.rocksdb.enabled);
     }
     ASTRADB_LOG_INFO("Memory configuration set for all workers");
   }
@@ -201,12 +209,12 @@ void Server::Start() {
   running_ = true;
   ASTRADB_LOG_INFO("Server started successfully with {} workers",
                    workers_.size());
-  
+
   // Start stats aggregation (NO SHARING architecture)
   if (config_.metrics_enabled) {
     StartStatsAggregation();
   }
-  
+
   // Start gossip tick thread (NO SHARING architecture)
   if (gossip_manager_ && config_.cluster_enabled) {
     gossip_tick_thread_ = std::thread([this]() {
@@ -361,7 +369,7 @@ bool Server::InitCluster() noexcept {
     gossip_config.data_port = config_.port;
     gossip_config.shard_count = config_.cluster_shard_count;
     gossip_config.use_tcp = config_.cluster.use_tcp;
-    
+
     if (!gossip_manager_->Init(gossip_config)) {
       ASTRADB_LOG_ERROR("Failed to initialize gossip manager");
       gossip_manager_.reset();
@@ -377,19 +385,21 @@ bool Server::InitCluster() noexcept {
       return false;
     }
 
-    // Set event callback to update ClusterState for all workers (NO SHARING architecture)
-    // Use lambda with [this] capture (std::function should correctly store the capture)
+    // Set event callback to update ClusterState for all workers (NO SHARING
+    // architecture) Use lambda with [this] capture (std::function should
+    // correctly store the capture)
     ASTRADB_LOG_INFO("Setting event callback: this={}", (void*)this);
-    gossip_manager_->SetEventCallback([this](cluster::ClusterEvent event,
-                                              const cluster::AstraNodeView& node_view) {
-      OnClusterEvent(event, node_view);
-    });
+    gossip_manager_->SetEventCallback(
+        [this](cluster::ClusterEvent event,
+               const cluster::AstraNodeView& node_view) {
+          OnClusterEvent(event, node_view);
+        });
 
     // Create and initialize shard manager
     shard_manager_ = std::make_unique<cluster::ShardManager>();
     cluster::NodeId self_id{};
     cluster::GossipManager::ParseNodeId(config_.cluster_node_id, self_id);
-    
+
     if (!shard_manager_->Init(config_.cluster_shard_count, self_id)) {
       ASTRADB_LOG_ERROR("Failed to initialize shard manager");
       shard_manager_.reset();
@@ -398,7 +408,8 @@ bool Server::InitCluster() noexcept {
       return false;
     }
 
-    ASTRADB_LOG_INFO("ShardManager initialized: {} shards", config_.cluster_shard_count);
+    ASTRADB_LOG_INFO("ShardManager initialized: {} shards",
+                     config_.cluster_shard_count);
 
     // Create initial ClusterState for all workers (NO SHARING architecture)
     auto initial_cluster_state = std::make_shared<cluster::ClusterState>(
@@ -417,12 +428,14 @@ bool Server::InitCluster() noexcept {
       }
     }
 
-    // Set initial ClusterState for all workers (will be set during Worker::Start)
-    // Store it in a temporary variable and set it when workers start
+    // Set initial ClusterState for all workers (will be set during
+    // Worker::Start) Store it in a temporary variable and set it when workers
+    // start
     initial_cluster_state_ = initial_cluster_state;
 
-    ASTRADB_LOG_INFO("Cluster initialized successfully (enabled: yes, node_id: {})",
-                     config_.cluster_node_id);
+    ASTRADB_LOG_INFO(
+        "Cluster initialized successfully (enabled: yes, node_id: {})",
+        config_.cluster_node_id);
     return true;
   } catch (const std::exception& e) {
     ASTRADB_LOG_ERROR("Cluster initialization exception: {}", e.what());
@@ -433,17 +446,18 @@ bool Server::InitCluster() noexcept {
 }
 
 void Server::OnClusterEvent(cluster::ClusterEvent event,
-                             const cluster::AstraNodeView& node_view) noexcept {
+                            const cluster::AstraNodeView& node_view) noexcept {
   // NO SHARING architecture: Update all workers' ClusterState
   // This method is called from GossipManager's event callback
-  // CRITICAL: This runs in libgossip's tick thread, which holds gossip_core's mutex
-  // DO NOT call any function that might acquire gossip_core's mutex
+  // CRITICAL: This runs in libgossip's tick thread, which holds gossip_core's
+  // mutex DO NOT call any function that might acquire gossip_core's mutex
 
-  ASTRADB_LOG_INFO("OnClusterEvent: event={}, node_id={}, ip={}:{}, this={}, workers_.size()={}",
-                   static_cast<int>(event),
-                   cluster::GossipManager::NodeIdToString(node_view.id),
-                   node_view.ip, node_view.port,
-                   (void*)this, workers_.size());
+  ASTRADB_LOG_INFO(
+      "OnClusterEvent: event={}, node_id={}, ip={}:{}, this={}, "
+      "workers_.size()={}",
+      static_cast<int>(event),
+      cluster::GossipManager::NodeIdToString(node_view.id), node_view.ip,
+      node_view.port, (void*)this, workers_.size());
 
   // IMPORTANT: Defer cluster state update to avoid holding libgossip's lock
   // Post the event to worker thread for async processing
@@ -457,14 +471,16 @@ void Server::OnClusterEvent(cluster::ClusterEvent event,
 }
 
 // Process cluster event asynchronously (not in libgossip's tick thread)
-void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
-                                      const cluster::AstraNodeView& node_view) noexcept {
+void Server::ProcessClusterEventAsync(
+    cluster::ClusterEvent event,
+    const cluster::AstraNodeView& node_view) noexcept {
   try {
-    ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: event={}, node_id={}, ip={}:{}, has_slots={}",
-                     static_cast<int>(event),
-                     cluster::GossipManager::NodeIdToString(node_view.id),
-                     node_view.ip, node_view.port,
-                     node_view.metadata.contains("slots"));
+    ASTRADB_LOG_DEBUG(
+        "ProcessClusterEventAsync: event={}, node_id={}, ip={}:{}, "
+        "has_slots={}",
+        static_cast<int>(event),
+        cluster::GossipManager::NodeIdToString(node_view.id), node_view.ip,
+        node_view.port, node_view.metadata.contains("slots"));
 
     // Get current cluster state from any worker (they should be in sync)
     std::shared_ptr<cluster::ClusterState> new_state;
@@ -493,18 +509,20 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         // Using gossip port as bus port for simplicity
         node_info.bus_port = node_view.port;
         node_info.role = (node_view.role == "master")
-                         ? cluster::ClusterRole::kMaster
-                         : cluster::ClusterRole::kSlave;
+                             ? cluster::ClusterRole::kMaster
+                             : cluster::ClusterRole::kSlave;
         node_info.config_epoch = node_view.config_epoch;
         new_state = new_state->WithNodeAdded(node_info);
-        ASTRADB_LOG_INFO("Added node {} to ClusterState: {}:{}@{}", node_info.id,
-                         node_info.ip, node_info.port, node_info.bus_port);
+        ASTRADB_LOG_INFO("Added node {} to ClusterState: {}:{}@{}",
+                         node_info.id, node_info.ip, node_info.port,
+                         node_info.bus_port);
         break;
       }
       case cluster::ClusterEvent::kNodeLeft:
       case cluster::ClusterEvent::kNodeFailed: {
         // Remove node from cluster state
-        std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
+        std::string node_id =
+            cluster::GossipManager::NodeIdToString(node_view.id);
         new_state = new_state->WithNodeRemoved(node_id);
         ASTRADB_LOG_INFO("Removed node {} from ClusterState", node_id);
         break;
@@ -519,16 +537,17 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         // Bus port is for Redis Cluster internal communication
         node_info.bus_port = node_view.port;
         node_info.role = (node_view.role == "master")
-                         ? cluster::ClusterRole::kMaster
-                         : cluster::ClusterRole::kSlave;
+                             ? cluster::ClusterRole::kMaster
+                             : cluster::ClusterRole::kSlave;
         node_info.config_epoch = node_view.config_epoch;
         new_state = new_state->WithNodeAdded(node_info);
         ASTRADB_LOG_INFO("Recovered node {} in ClusterState", node_info.id);
         break;
       }
       default:
-        // Other events (kConfigChanged, kLeaderChanged) - update metadata and slots
-        // For kConfigChanged, ensure node is in cluster state before processing metadata
+        // Other events (kConfigChanged, kLeaderChanged) - update metadata and
+        // slots For kConfigChanged, ensure node is in cluster state before
+        // processing metadata
         if (event == cluster::ClusterEvent::kConfigChanged) {
           // Add or update node in cluster state
           cluster::ClusterNodeInfo node_info;
@@ -539,23 +558,27 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
           // Bus port is for Redis Cluster internal communication
           node_info.bus_port = node_view.port;
           node_info.role = (node_view.role == "master")
-                           ? cluster::ClusterRole::kMaster
-                           : cluster::ClusterRole::kSlave;
+                               ? cluster::ClusterRole::kMaster
+                               : cluster::ClusterRole::kSlave;
           node_info.config_epoch = node_view.config_epoch;
           new_state = new_state->WithNodeAdded(node_info);
-          ASTRADB_LOG_INFO("ConfigChanged: Added/updated node {} in ClusterState: {}:{}@{}", node_info.id,
-                           node_info.ip, node_info.port, node_info.bus_port);
+          ASTRADB_LOG_INFO(
+              "ConfigChanged: Added/updated node {} in ClusterState: {}:{}@{}",
+              node_info.id, node_info.ip, node_info.port, node_info.bus_port);
         }
         break;
     }
 
     // Process slot metadata if present
     if (node_view.metadata.contains("slots")) {
-      std::string node_id = cluster::GossipManager::NodeIdToString(node_view.id);
+      std::string node_id =
+          cluster::GossipManager::NodeIdToString(node_view.id);
       const std::string& slots_str = node_view.metadata.at("slots");
 
-      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Node {} has slot metadata: '{}', size={} bytes",
-                       node_id, slots_str, slots_str.size());
+      ASTRADB_LOG_DEBUG(
+          "ProcessClusterEventAsync: Node {} has slot metadata: '{}', size={} "
+          "bytes",
+          node_id, slots_str, slots_str.size());
 
       // Check config epoch for conflict resolution
       uint64_t remote_epoch = 0;
@@ -563,43 +586,63 @@ void Server::ProcessClusterEventAsync(cluster::ClusterEvent event,
         remote_epoch = std::stoull(node_view.metadata.at("config_epoch"));
       }
 
-      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Remote config epoch={}, node_id={}", remote_epoch, node_id);
+      ASTRADB_LOG_DEBUG(
+          "ProcessClusterEventAsync: Remote config epoch={}, node_id={}",
+          remote_epoch, node_id);
 
       // Check if remote config is newer
       uint64_t local_epoch = gossip_manager_->GetConfigEpoch();
-      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Local config epoch={}, node_id={}", local_epoch, node_id);
+      ASTRADB_LOG_DEBUG(
+          "ProcessClusterEventAsync: Local config epoch={}, node_id={}",
+          local_epoch, node_id);
 
       if (remote_epoch > local_epoch) {
-        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Remote node {} has newer config epoch ({} > {}), accepting slot assignments",
-                         node_id, remote_epoch, local_epoch);
+        ASTRADB_LOG_DEBUG(
+            "ProcessClusterEventAsync: Remote node {} has newer config epoch "
+            "({} > {}), accepting slot assignments",
+            node_id, remote_epoch, local_epoch);
 
         // Deserialize slot assignments
         auto slots = cluster::SlotSerializer::Deserialize(slots_str);
-        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Deserialized {} slots from metadata: '{}'", slots.size(), slots_str);
+        ASTRADB_LOG_DEBUG(
+            "ProcessClusterEventAsync: Deserialized {} slots from metadata: "
+            "'{}'",
+            slots.size(), slots_str);
 
         if (!slots.empty()) {
-          ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updating slot assignments for node {}: {} slots",
-                           node_id, slots.size());
+          ASTRADB_LOG_DEBUG(
+              "ProcessClusterEventAsync: Updating slot assignments for node "
+              "{}: {} slots",
+              node_id, slots.size());
 
           // Update cluster state with slot assignments
           for (uint16_t slot : slots) {
             new_state = new_state->WithSlotAssigned(node_id, slot);
-            ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Assigned slot {} to node {}", slot, node_id);
+            ASTRADB_LOG_DEBUG(
+                "ProcessClusterEventAsync: Assigned slot {} to node {}", slot,
+                node_id);
           }
 
-          ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updated cluster state with {} slot assignments", slots.size());
+          ASTRADB_LOG_DEBUG(
+              "ProcessClusterEventAsync: Updated cluster state with {} slot "
+              "assignments",
+              slots.size());
         }
       } else {
-        ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Ignoring slot metadata from node {} (config_epoch {} <= local {})",
-                          node_id, remote_epoch, local_epoch);
+        ASTRADB_LOG_DEBUG(
+            "ProcessClusterEventAsync: Ignoring slot metadata from node {} "
+            "(config_epoch {} <= local {})",
+            node_id, remote_epoch, local_epoch);
       }
     } else {
-      ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Node {} has no slot metadata",
-                       cluster::GossipManager::NodeIdToString(node_view.id));
+      ASTRADB_LOG_DEBUG(
+          "ProcessClusterEventAsync: Node {} has no slot metadata",
+          cluster::GossipManager::NodeIdToString(node_view.id));
     }
 
     // Update all workers' ClusterState (zero-copy via shared_ptr)
-    ASTRADB_LOG_DEBUG("ProcessClusterEventAsync: Updating cluster state in all workers");
+    ASTRADB_LOG_DEBUG(
+        "ProcessClusterEventAsync: Updating cluster state in all workers");
     UpdateClusterState(new_state);
 
   } catch (const std::exception& e) {
@@ -692,16 +735,19 @@ void Server::StartStatsAggregation() {
 
     while (stats_aggregation_running_) {
       AggregateStats();
-      
+
       // Use configured stats frequency
       int frequency = config_.stats_frequency_seconds;
       if (frequency <= 0) {
         // Disabled: sleep for a long time (effectively stops stats aggregation)
-        ASTRADB_LOG_WARN("Stats aggregation is disabled (frequency <= 0), sleeping for 1 hour");
+        ASTRADB_LOG_WARN(
+            "Stats aggregation is disabled (frequency <= 0), sleeping for 1 "
+            "hour");
         absl::SleepFor(absl::Hours(1));
       } else {
         // Use configured frequency
-        ASTRADB_LOG_DEBUG("Stats aggregation: sleeping for {} seconds", frequency);
+        ASTRADB_LOG_DEBUG("Stats aggregation: sleeping for {} seconds",
+                          frequency);
         absl::SleepFor(absl::Seconds(frequency));
       }
     }
@@ -735,7 +781,7 @@ void Server::AggregateStats() {
   absl::Time start_time = absl::FromTimeT(global_stats->start_time.load());
   absl::Duration uptime_duration = now - start_time;
   int64_t uptime = absl::ToInt64Seconds(uptime_duration);
-  
+
   global_stats->uptime_seconds.store(uptime, std::memory_order_relaxed);
 
   // Sync to Prometheus
@@ -743,7 +789,8 @@ void Server::AggregateStats() {
 }
 
 // Update cluster state for all workers (NO SHARING architecture)
-void Server::UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state) {
+void Server::UpdateClusterState(
+    std::shared_ptr<cluster::ClusterState> new_state) {
   if (!worker_scheduler_) {
     ASTRADB_LOG_ERROR("WorkerScheduler not initialized");
     return;
@@ -753,9 +800,8 @@ void Server::UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state
   // We need to create a wrapper lambda that captures the worker pointer
   for (size_t i = 0; i < workers_.size(); ++i) {
     auto* worker = workers_[i].get();
-    worker->AddTask([worker, new_state]() {
-      worker->SetClusterState(new_state);
-    });
+    worker->AddTask(
+        [worker, new_state]() { worker->SetClusterState(new_state); });
   }
   ASTRADB_LOG_INFO("Dispatched cluster state update to all workers");
 }

@@ -16,19 +16,22 @@
 namespace astra::commands {
 
 // Get cluster slot for a key with hash tag support
-[[maybe_unused]]static uint16_t GetSlotForKey(const std::string& key) noexcept {
+[[maybe_unused]] static uint16_t GetSlotForKey(
+    const std::string& key) noexcept {
   return cluster::HashSlotCalculator::CalculateWithTag(key);
 }
 
 // Check if a key should be redirected to another node
-// Returns std::nullopt if the key can be processed locally, otherwise returns the target node ID
-[[maybe_unused]] static std::optional<std::string> CheckKeyRedirect(const std::string& key,
-                                                      CommandContext* context) {
+// Returns std::nullopt if the key can be processed locally, otherwise returns
+// the target node ID
+[[maybe_unused]] static std::optional<std::string> CheckKeyRedirect(
+    const std::string& key, CommandContext* context) {
   return cluster::ClusterStateAccessor::CheckKeyRedirect(key);
 }
 
 // Build MOVED error response
-[[maybe_unused]] static CommandResult BuildMovedError(uint16_t slot, const std::string& target_node) {
+[[maybe_unused]] static CommandResult BuildMovedError(
+    uint16_t slot, const std::string& target_node) {
   std::string error = "-MOVED " + std::to_string(slot) + " " + target_node;
   protocol::RespValue resp;
   resp.SetString(error, protocol::RespType::kSimpleString);
@@ -36,7 +39,8 @@ namespace astra::commands {
 }
 
 // Build ASK error response
-[[maybe_unused]] static CommandResult BuildAskError(uint16_t slot, const std::string& target_node) {
+[[maybe_unused]] static CommandResult BuildAskError(
+    uint16_t slot, const std::string& target_node) {
   std::string error = "-ASK " + std::to_string(slot) + " " + target_node;
   protocol::RespValue resp;
   resp.SetString(error, protocol::RespType::kSimpleString);
@@ -84,7 +88,7 @@ CommandResult HandleClusterInfo(const protocol::Command& command,
   const auto& nodes = cluster_state->GetNodes();
   info += "cluster_known_nodes:" + std::to_string(nodes.size()) + "\n";
   info += "cluster_size:" + std::to_string(nodes.size()) + "\n";
-  
+
   // Epoch information (default values for now)
   info += "cluster_current_epoch:1\n";
   info += "cluster_my_epoch:1\n";
@@ -126,10 +130,12 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
   std::string result;
   for (const auto& [node_id, node] : nodes) {
     ASTRADB_LOG_DEBUG("CLUSTER NODES: processing node_id={}", node_id);
-    
-    // Format: <id> <ip>:<port@bus-port> <flags> <master> <ping-sent> <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
+
+    // Format: <id> <ip>:<port@bus-port> <flags> <master> <ping-sent>
+    // <pong-recv> <config-epoch> <link-state> <slot> <slot> ... <slot>
     std::string node_str = node_id;
-    node_str += " " + node.ip + ":" + std::to_string(node.port) + "@" + std::to_string(node.bus_port);
+    node_str += " " + node.ip + ":" + std::to_string(node.port) + "@" +
+                std::to_string(node.bus_port);
 
     // Flags
     uint32_t flags = 0;
@@ -165,7 +171,8 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
       auto owner = cluster_state->GetSlotOwner(slot);
       if (owner.has_value()) {
         if (slot < 10 || (slot >= 4 && slot <= 7)) {
-          ASTRADB_LOG_DEBUG("CLUSTER NODES: slot {} owner={}", slot, owner.value());
+          ASTRADB_LOG_DEBUG("CLUSTER NODES: slot {} owner={}", slot,
+                            owner.value());
         }
       }
       if (owner == node_id) {
@@ -179,7 +186,8 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
           if (slot_start == slot - 1) {
             slots_str += " " + std::to_string(slot_start);
           } else {
-            slots_str += " " + std::to_string(slot_start) + "-" + std::to_string(slot - 1);
+            slots_str += " " + std::to_string(slot_start) + "-" +
+                         std::to_string(slot - 1);
           }
           in_range = false;
         }
@@ -190,7 +198,8 @@ CommandResult HandleClusterNodes(const protocol::Command& command,
       slots_str += " " + std::to_string(slot_start) + "-16383";
     }
 
-    ASTRADB_LOG_DEBUG("CLUSTER NODES: node_id={} owns {} slots, slots_str='{}'", node_id, owned_slots, slots_str);
+    ASTRADB_LOG_DEBUG("CLUSTER NODES: node_id={} owns {} slots, slots_str='{}'",
+                      node_id, owned_slots, slots_str);
 
     node_str += slots_str;
 
@@ -217,7 +226,8 @@ CommandResult HandleClusterMeet(const protocol::Command& command,
   auto* gossip_manager = server->GetGossipManager();
 
   if (!gossip_manager) {
-    return CommandResult(false, "ERR This instance has cluster support disabled");
+    return CommandResult(false,
+                         "ERR This instance has cluster support disabled");
   }
 
   std::string ip = command[0].AsString();
@@ -270,7 +280,8 @@ CommandResult HandleClusterSlots(const protocol::Command& command,
   std::vector<protocol::RespValue> slots_array;
 
   // Group slots by node
-  absl::flat_hash_map<std::string, std::vector<std::pair<uint16_t, uint16_t>>> node_slots;
+  absl::flat_hash_map<std::string, std::vector<std::pair<uint16_t, uint16_t>>>
+      node_slots;
   uint16_t slot_start = 0;
   std::string current_owner;
   bool in_range = false;
@@ -318,7 +329,8 @@ CommandResult HandleClusterSlots(const protocol::Command& command,
       // Master node info
       std::vector<protocol::RespValue> master_info;
       master_info.push_back(protocol::RespValue(node->ip));
-      master_info.push_back(protocol::RespValue(static_cast<int64_t>(node->port)));
+      master_info.push_back(
+          protocol::RespValue(static_cast<int64_t>(node->port)));
       master_info.push_back(protocol::RespValue(node_id));
       slot_info.push_back(protocol::RespValue(master_info));
 
@@ -483,11 +495,12 @@ CommandResult HandleClusterKeySlot(const protocol::Command& command,
   auto* shard_manager = server->GetShardManager();
 
   if (!shard_manager) {
-    return CommandResult(false, "ERR This instance has cluster support disabled");
+    return CommandResult(false,
+                         "ERR This instance has cluster support disabled");
   }
 
   const std::string& key = command[0].AsString();
-  
+
   // Use ShardManager's HashSlotCalculator
   uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
 

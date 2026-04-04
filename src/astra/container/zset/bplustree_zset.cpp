@@ -3,12 +3,12 @@
 
 #include "astra/container/zset/bplustree_zset.hpp"
 
-#include <tbb/concurrent_hash_map.h>
 #include <absl/container/btree_set.h>
 #include <absl/synchronization/mutex.h>
+#include <tbb/concurrent_hash_map.h>
 
-#include <stdexcept>
 #include <algorithm>
+#include <stdexcept>
 
 namespace astra::container {
 
@@ -29,8 +29,7 @@ struct ZSet<Key, Score>::Impl {
 
 // Constructor/Destructor
 template <typename Key, typename Score>
-ZSet<Key, Score>::ZSet(size_t expected_size)
-    : impl_(new Impl(expected_size)) {}
+ZSet<Key, Score>::ZSet(size_t expected_size) : impl_(new Impl(expected_size)) {}
 
 template <typename Key, typename Score>
 ZSet<Key, Score>::~ZSet() {
@@ -81,8 +80,8 @@ bool ZSet<Key, Score>::Remove(const MemberType& member) {
 
 // GetScore (same signature as original)
 template <typename Key, typename Score>
-std::optional<typename ZSet<Key, Score>::ScoreType>
-ZSet<Key, Score>::GetScore(const MemberType& member) const {
+std::optional<typename ZSet<Key, Score>::ScoreType> ZSet<Key, Score>::GetScore(
+    const MemberType& member) const {
   typename Impl::MemberScoreMap::const_accessor acc;
   if (!impl_->member_to_score_.find(acc, member)) {
     return std::nullopt;
@@ -92,8 +91,8 @@ ZSet<Key, Score>::GetScore(const MemberType& member) const {
 
 // GetRank (same signature as original)
 template <typename Key, typename Score>
-std::optional<uint64_t> ZSet<Key, Score>::GetRank(
-    const MemberType& member, bool reverse) const {
+std::optional<uint64_t> ZSet<Key, Score>::GetRank(const MemberType& member,
+                                                  bool reverse) const {
   typename Impl::MemberScoreMap::const_accessor acc;
   if (!impl_->member_to_score_.find(acc, member)) {
     return std::nullopt;
@@ -158,7 +157,8 @@ ZSet<Key, Score>::GetScoreByRank(uint64_t rank, bool reverse) const {
 template <typename Key, typename Score>
 std::vector<std::pair<typename ZSet<Key, Score>::MemberType,
                       typename ZSet<Key, Score>::ScoreType>>
-ZSet<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max, bool with_scores) const {
+ZSet<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max,
+                                  bool with_scores) const {
   absl::ReaderMutexLock lock(&impl_->mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;
@@ -183,7 +183,8 @@ ZSet<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max, bool with_scores
 template <typename Key, typename Score>
 std::vector<std::pair<typename ZSet<Key, Score>::MemberType,
                       typename ZSet<Key, Score>::ScoreType>>
-ZSet<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop, bool reverse, bool with_scores) const {
+ZSet<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop, bool reverse,
+                                 bool with_scores) const {
   absl::ReaderMutexLock lock(&impl_->mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;

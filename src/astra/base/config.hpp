@@ -47,7 +47,7 @@ struct MemoryConfig {
   uint64_t max_memory = 0;  // 0 = no limit
   std::string eviction_policy = "noeviction";
   double eviction_threshold = 0.9;  // 90%
-  uint32_t eviction_samples = 5;  // Number of samples for LRU/LFU
+  uint32_t eviction_samples = 5;    // Number of samples for LRU/LFU
   bool enable_tracking = true;
 };
 
@@ -76,8 +76,10 @@ struct ServerConfig {
   bool use_async_commands = true;
 
   // Network Architecture
-  bool use_per_worker_io = false;  // Use per-worker IO architecture (SO_REUSEPORT)
-  bool use_so_reuseport = true;    // Enable SO_REUSEPORT for kernel load balancing
+  bool use_per_worker_io =
+      false;  // Use per-worker IO architecture (SO_REUSEPORT)
+  bool use_so_reuseport =
+      true;  // Enable SO_REUSEPORT for kernel load balancing
 
   // Persistence (ROCKSDB)
   PersistenceConfig persistence;
@@ -108,15 +110,15 @@ struct ServerConfig {
   // Memory
   MemoryConfig memory;
 
-// Metrics
+  // Metrics
   struct MetricsConfig {
     bool enabled = true;
     std::string bind_addr = "0.0.0.0";
     uint16_t port = 9100;
-    // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
-    // Default: 10 seconds for optimal performance and monitoring
-    // Set to 0 for maximum performance (INFO command will return outdated data)
-    // Set to 1 for detailed monitoring (may impact performance)
+    // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1
+    // minute) Default: 10 seconds for optimal performance and monitoring Set to
+    // 0 for maximum performance (INFO command will return outdated data) Set to
+    // 1 for detailed monitoring (may impact performance)
     int stats_frequency_seconds = 10;
   };
   MetricsConfig metrics;

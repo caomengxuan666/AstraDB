@@ -225,7 +225,10 @@ class PersistenceManager {
 
     // Check if RDB file exists - if not, this is normal (first run)
     if (!std::filesystem::exists(options_.save_path)) {
-      ASTRADB_LOG_INFO("PersistenceManager: RDB file not found (first run), skipping load: {}", options_.save_path);
+      ASTRADB_LOG_INFO(
+          "PersistenceManager: RDB file not found (first run), skipping load: "
+          "{}",
+          options_.save_path);
       return true;  // File not found is normal, not an error
     }
 
@@ -506,17 +509,17 @@ class MetricsManager {
 
     // Stop io_context
     if (metrics_io_context_) {
-        metrics_io_context_->stop();
+      metrics_io_context_->stop();
     }
 
     // Wait for HTTP server thread
     if (metrics_thread_.joinable()) {
-        metrics_thread_.join();
+      metrics_thread_.join();
     }
 
     // Wait for periodic update thread
     if (update_thread_.joinable()) {
-        update_thread_.join();
+      update_thread_.join();
     }
 
     ASTRADB_LOG_INFO("MetricsManager: Shutdown complete");

@@ -9,7 +9,8 @@ namespace astra::server {
 
 WorkerScheduler::WorkerScheduler(const std::vector<Worker*>& workers)
     : workers_(workers) {
-  ASTRADB_LOG_INFO("WorkerScheduler: Initialized with {} workers", workers.size());
+  ASTRADB_LOG_INFO("WorkerScheduler: Initialized with {} workers",
+                   workers.size());
 }
 
 }  // namespace astra::server

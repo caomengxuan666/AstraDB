@@ -41,7 +41,8 @@
 // ✅ redis-cli EVAL "return redis.call('INVALID_COMMAND', 'test')" 0
 //    Returns: ERR ERR unknown command 'INVALID_COMMAND'
 //
-// ✅ redis-cli EVAL "local ok, err = redis.pcall('INVALID_COMMAND', 'test'); return ok, err" 0
+// ✅ redis-cli EVAL "local ok, err = redis.pcall('INVALID_COMMAND', 'test');
+// return ok, err" 0
 //    Returns: nil, ERR unknown command 'INVALID_COMMAND'
 //
 // ✅ redis-cli EVAL "return redis.call('BLPOP', 'list', 0)" 0
@@ -50,10 +51,12 @@
 // ✅ redis-cli EVAL "return redis.call('MULTI')" 0
 //    Returns: ERR ERR MULTI is not allowed in Lua scripts
 //
-// ✅ redis-cli EVAL "redis.call('SET', 'a', '100'); redis.call('SET', 'b', '200'); return {redis.call('GET', 'a'), redis.call('GET', 'b')}" 0
+// ✅ redis-cli EVAL "redis.call('SET', 'a', '100'); redis.call('SET', 'b',
+// '200'); return {redis.call('GET', 'a'), redis.call('GET', 'b')}" 0
 //    Returns: 100, 200
 //
-// ✅ redis-cli SCRIPT LOAD "return redis.call('GET', 'test_key')" && EVALSHA <sha1> 0
+// ✅ redis-cli SCRIPT LOAD "return redis.call('GET', 'test_key')" && EVALSHA
+// <sha1> 0
 //    Returns: test_value
 //
 // ==============================================================================
@@ -75,12 +78,12 @@ namespace astra::commands {
 
 // Slow log entry for Lua scripts
 struct SlowLogEntry {
-  std::string script_sha1;       // SHA1 of the script (empty for inline scripts)
-  std::string script_preview;    // First 100 chars of the script
-  absl::Time timestamp;          // When the script executed
-  int64_t execution_time_us;     // Execution time in microseconds
-  int num_keys;                  // Number of KEYS
-  int num_args;                  // Number of ARGV
+  std::string script_sha1;     // SHA1 of the script (empty for inline scripts)
+  std::string script_preview;  // First 100 chars of the script
+  absl::Time timestamp;        // When the script executed
+  int64_t execution_time_us;   // Execution time in microseconds
+  int num_keys;                // Number of KEYS
+  int num_args;                // Number of ARGV
 };
 
 // Global slow log storage
@@ -129,13 +132,13 @@ class SlowLog {
 
 // Script execution info for tracking running scripts
 struct ScriptExecutionInfo {
-  size_t worker_id;                                    // Worker ID where script is running
-  lua_State* lua_state;                               // Lua state (unique identifier)
-  std::string script_sha1;                            // SHA1 of the script
-  bool is_readonly;                                    // Whether script is read-only
-  std::atomic<bool> has_modified_data{false};         // Whether script modified data
-  std::atomic<bool> should_kill{false};               // Whether script should be killed
-  absl::Time start_time;                              // When script started
+  size_t worker_id;         // Worker ID where script is running
+  lua_State* lua_state;     // Lua state (unique identifier)
+  std::string script_sha1;  // SHA1 of the script
+  bool is_readonly;         // Whether script is read-only
+  std::atomic<bool> has_modified_data{false};  // Whether script modified data
+  std::atomic<bool> should_kill{false};  // Whether script should be killed
+  absl::Time start_time;                 // When script started
 
   ScriptExecutionInfo()
       : worker_id(0),
@@ -183,7 +186,8 @@ class GlobalScriptRegistry {
   }
 
   // Register a script execution
-  void RegisterScript(size_t worker_id, lua_State* lua_state, const std::string& sha1, bool readonly) {
+  void RegisterScript(size_t worker_id, lua_State* lua_state,
+                      const std::string& sha1, bool readonly) {
     absl::WriterMutexLock lock(&mutex_);
     ScriptExecutionInfo info;
     info.worker_id = worker_id;
@@ -245,7 +249,8 @@ class GlobalScriptRegistry {
     absl::WriterMutexLock lock(&mutex_);
     auto it = running_scripts_.find(lua_state);
     if (it != running_scripts_.end()) {
-      ASTRADB_LOG_DEBUG("GlobalScriptRegistry: Marking script {} for kill", it->second.script_sha1);
+      ASTRADB_LOG_DEBUG("GlobalScriptRegistry: Marking script {} for kill",
+                        it->second.script_sha1);
       it->second.should_kill.store(true, std::memory_order_relaxed);
     } else {
       ASTRADB_LOG_WARN("GlobalScriptRegistry: Script not found for kill");
@@ -274,8 +279,13 @@ static std::string ComputeSHA1(const std::string& input) {
 }
 
 // Lua script context implementation
-LuaScriptContext::LuaScriptContext(size_t worker_id, Database* db, CommandRegistry* registry, CommandContext* context)
-    : worker_id_(worker_id), db_(db), command_registry_(registry), command_context_(context) {
+LuaScriptContext::LuaScriptContext(size_t worker_id, Database* db,
+                                   CommandRegistry* registry,
+                                   CommandContext* context)
+    : worker_id_(worker_id),
+      db_(db),
+      command_registry_(registry),
+      command_context_(context) {
   lua_state_ = luaL_newstate();
   luaL_openlibs(lua_state_);
 
@@ -325,7 +335,8 @@ int LuaScriptContext::LuaCall(lua_State* L) {
 
   // Check command blacklist (blocking commands, transaction commands)
   if (CheckCommandBlacklist(cmd_name)) {
-    std::string error = std::string(cmd_name) + " is not allowed in Lua scripts";
+    std::string error =
+        std::string(cmd_name) + " is not allowed in Lua scripts";
     lua_pushstring(L, error.c_str());
     lua_error(L);  // Terminate script
     return 0;
@@ -346,7 +357,8 @@ int LuaScriptContext::LuaCall(lua_State* L) {
         cmd.args.push_back(RespValue(num));
       }
     } else if (lua_isboolean(L, i)) {
-      cmd.args.push_back(RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
+      cmd.args.push_back(
+          RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
     } else if (lua_isnil(L, i)) {
       cmd.args.push_back(RespValue(RespType::kNullBulkString));
     } else {
@@ -369,7 +381,8 @@ int LuaScriptContext::LuaCall(lua_State* L) {
   }
 
   // Execute command via CommandRegistry
-  CommandResult result = ctx->command_registry_->Execute(cmd, ctx->command_context_);
+  CommandResult result =
+      ctx->command_registry_->Execute(cmd, ctx->command_context_);
 
   // Handle command failure
   if (!result.success) {
@@ -388,13 +401,13 @@ int LuaScriptContext::LuaCall(lua_State* L) {
   // Mark script as having modified data if command is a write command
   // Simple heuristic: if command name is not a read-only command
   static const absl::flat_hash_set<std::string> readonly_commands = {
-      "GET", "MGET", "STRLEN", "EXISTS", "TTL", "PTTL", "TYPE", "KEYS",
-      "SCAN", "SSCAN", "HSCAN", "ZSCAN", "HGET", "HMGET", "HGETALL",
-      "HKEYS", "HVALS", "HLEN", "HEXISTS", "ZSCORE", "ZRANGE", "ZREVRANGE",
-      "ZRANK", "ZREVRANK", "ZCARD", "ZCOUNT", "ZLEXCOUNT", "SMEMBERS",
-      "SISMEMBER", "SCARD", "LINDEX", "LRANGE", "LLEN", "LPOS", "BITCOUNT",
-      "BITPOS", "GETBIT", "INFO", "PING", "ECHO"
-  };
+      "GET",     "MGET",   "STRLEN",    "EXISTS",    "TTL",       "PTTL",
+      "TYPE",    "KEYS",   "SCAN",      "SSCAN",     "HSCAN",     "ZSCAN",
+      "HGET",    "HMGET",  "HGETALL",   "HKEYS",     "HVALS",     "HLEN",
+      "HEXISTS", "ZSCORE", "ZRANGE",    "ZREVRANGE", "ZRANK",     "ZREVRANK",
+      "ZCARD",   "ZCOUNT", "ZLEXCOUNT", "SMEMBERS",  "SISMEMBER", "SCARD",
+      "LINDEX",  "LRANGE", "LLEN",      "LPOS",      "BITCOUNT",  "BITPOS",
+      "GETBIT",  "INFO",   "PING",      "ECHO"};
 
   std::string cmd_upper = absl::AsciiStrToUpper(cmd_name);
   if (readonly_commands.find(cmd_upper) == readonly_commands.end()) {
@@ -435,7 +448,8 @@ int LuaScriptContext::LuaPcall(lua_State* L) {
 
   // Check command blacklist (blocking commands, transaction commands)
   if (CheckCommandBlacklist(cmd_name)) {
-    std::string error = std::string(cmd_name) + " is not allowed in Lua scripts";
+    std::string error =
+        std::string(cmd_name) + " is not allowed in Lua scripts";
     lua_pushnil(L);
     lua_pushstring(L, error.c_str());
     return 2;
@@ -456,7 +470,8 @@ int LuaScriptContext::LuaPcall(lua_State* L) {
         cmd.args.push_back(RespValue(num));
       }
     } else if (lua_isboolean(L, i)) {
-      cmd.args.push_back(RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
+      cmd.args.push_back(
+          RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
     } else if (lua_isnil(L, i)) {
       cmd.args.push_back(RespValue(RespType::kNullBulkString));
     } else {
@@ -479,7 +494,8 @@ int LuaScriptContext::LuaPcall(lua_State* L) {
   }
 
   // Execute command via CommandRegistry
-  CommandResult result = ctx->command_registry_->Execute(cmd, ctx->command_context_);
+  CommandResult result =
+      ctx->command_registry_->Execute(cmd, ctx->command_context_);
 
   // Handle command failure
   if (!result.success) {
@@ -507,7 +523,8 @@ void LuaScriptContext::LuaTimeoutHook(lua_State* L, lua_Debug* ar) {
   // Check if this script should be killed
   bool should_kill = GlobalScriptRegistry::Instance().ShouldKill(L);
   if (should_kill) {
-    ASTRADB_LOG_DEBUG("LuaTimeoutHook: Kill signal detected, terminating script");
+    ASTRADB_LOG_DEBUG(
+        "LuaTimeoutHook: Kill signal detected, terminating script");
     lua_pushstring(L, "ERR Script killed by SCRIPT KILL command");
     lua_error(L);  // Terminate script execution
   }
@@ -520,14 +537,12 @@ bool LuaScriptContext::CheckCommandBlacklist(const std::string& cmd_name) {
 
   // Blocking commands - not allowed in Lua scripts
   static const absl::flat_hash_set<std::string> blocking_commands = {
-      "BLPOP", "BRPOP", "BRPOPLPUSH", "BLMOVE", "BZPOPMIN", "BZPOPMAX",
-      "XREAD", "XREADGROUP", "WAIT", "WAITAOF"
-  };
+      "BLPOP",    "BRPOP", "BRPOPLPUSH", "BLMOVE", "BZPOPMIN",
+      "BZPOPMAX", "XREAD", "XREADGROUP", "WAIT",   "WAITAOF"};
 
   // Transaction commands - not allowed in Lua scripts
   static const absl::flat_hash_set<std::string> transaction_commands = {
-      "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"
-  };
+      "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"};
 
   // Check if command is in blocking list
   if (blocking_commands.contains(cmd_upper)) {
@@ -543,7 +558,8 @@ bool LuaScriptContext::CheckCommandBlacklist(const std::string& cmd_name) {
 }
 
 // Push RespValue to Lua stack
-void LuaScriptContext::PushRespValueToLua(lua_State* L, const RespValue& value) {
+void LuaScriptContext::PushRespValueToLua(lua_State* L,
+                                          const RespValue& value) {
   switch (value.GetType()) {
     case RespType::kNullBulkString:
     case RespType::kNullArray:
@@ -590,7 +606,7 @@ void LuaScriptContext::PushRespValueToLua(lua_State* L, const RespValue& value) 
       for (const auto& [key, val] : map) {
         lua_pushstring(L, key.c_str());
         PushRespValueToLua(L, val);  // Recursively push value
-        lua_rawset(L, -3);  // table[key] = value
+        lua_rawset(L, -3);           // table[key] = value
       }
       break;
     }
@@ -614,10 +630,12 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   // Register script execution
   std::string sha1 = ComputeSHA1(script);
   bool is_readonly = true;  // Default to read-only
-  GlobalScriptRegistry::Instance().RegisterScript(worker_id_, lua_state_, sha1, is_readonly);
+  GlobalScriptRegistry::Instance().RegisterScript(worker_id_, lua_state_, sha1,
+                                                  is_readonly);
 
   // Save original AOF callback to avoid duplicate logging
-  // (EVAL command logs the entire script, so internal commands should not log again)
+  // (EVAL command logs the entire script, so internal commands should not log
+  // again)
   if (command_context_) {
     // Clear AOF callback temporarily during script execution
     command_context_->SetAofCallback(nullptr);
@@ -631,7 +649,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   auto check_slow_log = [&]() {
     auto end_time = absl::Now();
     auto duration_us = absl::ToInt64Microseconds(end_time - start_time);
-    
+
     // Log scripts that take longer than 10ms
     const int64_t slow_log_threshold_us = 10000;
     if (duration_us >= slow_log_threshold_us) {
@@ -673,7 +691,7 @@ CommandResult LuaScriptContext::Execute(const std::string& script,
   }
 
   int call_result = lua_pcall(lua_state_, 0, LUA_MULTRET, 0);
-  
+
   // Unregister script execution (even on error)
   GlobalScriptRegistry::Instance().UnregisterScript(lua_state_);
 
@@ -884,7 +902,8 @@ CommandResult HandleEval(const astra::protocol::Command& command,
   // Execute script with full context (NO SHARING architecture)
   // TODO: Get worker_id from CommandContext
   size_t worker_id = 0;  // Temporary: will fix later
-  LuaScriptContext script_ctx(worker_id, db, context->GetCommandRegistry(), context);
+  LuaScriptContext script_ctx(worker_id, db, context->GetCommandRegistry(),
+                              context);
   return script_ctx.Execute(script, keys, args);
 }
 
@@ -964,7 +983,8 @@ CommandResult HandleEvalSha(const astra::protocol::Command& command,
   // Execute script with full context (NO SHARING architecture)
   // TODO: Get worker_id from CommandContext
   size_t worker_id = 0;  // Temporary: will fix later
-  LuaScriptContext script_ctx(worker_id, db, context->GetCommandRegistry(), context);
+  LuaScriptContext script_ctx(worker_id, db, context->GetCommandRegistry(),
+                              context);
   return script_ctx.Execute(*script, keys, args);
 }
 
@@ -1068,79 +1088,95 @@ CommandResult HandleScript(const astra::protocol::Command& command,
 
     for (const auto& entry : entries) {
       absl::InlinedVector<RespValue, 8> entry_array;
-      
+
       // 1. Timestamp (converted to string)
-      auto timestamp_us = absl::ToInt64Microseconds(entry.timestamp - absl::UnixEpoch());
+      auto timestamp_us =
+          absl::ToInt64Microseconds(entry.timestamp - absl::UnixEpoch());
       entry_array.push_back(RespValue(timestamp_us));
-      
+
       // 2. Execution time in microseconds
       entry_array.push_back(RespValue(entry.execution_time_us));
-      
+
       // 3. Number of keys
       entry_array.push_back(RespValue(static_cast<int64_t>(entry.num_keys)));
-      
+
       // 4. Number of args
       entry_array.push_back(RespValue(static_cast<int64_t>(entry.num_args)));
-      
+
       // 5. Script SHA1 (or empty for inline scripts)
       entry_array.push_back(RespValue(entry.script_sha1));
-      
+
       // 6. Script preview
       entry_array.push_back(RespValue(entry.script_preview));
 
-      result.push_back(RespValue(std::vector<RespValue>(entry_array.begin(), entry_array.end())));
+      result.push_back(RespValue(
+          std::vector<RespValue>(entry_array.begin(), entry_array.end())));
     }
 
-    return CommandResult(RespValue(std::vector<RespValue>(result.begin(), result.end())));
+    return CommandResult(
+        RespValue(std::vector<RespValue>(result.begin(), result.end())));
   } else if (subcommand == "KILL") {
     // SCRIPT KILL - Kill the script currently in execution
     ASTRADB_LOG_DEBUG("SCRIPT KILL: Getting running scripts");
-    auto running_scripts = GlobalScriptRegistry::Instance().GetAllRunningScripts();
-    ASTRADB_LOG_DEBUG("SCRIPT KILL: Found {} running scripts", running_scripts.size());
-    
+    auto running_scripts =
+        GlobalScriptRegistry::Instance().GetAllRunningScripts();
+    ASTRADB_LOG_DEBUG("SCRIPT KILL: Found {} running scripts",
+                      running_scripts.size());
+
     if (running_scripts.empty()) {
       return CommandResult(false, "NOTBUSY No scripts in execution right now.");
     }
-    
+
     // Find a script that can be killed (read-only and hasn't modified data)
     for (const auto& script_info : running_scripts) {
-      ASTRADB_LOG_DEBUG("SCRIPT KILL: Checking script {} (readonly={}, modified={})", 
-                        script_info.script_sha1, 
-                        script_info.is_readonly,
-                        script_info.has_modified_data.load(std::memory_order_relaxed));
-      if (script_info.is_readonly && 
+      ASTRADB_LOG_DEBUG(
+          "SCRIPT KILL: Checking script {} (readonly={}, modified={})",
+          script_info.script_sha1, script_info.is_readonly,
+          script_info.has_modified_data.load(std::memory_order_relaxed));
+      if (script_info.is_readonly &&
           !script_info.has_modified_data.load(std::memory_order_relaxed)) {
         // This script can be killed
-        ASTRADB_LOG_DEBUG("SCRIPT KILL: Found killable script {}, worker_id={}, lua_state={}", 
-                          script_info.script_sha1, 
-                          script_info.worker_id,
-                          (void*)script_info.lua_state);
+        ASTRADB_LOG_DEBUG(
+            "SCRIPT KILL: Found killable script {}, worker_id={}, lua_state={}",
+            script_info.script_sha1, script_info.worker_id,
+            (void*)script_info.lua_state);
         // Use WorkerScheduler to send kill signal to the worker
         // Mark script for kill IMMEDIATELY so lua_sethook can detect it
         // This works even if WorkerScheduler task queue is blocked
-        ASTRADB_LOG_DEBUG("SCRIPT KILL: Marking script {} for kill", script_info.script_sha1);
+        ASTRADB_LOG_DEBUG("SCRIPT KILL: Marking script {} for kill",
+                          script_info.script_sha1);
         GlobalScriptRegistry::Instance().MarkForKill(script_info.lua_state);
-        
-        // Also send via WorkerScheduler (for consistency and future enhancements)
+
+        // Also send via WorkerScheduler (for consistency and future
+        // enhancements)
         auto* scheduler = context->GetWorkerScheduler();
         if (scheduler) {
-          ASTRADB_LOG_DEBUG("SCRIPT KILL: Using WorkerScheduler to send kill signal to worker {}", script_info.worker_id);
-          bool added = scheduler->Add(script_info.worker_id, [lua_state = script_info.lua_state]() {
-            ASTRADB_LOG_DEBUG("WorkerScheduler: Kill task executing for lua_state={}", (void*)lua_state);
-            GlobalScriptRegistry::Instance().MarkForKill(lua_state);
-          });
-          ASTRADB_LOG_DEBUG("SCRIPT KILL: Kill task {} to worker {}", added ? "added" : "failed to add", script_info.worker_id);
+          ASTRADB_LOG_DEBUG(
+              "SCRIPT KILL: Using WorkerScheduler to send kill signal to "
+              "worker {}",
+              script_info.worker_id);
+          bool added = scheduler->Add(
+              script_info.worker_id, [lua_state = script_info.lua_state]() {
+                ASTRADB_LOG_DEBUG(
+                    "WorkerScheduler: Kill task executing for lua_state={}",
+                    (void*)lua_state);
+                GlobalScriptRegistry::Instance().MarkForKill(lua_state);
+              });
+          ASTRADB_LOG_DEBUG("SCRIPT KILL: Kill task {} to worker {}",
+                            added ? "added" : "failed to add",
+                            script_info.worker_id);
         }
         ASTRADB_LOG_DEBUG("SCRIPT KILL: Returning OK");
         return CommandResult(RespValue("OK"));
       }
     }
-    
+
     // No killable script found
-    return CommandResult(false, 
-                         "UNKILLABLE Sorry the script already executed write commands "
-                         "against the dataset, you can either wait for script termination "
-                         "or kill the Redis server using SHUTDOWN NOSAVE.");
+    return CommandResult(
+        false,
+        "UNKILLABLE Sorry the script already executed write commands "
+        "against the dataset, you can either wait for script termination "
+        "or kill the Redis server using SHUTDOWN NOSAVE.");
   } else {
     return CommandResult(false,
                          "ERR unknown SCRIPT subcommand '" + subcommand + "'");

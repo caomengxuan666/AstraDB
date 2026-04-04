@@ -19,9 +19,8 @@
 #include <absl/synchronization/mutex.h>
 #include <absl/time/time.h>
 
-#include <core/logger.hpp>  // For libgossip logging system
-
 #include <atomic>
+#include <core/logger.hpp>  // For libgossip logging system
 #include <functional>
 #include <memory>
 #include <string>
@@ -98,7 +97,8 @@ enum class ClusterEvent : uint8_t {
 };
 
 // Event callback type - use std::function to own the callback object
-using ClusterEventCallback = std::function<void(ClusterEvent, const AstraNodeView&)>;
+using ClusterEventCallback =
+    std::function<void(ClusterEvent, const AstraNodeView&)>;
 
 // ==============================================================================
 // GossipManager - Manages cluster membership using SWIM protocol
@@ -256,7 +256,8 @@ class GossipManager {
   // Update slot metadata and broadcast changes
   void UpdateSlotMetadata(const std::string& slots_str) noexcept {
     if (ASTRADB_UNLIKELY(!gossip_core_)) {
-      ASTRADB_LOG_WARN("GossipManager not initialized, cannot update slot metadata");
+      ASTRADB_LOG_WARN(
+          "GossipManager not initialized, cannot update slot metadata");
       return;
     }
 
@@ -264,7 +265,8 @@ class GossipManager {
     slot_metadata_ = slots_str;
     config_epoch_++;
 
-    ASTRADB_LOG_DEBUG("UpdateSlotMetadata: slots_str='{}', config_epoch={}", slots_str, config_epoch_);
+    ASTRADB_LOG_DEBUG("UpdateSlotMetadata: slots_str='{}', config_epoch={}",
+                      slots_str, config_epoch_);
 
     // Update gossip_core's self metadata directly
     std::map<std::string, std::string> metadata;
@@ -272,19 +274,24 @@ class GossipManager {
     metadata["config_epoch"] = std::to_string(config_epoch_);
     gossip_core_->update_self_metadata(metadata);
 
-    ASTRADB_LOG_DEBUG("UpdateSlotMetadata: Called gossip_core_->update_self_metadata()");
-    
+    ASTRADB_LOG_DEBUG(
+        "UpdateSlotMetadata: Called gossip_core_->update_self_metadata()");
+
     // Verify update by checking self() metadata
     auto self = gossip_core_->self();
-    ASTRADB_LOG_DEBUG("UpdateSlotMetadata: After update, self.metadata['slots'] size={}, content='{}', heartbeat={}, config_epoch={}",
-                     self.metadata.contains("slots") ? self.metadata.at("slots").size() : 0,
-                     self.metadata.contains("slots") ? self.metadata.at("slots") : "(not found)",
-                     self.heartbeat,
-                     self.config_epoch);
+    ASTRADB_LOG_DEBUG(
+        "UpdateSlotMetadata: After update, self.metadata['slots'] size={}, "
+        "content='{}', heartbeat={}, config_epoch={}",
+        self.metadata.contains("slots") ? self.metadata.at("slots").size() : 0,
+        self.metadata.contains("slots") ? self.metadata.at("slots")
+                                        : "(not found)",
+        self.heartbeat, self.config_epoch);
 
     // Trigger a gossip tick to immediately propagate the updated metadata
     gossip_core_->tick();
-    ASTRADB_LOG_DEBUG("UpdateSlotMetadata: Called gossip_core_->tick() to propagate metadata");
+    ASTRADB_LOG_DEBUG(
+        "UpdateSlotMetadata: Called gossip_core_->tick() to propagate "
+        "metadata");
   }
 
   // Increment config epoch and broadcast
@@ -294,14 +301,10 @@ class GossipManager {
   }
 
   // Get current config epoch
-  uint64_t GetConfigEpoch() const noexcept {
-    return config_epoch_;
-  }
+  uint64_t GetConfigEpoch() const noexcept { return config_epoch_; }
 
   // Get slot metadata string
-  std::string GetSlotMetadata() const noexcept {
-    return slot_metadata_;
-  }
+  std::string GetSlotMetadata() const noexcept { return slot_metadata_; }
 
   // ========== Node Management ==========
 
@@ -315,8 +318,9 @@ class GossipManager {
     node.ip = std::string(ip);
     node.port = port;
     node.status = libgossip::node_status::unknown;
-    
-    // Generate temporary node_id from IP:port (will be updated to real ID via gossip)
+
+    // Generate temporary node_id from IP:port (will be updated to real ID via
+    // gossip)
     std::string temp_id = std::string(ip) + ":" + std::to_string(port);
     NodeId temp_node_id{};
     std::hash<std::string> hasher;
@@ -325,7 +329,8 @@ class GossipManager {
     node.id = temp_node_id;
 
     gossip_core_->meet(node);
-    ASTRADB_LOG_INFO("Meeting node: {}:{} (temp id: {})", ip, port, NodeIdToString(node.id));
+    ASTRADB_LOG_INFO("Meeting node: {}:{} (temp id: {})", ip, port,
+                     NodeIdToString(node.id));
     return true;
   }
 
@@ -526,24 +531,29 @@ class GossipManager {
     }
 
     // Always log send operations
-    ASTRADB_LOG_DEBUG("OnSendMessage: to {}:{}, type={}, entries={}",
-                     target.ip, target.port, static_cast<int>(msg.type), msg.entries.size());
+    ASTRADB_LOG_DEBUG("OnSendMessage: to {}:{}, type={}, entries={}", target.ip,
+                      target.port, static_cast<int>(msg.type),
+                      msg.entries.size());
 
     // Log entries metadata in detail
     for (size_t i = 0; i < msg.entries.size(); ++i) {
       bool has_slots = msg.entries[i].metadata.contains("slots");
-      std::string slots_info = has_slots ? msg.entries[i].metadata.at("slots") : "(none)";
-      ASTRADB_LOG_DEBUG("OnSendMessage: entries[{}]: id={}, has_slots={}, slots='{}', heartbeat={}, config_epoch={}",
-                       i, NodeIdToString(msg.entries[i].id), 
-                       has_slots, slots_info, msg.entries[i].heartbeat, msg.entries[i].config_epoch);
+      std::string slots_info =
+          has_slots ? msg.entries[i].metadata.at("slots") : "(none)";
+      ASTRADB_LOG_DEBUG(
+          "OnSendMessage: entries[{}]: id={}, has_slots={}, slots='{}', "
+          "heartbeat={}, config_epoch={}",
+          i, NodeIdToString(msg.entries[i].id), has_slots, slots_info,
+          msg.entries[i].heartbeat, msg.entries[i].config_epoch);
     }
 
     // Log when sending slot metadata
     if (!msg.entries.empty() && msg.entries[0].metadata.contains("slots")) {
-      ASTRADB_LOG_DEBUG("OnSendMessage: SENDING SLOT METADATA to {}:{} - slots='{}', heartbeat={}",
-                       target.ip, target.port,
-                       msg.entries[0].metadata.at("slots"),
-                       msg.entries[0].heartbeat);
+      ASTRADB_LOG_DEBUG(
+          "OnSendMessage: SENDING SLOT METADATA to {}:{} - slots='{}', "
+          "heartbeat={}",
+          target.ip, target.port, msg.entries[0].metadata.at("slots"),
+          msg.entries[0].heartbeat);
     }
 
     // Use libgossip's transport to send message
@@ -551,8 +561,11 @@ class GossipManager {
     if (result != gossip::net::error_code::success) {
       ASTRADB_LOG_ERROR("Failed to send message to {}:{}", target.ip,
                         target.port);
-    } else if (!msg.entries.empty() && msg.entries[0].metadata.contains("slots")) {
-      ASTRADB_LOG_DEBUG("OnSendMessage: Slot metadata sent successfully to {}:{}", target.ip, target.port);
+    } else if (!msg.entries.empty() &&
+               msg.entries[0].metadata.contains("slots")) {
+      ASTRADB_LOG_DEBUG(
+          "OnSendMessage: Slot metadata sent successfully to {}:{}", target.ip,
+          target.port);
     }
   }
 
@@ -564,10 +577,12 @@ class GossipManager {
     // Log metadata info
     bool has_slots = node.metadata.contains("slots");
     std::string slots_info = has_slots ? node.metadata.at("slots") : "(none)";
-    ASTRADB_LOG_DEBUG("OnNodeEvent: node={}, ip={}:{}, status: {} -> {}, has_slots={}, slots='{}', config_epoch={}, heartbeat={}",
-                     NodeIdToString(node.id), node.ip, node.port,
-                     libgossip::to_string(old_status), libgossip::to_string(node.status),
-                     has_slots, slots_info, node.config_epoch, node.heartbeat);
+    ASTRADB_LOG_DEBUG(
+        "OnNodeEvent: node={}, ip={}:{}, status: {} -> {}, has_slots={}, "
+        "slots='{}', config_epoch={}, heartbeat={}",
+        NodeIdToString(node.id), node.ip, node.port,
+        libgossip::to_string(old_status), libgossip::to_string(node.status),
+        has_slots, slots_info, node.config_epoch, node.heartbeat);
 
     switch (node.status) {
       case libgossip::node_status::online:
@@ -577,7 +592,8 @@ class GossipManager {
           // Status didn't change (both online), but notify was called
           // This means metadata changed
           event = ClusterEvent::kConfigChanged;
-          ASTRADB_LOG_DEBUG("Metadata changed for node {}: slots='{}'", NodeIdToString(node.id), slots_info);
+          ASTRADB_LOG_DEBUG("Metadata changed for node {}: slots='{}'",
+                            NodeIdToString(node.id), slots_info);
         } else {
           event = ClusterEvent::kNodeJoined;
         }
@@ -595,11 +611,13 @@ class GossipManager {
     }
 
     ASTRADB_LOG_DEBUG("OnNodeEvent: node={}, event={}, event_callback_set_={}",
-                     NodeIdToString(node.id), static_cast<int>(event), event_callback_set_.load());
+                      NodeIdToString(node.id), static_cast<int>(event),
+                      event_callback_set_.load());
 
     // Notify event callbacks if set
     if (event_callback_set_.load(std::memory_order_acquire)) {
-      ASTRADB_LOG_DEBUG("Calling event callback for event {}", static_cast<int>(event));
+      ASTRADB_LOG_DEBUG("Calling event callback for event {}",
+                        static_cast<int>(event));
       AstraNodeView node_view;
       node_view.id = node.id;
       node_view.ip = node.ip;
@@ -621,7 +639,7 @@ class GossipManager {
       if (node.metadata.contains("slots")) {
         const std::string& slots_str = node.metadata.at("slots");
         ASTRADB_LOG_DEBUG("Node {} has slot metadata ({} bytes)",
-                         NodeIdToString(node.id), slots_str.size());
+                          NodeIdToString(node.id), slots_str.size());
       }
 
       // Lock and call callback to prevent race with Stop()
@@ -634,13 +652,16 @@ class GossipManager {
       }
 
       if (callback) {
-        ASTRADB_LOG_DEBUG("Calling event callback: event={}, node_id={}", static_cast<int>(event), NodeIdToString(node.id));
+        ASTRADB_LOG_DEBUG("Calling event callback: event={}, node_id={}",
+                          static_cast<int>(event), NodeIdToString(node.id));
         callback(event, node_view);
       } else {
-        ASTRADB_LOG_WARN("Event callback is null, skipping cluster event notification");
+        ASTRADB_LOG_WARN(
+            "Event callback is null, skipping cluster event notification");
       }
     } else {
-      ASTRADB_LOG_WARN("Event callback not set, skipping cluster event notification");
+      ASTRADB_LOG_WARN(
+          "Event callback not set, skipping cluster event notification");
     }
   }
 
@@ -655,7 +676,7 @@ class GossipManager {
   std::function<void(ClusterEvent, const AstraNodeView&)> event_callback_;
   mutable std::mutex event_callback_mutex_;  // Protect event_callback_ access
 
-  uint64_t config_epoch_{1};  // Configuration version for conflict resolution
+  uint64_t config_epoch_{1};   // Configuration version for conflict resolution
   std::string slot_metadata_;  // Local slot metadata storage
 };
 

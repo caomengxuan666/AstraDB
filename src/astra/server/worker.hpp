@@ -112,7 +112,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   }
 
   // Get worker scheduler (for SCRIPT KILL - NO SHARING architecture)
-  WorkerScheduler* GetWorkerScheduler() const override{
+  WorkerScheduler* GetWorkerScheduler() const override {
     return worker_scheduler_;
   }
 
@@ -164,17 +164,23 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   bool ClusterMeet(const std::string& ip, int port) override {
     if (gossip_manager_) {
       // Directly use the port provided by CLUSTER MEET command
-      // User specifies the gossip port directly (e.g., CLUSTER MEET 127.0.0.1 17002)
-      // No automatic offset calculation needed
+      // User specifies the gossip port directly (e.g., CLUSTER MEET 127.0.0.1
+      // 17002) No automatic offset calculation needed
       return gossip_manager_->MeetNode(ip, port);
     }
     return false;
   }
   bool ClusterAddSlots(const std::vector<uint16_t>& slots) override;
   bool ClusterDelSlots(const std::vector<uint16_t>& slots) override;
-  cluster::GossipManager* GetGossipManager() const override { return gossip_manager_; }
-  cluster::GossipManager* GetGossipManagerMutable() override { return gossip_manager_; }
-  cluster::ShardManager* GetClusterShardManager() const override { return shard_manager_; }
+  cluster::GossipManager* GetGossipManager() const override {
+    return gossip_manager_;
+  }
+  cluster::GossipManager* GetGossipManagerMutable() override {
+    return gossip_manager_;
+  }
+  cluster::ShardManager* GetClusterShardManager() const override {
+    return shard_manager_;
+  }
 
   // Get cluster state (for slot management)
   std::shared_ptr<cluster::ClusterState> GetClusterState() const;
@@ -189,9 +195,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   }
 
   // Set worker ID (to avoid deadlock when updating cluster state)
-  void SetWorkerId(size_t worker_id) {
-    worker_id_ = worker_id;
-  }
+  void SetWorkerId(size_t worker_id) { worker_id_ = worker_id; }
 
   // Set callback for updating cluster state across all workers
   void SetClusterStateUpdateCallback(
@@ -252,13 +256,15 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   cluster::GossipManager* gossip_manager_ = nullptr;
   cluster::ShardManager* shard_manager_ = nullptr;
   size_t worker_id_ = 0;
-  
+
   // Callback to update cluster state for all workers (set by Server)
   // Uses WorkerScheduler::DispatchOnAll to avoid deadlock
-  std::function<void(std::shared_ptr<cluster::ClusterState>)> cluster_state_update_callback_;
+  std::function<void(std::shared_ptr<cluster::ClusterState>)>
+      cluster_state_update_callback_;
 };
 
-// Note: WorkerCommandContext method implementations are defined after Worker class
+// Note: WorkerCommandContext method implementations are defined after Worker
+// class
 
 // DataShard - Contains a full Database instance
 class DataShard {
@@ -275,28 +281,32 @@ class DataShard {
         registry_);
 
     auto registry_size = registry_.Size();
-    ASTRADB_LOG_DEBUG("Shard {}: CommandRegistry now has {} commands", shard_id_,
-                      registry_size);
+    ASTRADB_LOG_DEBUG("Shard {}: CommandRegistry now has {} commands",
+                      shard_id_, registry_size);
 
     // Set memory tracker for database
     database_.SetMemoryTracker(&memory_tracker_);
-    // Note: InitializeEvictionManager() will be called after config is set in SetMemoryConfig()
+    // Note: InitializeEvictionManager() will be called after config is set in
+    // SetMemoryConfig()
   }
 
   // Set memory configuration
-  void SetMemoryConfig(const core::memory::MemoryTrackerConfig& config, 
-                      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
-                      bool enable_rocksdb = false) {
-    ASTRADB_LOG_INFO("Shard {}: Setting memory config - max_memory={}, policy={}, threshold={}, rocksdb={}",
-                     shard_id_, config.max_memory_limit,
-                     static_cast<int>(config.eviction_policy),
-                     config.eviction_threshold, enable_rocksdb);
+  void SetMemoryConfig(
+      const core::memory::MemoryTrackerConfig& config,
+      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
+      bool enable_rocksdb = false) {
+    ASTRADB_LOG_INFO(
+        "Shard {}: Setting memory config - max_memory={}, policy={}, "
+        "threshold={}, rocksdb={}",
+        shard_id_, config.max_memory_limit,
+        static_cast<int>(config.eviction_policy), config.eviction_threshold,
+        enable_rocksdb);
     memory_tracker_.SetMaxMemory(config.max_memory_limit);
     memory_tracker_.SetEvictionPolicy(config.eviction_policy);
     memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
     memory_tracker_.SetEvictionSamples(config.eviction_samples);
     memory_tracker_.SetTrackingEnabled(config.enable_tracking);
-    
+
     // Initialize RocksDB if enabled
     if (enable_rocksdb && !rocksdb_adapter_) {
       std::string db_path = "data/rocksdb/shard_" + std::to_string(shard_id_);
@@ -305,17 +315,20 @@ class DataShard {
       rocksdb_config.create_if_missing = true;
       rocksdb_config.enable_wal = true;
       rocksdb_config.cache_size = 256 * 1024 * 1024;  // 256MB cache
-      
-      rocksdb_adapter_ = std::make_unique<persistence::RocksDBAdapter>(rocksdb_config);
+
+      rocksdb_adapter_ =
+          std::make_unique<persistence::RocksDBAdapter>(rocksdb_config);
       if (rocksdb_adapter_->IsOpen()) {
         database_.SetRocksDBAdapter(rocksdb_adapter_.get());
-        ASTRADB_LOG_INFO("Shard {}: RocksDB initialized at {}", shard_id_, db_path);
+        ASTRADB_LOG_INFO("Shard {}: RocksDB initialized at {}", shard_id_,
+                         db_path);
       } else {
-        ASTRADB_LOG_ERROR("Shard {}: Failed to initialize RocksDB at {}", shard_id_, db_path);
+        ASTRADB_LOG_ERROR("Shard {}: Failed to initialize RocksDB at {}",
+                          shard_id_, db_path);
         rocksdb_adapter_.reset();
       }
     }
-    
+
     // Initialize eviction manager after config is set
     database_.InitializeEvictionManager(std::move(get_total_memory_callback));
   }
@@ -339,26 +352,30 @@ class DataShard {
 
     // Calculate hash slot
     uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
-    ASTRADB_LOG_DEBUG("Shard {}: CheckClusterSlot - key='{}', slot={}", shard_id_, key, slot);
+    ASTRADB_LOG_DEBUG("Shard {}: CheckClusterSlot - key='{}', slot={}",
+                      shard_id_, key, slot);
 
     // Get cluster state
     auto cluster_state = context_.GetClusterState();
     if (!cluster_state) {
-      ASTRADB_LOG_DEBUG("Shard {}: No cluster state, handling locally", shard_id_);
+      ASTRADB_LOG_DEBUG("Shard {}: No cluster state, handling locally",
+                        shard_id_);
       return "";  // No cluster state, handle locally
     }
 
     // Get slot owner
     auto slot_owner = cluster_state->GetSlotOwner(slot);
     if (!slot_owner.has_value()) {
-      ASTRADB_LOG_WARN("Shard {}: Slot {} not assigned, handling locally", shard_id_, slot);
+      ASTRADB_LOG_WARN("Shard {}: Slot {} not assigned, handling locally",
+                       shard_id_, slot);
       return "";  // Slot not assigned, handle locally
     }
 
     // Get self node ID
     auto* gossip_manager = context_.GetGossipManager();
     if (!gossip_manager) {
-      ASTRADB_LOG_WARN("Shard {}: No gossip manager, handling locally", shard_id_);
+      ASTRADB_LOG_WARN("Shard {}: No gossip manager, handling locally",
+                       shard_id_);
       return "";  // No gossip manager, handle locally
     }
 
@@ -367,26 +384,35 @@ class DataShard {
 
     // Check if slot belongs to this node
     if (slot_owner.value() == self_id) {
-      ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to this node ({})", shard_id_, slot, self_id);
+      ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to this node ({})",
+                        shard_id_, slot, self_id);
       return "";  // Slot belongs to this node, handle locally
     }
 
     // Slot belongs to another node, find target node information
-    ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to another node ({}), checking target node...", shard_id_, slot, slot_owner.value());
+    ASTRADB_LOG_DEBUG(
+        "Shard {}: Slot {} belongs to another node ({}), checking target "
+        "node...",
+        shard_id_, slot, slot_owner.value());
 
     auto all_nodes = gossip_manager->GetNodes();
     for (const auto& node : all_nodes) {
       std::string node_id = cluster::GossipManager::NodeIdToString(node.id);
       if (node_id == slot_owner.value()) {
         // Return MOVED error with target node information
-        auto moved_response = astra::protocol::RespBuilder::BuildMoved(slot, node.ip, node.port);
-        ASTRADB_LOG_DEBUG("Shard {}: Returning MOVED error - slot={}, target={}:{}", shard_id_, slot, node.ip, node.port);
+        auto moved_response =
+            astra::protocol::RespBuilder::BuildMoved(slot, node.ip, node.port);
+        ASTRADB_LOG_DEBUG(
+            "Shard {}: Returning MOVED error - slot={}, target={}:{}",
+            shard_id_, slot, node.ip, node.port);
         return moved_response;
       }
     }
 
     // Slot owner not found in gossip, handle locally
-    ASTRADB_LOG_WARN("Shard {}: Slot {} owner {} not found in gossip, handling locally", shard_id_, slot, slot_owner.value());
+    ASTRADB_LOG_WARN(
+        "Shard {}: Slot {} owner {} not found in gossip, handling locally",
+        shard_id_, slot, slot_owner.value());
     return "";
   }
 
@@ -399,14 +425,18 @@ class DataShard {
 
     // Check cluster slot if cluster is enabled
     if (context_.IsClusterEnabled()) {
-      ASTRADB_LOG_DEBUG("Shard {}: Cluster enabled, checking slot for command '{}'", shard_id_, command.name);
+      ASTRADB_LOG_DEBUG(
+          "Shard {}: Cluster enabled, checking slot for command '{}'",
+          shard_id_, command.name);
       auto moved_error = CheckClusterSlot(command);
       if (!moved_error.empty()) {
         ASTRADB_LOG_DEBUG("Shard {}: Command '{}' redirected - {}", shard_id_,
                           command.name, moved_error);
         return moved_error;
       }
-      ASTRADB_LOG_DEBUG("Shard {}: Command '{}' slot check passed, handling locally", shard_id_, command.name);
+      ASTRADB_LOG_DEBUG(
+          "Shard {}: Command '{}' slot check passed, handling locally",
+          shard_id_, command.name);
     }
 
     auto result = registry_.Execute(command, &context_);
@@ -611,7 +641,8 @@ class Worker {
                             &reuseport, sizeof(reuseport));
     if (result == 0) {
       ASTRADB_LOG_INFO(
-          "Worker {}: SO_REUSEPORT enabled - kernel will distribute connections "
+          "Worker {}: SO_REUSEPORT enabled - kernel will distribute "
+          "connections "
           "evenly across workers",
           worker_id_);
     } else {
@@ -675,7 +706,8 @@ class Worker {
     data_shard_.GetCommandContext()->SetCommandRegistry(
         data_shard_.GetCommandRegistry());
 
-    // Set current worker in command context (required for cross-shard operations)
+    // Set current worker in command context (required for cross-shard
+    // operations)
     data_shard_.GetCommandContext()->SetWorker(this);
 
     // Start IO thread
@@ -742,9 +774,7 @@ class Worker {
 
   // Notify the executor loop to process pending tasks immediately
   // This should be called after AddTask when immediate processing is needed
-  void NotifyTaskProcessing() {
-    NotifyExecutorLoop();
-  }
+  void NotifyTaskProcessing() { NotifyExecutorLoop(); }
 
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() {
@@ -841,13 +871,12 @@ class Worker {
 
       // Set RDB save callback
 
-            data_shard_.GetCommandContext()->SetRdbSaveCallback(
+      data_shard_.GetCommandContext()->SetRdbSaveCallback(
 
-                [this, pm](bool background) -> std::string {
+          [this, pm](bool background) -> std::string {
+            ASTRADB_LOG_DEBUG("Worker {}: RDB save requested, background={}",
 
-                  ASTRADB_LOG_DEBUG("Worker {}: RDB save requested, background={}",
-
-                                    worker_id_, background);
+                              worker_id_, background);
 
             if (background) {
               // Background save
@@ -897,7 +926,8 @@ class Worker {
     }
   }
 
-  // Set worker scheduler (called by Server after worker scheduler is initialized)
+  // Set worker scheduler (called by Server after worker scheduler is
+  // initialized)
   void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
     ASTRADB_LOG_DEBUG("Worker {}: SetWorkerScheduler called with ptr={}",
                       worker_id_, static_cast<const void*>(worker_scheduler));
@@ -996,40 +1026,41 @@ class Worker {
       return;
     }
 
-    acceptor_.async_accept([this](asio::error_code ec,
-                                  asio::ip::tcp::socket socket) {
-      if (!ec && running_) {
-        ASTRADB_LOG_DEBUG("Worker {}: Accepted connection", worker_id_);
+    acceptor_.async_accept(
+        [this](asio::error_code ec, asio::ip::tcp::socket socket) {
+          if (!ec && running_) {
+            ASTRADB_LOG_DEBUG("Worker {}: Accepted connection", worker_id_);
 
-        // Create connection ID
-        uint64_t conn_id = next_conn_id_++;
+            // Create connection ID
+            uint64_t conn_id = next_conn_id_++;
 
-        // Create connection
-        auto conn = std::make_shared<Connection>(
-            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_,
-            [this]() { NotifyExecutorLoop(); },
-            [this](uint64_t conn_id) {
-              // Remove connection from map when it's closed
-              std::lock_guard<std::mutex> lock(connections_mutex_);
-              connections_.erase(conn_id);
-              ASTRADB_LOG_DEBUG("Worker {}: Connection {} removed, total connections: {}",
-                                worker_id_, conn_id, connections_.size());
-            });
+            // Create connection
+            auto conn = std::make_shared<Connection>(
+                worker_id_, conn_id, std::move(socket), &cmd_queue_,
+                &resp_queue_, [this]() { NotifyExecutorLoop(); },
+                [this](uint64_t conn_id) {
+                  // Remove connection from map when it's closed
+                  std::lock_guard<std::mutex> lock(connections_mutex_);
+                  connections_.erase(conn_id);
+                  ASTRADB_LOG_DEBUG(
+                      "Worker {}: Connection {} removed, total connections: {}",
+                      worker_id_, conn_id, connections_.size());
+                });
 
-        connections_[conn_id] = conn;
-        conn->Start();
+            connections_[conn_id] = conn;
+            conn->Start();
 
-// Record connection in metrics
-      astra::metrics::AstraMetrics::Instance().IncrementConnections();
+            // Record connection in metrics
+            astra::metrics::AstraMetrics::Instance().IncrementConnections();
 
-      ASTRADB_LOG_INFO(
-        "Worker {}: Connection {} started, total connections: {}",
-        worker_id_, conn_id, connections_.size());
-      }
+            ASTRADB_LOG_INFO(
+                "Worker {}: Connection {} started, total connections: {}",
+                worker_id_, conn_id, connections_.size());
+          }
 
-      // Continue accepting
-      DoAccept();
-    });
+          // Continue accepting
+          DoAccept();
+        });
   }
 
   // Connection class - belongs to one worker
@@ -1090,7 +1121,8 @@ class Worker {
       if (!ec) {
         ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
                           worker_id_, conn_id_, bytes_written);
-        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(bytes_written);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
+            bytes_written);
       } else {
         ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
                           worker_id_, conn_id_, ec.message());
@@ -1155,7 +1187,8 @@ class Worker {
         // Append to receive buffer
         receive_buffer_.append(buffer_.data(), bytes_transferred);
 
-        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(bytes_transferred);
+        astra::metrics::AstraMetrics::Instance().RecordNetworkInput(
+            bytes_transferred);
 
         // Process commands (minimal parsing only)
         ProcessCommands();
@@ -1163,7 +1196,7 @@ class Worker {
 
       ASTRADB_LOG_DEBUG("Worker {}: Connection {} read loop terminated",
                         worker_id_, conn_id_);
-      
+
       // Notify Worker to remove this connection from connections_ map
       if (on_close_callback_) {
         on_close_callback_(conn_id_);
@@ -1294,9 +1327,10 @@ class Worker {
             std::string response = data_shard_.Execute(cmd.command);
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
-            
-            // OPTIMIZATION: Trigger immediate response processing for low latency
-            // This is especially important for single-connection scenarios
+
+            // OPTIMIZATION: Trigger immediate response processing for low
+            // latency This is especially important for single-connection
+            // scenarios
             NotifyResponseQueue();
           } else {
             // Forward to target worker (enqueue to avoid blocking)
@@ -1317,7 +1351,7 @@ class Worker {
         has_work = true;
         ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
         resp_queue_.enqueue(resp);
-        
+
         // OPTIMIZATION: Trigger immediate response processing
         NotifyResponseQueue();
       }
@@ -1352,7 +1386,8 @@ class Worker {
         try {
           task();
         } catch (const std::exception& e) {
-          ASTRADB_LOG_ERROR("Worker {}: Scheduler task failed: {}", worker_id_, e.what());
+          ASTRADB_LOG_ERROR("Worker {}: Scheduler task failed: {}", worker_id_,
+                            e.what());
         }
       }
 
@@ -1371,8 +1406,8 @@ class Worker {
       }
 
       // Wait if no work (using absl condition variable for best performance)
-      // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might be missed
-      // This provides a balance between:
+      // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might
+      // be missed This provides a balance between:
       // - Zero latency (when notification works correctly)
       // - Fallback timeout (when notification is missed, prevents deadlock)
       // Spurious wakeups are handled by the outer while loop
@@ -1385,13 +1420,11 @@ class Worker {
   }
 
   // Trigger immediate response processing using asio::post()
-// This eliminates timer delays and follows asio best practices
-// ProcessResponseQueue() will run in the io_context_ thread
-void NotifyResponseQueue() {
-  asio::post(io_context_, [this]() {
-    ProcessResponseQueue();
-  });
-}
+  // This eliminates timer delays and follows asio best practices
+  // ProcessResponseQueue() will run in the io_context_ thread
+  void NotifyResponseQueue() {
+    asio::post(io_context_, [this]() { ProcessResponseQueue(); });
+  }
 
   void ProcessResponseQueue() {
     if (!running_) {
@@ -1401,11 +1434,11 @@ void NotifyResponseQueue() {
     // Collect all available responses (not limited to 100)
     // This increases batching opportunities (Dragonfly best practice)
     absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
-    
+
     ResponseWithConnId resp;
     while (resp_queue_.try_dequeue(resp)) {
       conn_responses[resp.conn_id].push_back(std::move(resp.response));
-      
+
       // Limit total responses per batch to avoid memory bloat
       static constexpr size_t kMaxBatchSize = 1000;
       if (conn_responses.size() > kMaxBatchSize) {
@@ -1420,17 +1453,17 @@ void NotifyResponseQueue() {
         // Merge all responses into a single buffer for true batch sending
         asio::co_spawn(
             it->second->GetSocket().get_executor(),
-            [conn = it->second, responses = std::move(responses)]()
-                -> asio::awaitable<void> {
+            [conn = it->second,
+             responses = std::move(responses)]() -> asio::awaitable<void> {
               // Calculate total size and pre-allocate
               size_t total_size = 0;
               for (const auto& response : responses) {
                 total_size += response.size();
               }
-              
+
               std::string batch;
               batch.reserve(total_size);
-              
+
               // Merge all responses (use append to avoid reallocations)
               for (const auto& response : responses) {
                 batch.append(response);
@@ -1444,8 +1477,9 @@ void NotifyResponseQueue() {
     }
 
     // OPTIMIZATION: No periodic timer needed
-    // ProcessResponseQueue() is triggered by asio::post() when responses are ready
-    // This eliminates timer delays and follows Redis/Dragonfly best practices
+    // ProcessResponseQueue() is triggered by asio::post() when responses are
+    // ready This eliminates timer delays and follows Redis/Dragonfly best
+    // practices
   }
 
   size_t worker_id_;
@@ -1494,7 +1528,8 @@ void NotifyResponseQueue() {
   // Condition variable and mutex for ExecutorLoop (absl for better performance)
   absl::Mutex executor_mutex_;
   absl::CondVar executor_cv_;
-  [[maybe_unused]] bool has_work_{false};  // Flag to indicate if there's work to do
+  [[maybe_unused]] bool has_work_{
+      false};  // Flag to indicate if there's work to do
 
   // Condition variable and mutex for batch response notification
   absl::Mutex batch_response_mutex_;
@@ -1525,8 +1560,9 @@ void NotifyResponseQueue() {
   // Local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats local_stats_;
 
-  // Cluster state (NO SHARING architecture - each worker has its own thread-local snapshot)
-  // Following Dragonfly's pattern: zero-copy updates via shared_ptr
+  // Cluster state (NO SHARING architecture - each worker has its own
+  // thread-local snapshot) Following Dragonfly's pattern: zero-copy updates via
+  // shared_ptr
   std::shared_ptr<cluster::ClusterState> cluster_state_;
 
   // RAII timer for command duration (NO SHARING architecture - uses local
@@ -1558,15 +1594,18 @@ void NotifyResponseQueue() {
 // WorkerCommandContext Method Implementations
 // ==============================================================================
 
-inline std::shared_ptr<cluster::ClusterState> WorkerCommandContext::GetClusterState() const {
+inline std::shared_ptr<cluster::ClusterState>
+WorkerCommandContext::GetClusterState() const {
   if (worker_) {
     return worker_->GetClusterState();
   }
   return nullptr;
 }
 
-inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& slots) {
-  ASTRADB_LOG_INFO("ClusterAddSlots: Adding {} slots to this node", slots.size());
+inline bool WorkerCommandContext::ClusterAddSlots(
+    const std::vector<uint16_t>& slots) {
+  ASTRADB_LOG_INFO("ClusterAddSlots: Adding {} slots to this node",
+                   slots.size());
 
   if (!worker_) {
     ASTRADB_LOG_ERROR("ClusterAddSlots: worker_ is null");
@@ -1584,7 +1623,8 @@ inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& s
   }
   auto self = gossip_manager_->GetSelf();
   std::string self_id = cluster::GossipManager::NodeIdToString(self.id);
-  ASTRADB_LOG_DEBUG("ClusterAddSlots: self_id={}, slots={}", self_id, slots.size());
+  ASTRADB_LOG_DEBUG("ClusterAddSlots: self_id={}, slots={}", self_id,
+                    slots.size());
 
   // Create new state with slots assigned
   auto new_state = current_state->WithSlotsAssigned(self_id, slots);
@@ -1593,7 +1633,8 @@ inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& s
   for (auto slot : slots) {
     auto owner = new_state->GetSlotOwner(slot);
     if (owner.has_value()) {
-      ASTRADB_LOG_DEBUG("  Slot {} owner: {}", static_cast<int>(slot), owner.value());
+      ASTRADB_LOG_DEBUG("  Slot {} owner: {}", static_cast<int>(slot),
+                        owner.value());
     } else {
       ASTRADB_LOG_ERROR("  Slot {} has no owner!", static_cast<int>(slot));
     }
@@ -1611,23 +1652,28 @@ inline bool WorkerCommandContext::ClusterAddSlots(const std::vector<uint16_t>& s
     gossip_manager_->BroadcastConfig();
     ASTRADB_LOG_INFO("ClusterAddSlots: Broadcasted slot metadata to cluster");
   } else {
-    ASTRADB_LOG_ERROR("ClusterAddSlots: gossip_manager_ is null, cannot broadcast!");
+    ASTRADB_LOG_ERROR(
+        "ClusterAddSlots: gossip_manager_ is null, cannot broadcast!");
   }
 
   // Update all workers' cluster state via callback (set by Server)
   // This avoids circular dependency with WorkerScheduler
   if (cluster_state_update_callback_) {
-    ASTRADB_LOG_DEBUG("ClusterAddSlots: Calling cluster_state_update_callback_");
+    ASTRADB_LOG_DEBUG(
+        "ClusterAddSlots: Calling cluster_state_update_callback_");
     cluster_state_update_callback_(new_state);
-    ASTRADB_LOG_DEBUG("ClusterAddSlots: cluster_state_update_callback_ completed");
+    ASTRADB_LOG_DEBUG(
+        "ClusterAddSlots: cluster_state_update_callback_ completed");
   } else {
-    ASTRADB_LOG_ERROR("ClusterAddSlots: cluster_state_update_callback_ is null!");
+    ASTRADB_LOG_ERROR(
+        "ClusterAddSlots: cluster_state_update_callback_ is null!");
   }
 
   return true;
 }
 
-inline bool WorkerCommandContext::ClusterDelSlots(const std::vector<uint16_t>& slots) {
+inline bool WorkerCommandContext::ClusterDelSlots(
+    const std::vector<uint16_t>& slots) {
   if (!worker_) {
     return false;
   }
@@ -1652,7 +1698,8 @@ inline bool WorkerCommandContext::ClusterDelSlots(const std::vector<uint16_t>& s
     for (uint16_t slot = 0; slot < 16384; ++slot) {
       auto owner = current_state->GetSlotOwner(slot);
       if (owner.has_value() && owner.value() == self_id) {
-        bool is_removed = std::find(slots.begin(), slots.end(), slot) != slots.end();
+        bool is_removed =
+            std::find(slots.begin(), slots.end(), slot) != slots.end();
         if (!is_removed) {
           remaining_slots.push_back(slot);
         }
@@ -1663,8 +1710,9 @@ inline bool WorkerCommandContext::ClusterDelSlots(const std::vector<uint16_t>& s
     auto slots_str = cluster::SlotSerializer::Serialize(remaining_slots);
     gossip_manager_->UpdateSlotMetadata(slots_str);
     gossip_manager_->BroadcastConfig();
-    ASTRADB_LOG_INFO("ClusterDelSlots: Broadcasted slot metadata ({} remaining slots)",
-                     remaining_slots.size());
+    ASTRADB_LOG_INFO(
+        "ClusterDelSlots: Broadcasted slot metadata ({} remaining slots)",
+        remaining_slots.size());
   }
 
   // Update all workers' cluster state via callback (set by Server)
@@ -1751,12 +1799,13 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     // do it here)
     ProcessBatchResponses();
 
-    // Check if any future is ready (with short timeout to avoid blocking too long)
+    // Check if any future is ready (with short timeout to avoid blocking too
+    // long)
     bool any_ready = false;
     for (size_t i = 0; i < futures.size(); ++i) {
       if (futures[i].valid()) {
-        auto status = futures[i].wait_for(
-            AbslToChronoMicroseconds(absl::Microseconds(100)));  // 100us instead of 1ms
+        auto status = futures[i].wait_for(AbslToChronoMicroseconds(
+            absl::Microseconds(100)));  // 100us instead of 1ms
         if (status == std::future_status::ready) {
           auto result = futures[i].get();
           all_results.push_back(std::move(result));
@@ -1770,7 +1819,8 @@ inline std::vector<std::string> Worker::SendBatchRequest(
     if (!any_ready && completed < futures.size()) {
       absl::MutexLock lock(&batch_response_mutex_);
       // Wait for notification or timeout (100us)
-      batch_response_cv_.WaitWithTimeout(&batch_response_mutex_, absl::Microseconds(100));
+      batch_response_cv_.WaitWithTimeout(&batch_response_mutex_,
+                                         absl::Microseconds(100));
     }
 
     // Check timeout

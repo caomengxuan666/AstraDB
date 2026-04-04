@@ -40,7 +40,8 @@ CommandResult HandleGet(const astra::protocol::Command& command,
   if (redirect_target) {
     // Calculate slot for MOVED error
     uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
-    std::string error = "-MOVED " + std::to_string(slot) + " " + *redirect_target;
+    std::string error =
+        "-MOVED " + std::to_string(slot) + " " + *redirect_target;
     RespValue resp;
     resp.SetString(error, RespType::kSimpleString);
     return CommandResult(false, error);
@@ -64,12 +65,13 @@ CommandResult HandleGet(const astra::protocol::Command& command,
       if (cold_value.has_value()) {
         // Found in RocksDB - reload to memory
         db->Set(key, *cold_value);
-        ASTRADB_LOG_DEBUG("GET: key {} found in RocksDB, reloaded to memory", key);
+        ASTRADB_LOG_DEBUG("GET: key {} found in RocksDB, reloaded to memory",
+                          key);
         astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
         return CommandResult(RespValue(*cold_value));
       }
     }
-    
+
     astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
@@ -279,78 +281,88 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
     server::Worker* current_worker = context->GetWorker();
-    
+
     // Group keys by worker_id
-    std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(all_workers.size());
+    std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(
+        all_workers.size());
     for (size_t i = 0; i < keys.size(); ++i) {
       size_t worker_id = std::hash<std::string>{}(keys[i]) % all_workers.size();
       worker_keys[worker_id].push_back({i, keys[i]});
     }
-    
+
     // Collect results from all workers
-    std::vector<std::future<std::vector<std::pair<size_t, std::optional<std::string>>>>> futures;
+    std::vector<
+        std::future<std::vector<std::pair<size_t, std::optional<std::string>>>>>
+        futures;
     futures.reserve(all_workers.size());
-    
+
     for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
       if (worker_keys[worker_id].empty()) {
         continue;
       }
-      
+
       server::Worker* target_worker = all_workers[worker_id];
-      
-      // Check if this is the current worker - execute directly to avoid deadlock
+
+      // Check if this is the current worker - execute directly to avoid
+      // deadlock
       if (target_worker == current_worker) {
         // Execute directly in current thread
         std::vector<std::pair<size_t, std::optional<std::string>>> results;
         Database* db = &target_worker->GetDataShard().GetDatabase();
-        
+
         for (const auto& [index, key] : worker_keys[worker_id]) {
           auto result = db->Get(key);
           if (result.has_value()) {
-            results.push_back({index, std::optional<std::string>(result->value)});
+            results.push_back(
+                {index, std::optional<std::string>(result->value)});
           } else {
             results.push_back({index, std::optional<std::string>()});
           }
         }
-        
+
         // Create a satisfied future
-        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        auto promise = std::make_shared<std::promise<
+            std::vector<std::pair<size_t, std::optional<std::string>>>>>();
         promise->set_value(results);
         futures.push_back(promise->get_future());
       } else {
         // Execute on other worker via queue
-        auto promise = std::make_shared<std::promise<std::vector<std::pair<size_t, std::optional<std::string>>>>>();
+        auto promise = std::make_shared<std::promise<
+            std::vector<std::pair<size_t, std::optional<std::string>>>>>();
         auto future = promise->get_future();
         futures.push_back(std::move(future));
-        
+
         // Capture necessary data by value to make lambda copyable
-        std::vector<std::pair<size_t, std::string>> keys_for_worker = worker_keys[worker_id];
-        
-        all_workers[worker_id]->AddTask([keys_for_worker, target_worker, promise]() {
+        std::vector<std::pair<size_t, std::string>> keys_for_worker =
+            worker_keys[worker_id];
+
+        all_workers[worker_id]->AddTask([keys_for_worker, target_worker,
+                                         promise]() {
           try {
             std::vector<std::pair<size_t, std::optional<std::string>>> results;
             Database* db = &target_worker->GetDataShard().GetDatabase();
-            
+
             for (const auto& [index, key] : keys_for_worker) {
               auto result = db->Get(key);
               if (result.has_value()) {
-                results.push_back({index, std::optional<std::string>(result->value)});
+                results.push_back(
+                    {index, std::optional<std::string>(result->value)});
               } else {
                 results.push_back({index, std::optional<std::string>()});
               }
             }
-            
+
             promise->set_value(results);
           } catch (...) {
             promise->set_exception(std::current_exception());
           }
         });
-        
+
         // Notify worker to process task immediately
         all_workers[worker_id]->NotifyTaskProcessing();
       }
     }
-    
+
     // Collect results in order
     std::vector<std::optional<std::string>> ordered_results(keys.size());
     for (auto& future : futures) {
@@ -359,7 +371,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
         ordered_results[index] = result;
       }
     }
-    
+
     // Build response array
     absl::InlinedVector<RespValue, 16> array;
     array.reserve(keys.size());
@@ -370,7 +382,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
         array.emplace_back(RespValue(RespType::kNullBulkString));
       }
     }
-    
+
     return CommandResult(
         RespValue(std::vector<RespValue>(array.begin(), array.end())));
   }
@@ -405,11 +417,12 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
-  // Try to use WorkerScheduler for cross-shard operation (NO SHARING architecture)
+  // Try to use WorkerScheduler for cross-shard operation (NO SHARING
+  // architecture)
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
-    
+
     // Distribute key-value pairs to respective workers
     for (size_t i = 0; i < command.ArgCount(); i += 2) {
       const auto& key_arg = command[i];
@@ -421,22 +434,22 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
 
       std::string key = key_arg.AsString();
       std::string value = value_arg.AsString();
-      
+
       // Hash key to determine which worker should handle it
       size_t worker_id = std::hash<std::string>{}(key) % all_workers.size();
-      
+
       // Capture necessary data by value to make lambda copyable
       server::Worker* target_worker = all_workers[worker_id];
-      
+
       all_workers[worker_id]->AddTask([key, value, target_worker]() {
         Database* db = &target_worker->GetDataShard().GetDatabase();
         db->Set(key, StringValue(value));
       });
-      
+
       // Notify worker to process task immediately
       all_workers[worker_id]->NotifyTaskProcessing();
     }
-    
+
     // Log to AOF (zero-copy with string_view from const std::string&)
     std::vector<absl::string_view> aof_args;
     aof_args.reserve(command.ArgCount());

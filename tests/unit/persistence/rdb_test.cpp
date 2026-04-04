@@ -11,12 +11,11 @@
 #include <fstream>
 #include <thread>
 
-#include "absl/time/time.h"
 #include "absl/time/clock.h"
-
+#include "absl/time/time.h"
 #include "astra/persistence/rdb_common.hpp"
-#include "astra/persistence/rdb_writer.hpp"
 #include "astra/persistence/rdb_reader.hpp"
+#include "astra/persistence/rdb_writer.hpp"
 
 namespace astra::persistence {
 namespace {
@@ -58,10 +57,7 @@ class RdbTest : public ::testing::Test {
 TEST_F(RdbTest, BasicStringWriteAndRead) {
   // Test basic string write and read
   std::vector<std::tuple<std::string, std::string, int64_t>> test_data = {
-      {"key1", "value1", -1},
-      {"key2", "value2", -1},
-      {"key3", "value3", -1}
-  };
+      {"key1", "value1", -1}, {"key2", "value2", -1}, {"key3", "value3", -1}};
 
   // Write data
   auto save_callback = [&test_data](RdbWriter& writer) {
@@ -78,7 +74,8 @@ TEST_F(RdbTest, BasicStringWriteAndRead) {
 
   // Read data back
   RdbReader reader;
-  ASSERT_TRUE(reader.Init(rdb_path_, false));  // Disable checksum verification for now
+  ASSERT_TRUE(
+      reader.Init(rdb_path_, false));  // Disable checksum verification for now
 
   std::vector<std::tuple<std::string, std::string, int64_t>> loaded_data;
   auto load_callback = [&loaded_data](int db_num, const RdbKeyValue& kv) {
@@ -134,12 +131,10 @@ TEST_F(RdbTest, StringWithExpiration) {
 
 TEST_F(RdbTest, MultipleDatabases) {
   // Test writing and reading multiple databases
-  std::vector<std::vector<std::tuple<std::string, std::string, int64_t>>> db_data = {
-      {{"db0_key1", "db0_value1", -1},
-       {"db0_key2", "db0_value2", -1}},
-      {{"db1_key1", "db1_value1", -1},
-       {"db1_key2", "db1_value2", -1}}
-  };
+  std::vector<std::vector<std::tuple<std::string, std::string, int64_t>>>
+      db_data = {
+          {{"db0_key1", "db0_value1", -1}, {"db0_key2", "db0_value2", -1}},
+          {{"db1_key1", "db1_value1", -1}, {"db1_key2", "db1_value2", -1}}};
 
   // Write data for multiple databases
   auto save_callback = [&db_data](RdbWriter& writer) {
@@ -159,7 +154,8 @@ TEST_F(RdbTest, MultipleDatabases) {
   RdbReader reader;
   ASSERT_TRUE(reader.Init(rdb_path_, false));
 
-  std::map<int, std::vector<std::tuple<std::string, std::string, int64_t>>> loaded_by_db;
+  std::map<int, std::vector<std::tuple<std::string, std::string, int64_t>>>
+      loaded_by_db;
   auto load_callback = [&loaded_by_db](int db_num, const RdbKeyValue& kv) {
     loaded_by_db[db_num].push_back({kv.key, kv.value, kv.expire_ms});
   };
@@ -185,8 +181,8 @@ TEST_F(RdbTest, MultipleDatabases) {
 TEST_F(RdbTest, DifferentDataTypes) {
   // Test different data types (basic support)
   // For now, only test STRING type since other types need special handling
-  std::vector<std::tuple<uint8_t, std::string, std::string, int64_t>> test_data = {
-      {RDB_TYPE_STRING, "test_key", "test_value", -1}
+  std::vector<std::tuple<uint8_t, std::string, std::string, int64_t>> test_data
+= { {RDB_TYPE_STRING, "test_key", "test_value", -1}
   };
 
   // Write data
@@ -274,7 +270,8 @@ TEST_F(RdbTest, ChecksumVerification) {
   if (file_data.size() > 10) {
     file_data[10] = ~file_data[10];  // Flip a byte
     std::ofstream ofs(rdb_path_, std::ios::binary);
-    ofs.write(reinterpret_cast<const char*>(file_data.data()), file_data.size());
+    ofs.write(reinterpret_cast<const char*>(file_data.data()),
+              file_data.size());
     ofs.close();
 
     // Read with checksum verification disabled (will not fail due to checksum)

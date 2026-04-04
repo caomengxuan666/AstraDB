@@ -5,6 +5,7 @@
 
 #include <absl/container/flat_hash_map.h>
 #include <absl/strings/string_view.h>
+
 #include <atomic>
 #include <memory>
 #include <string>
@@ -49,7 +50,7 @@ class ClusterState {
 
   // Create cluster state with self node
   explicit ClusterState(const std::string& self_id, const std::string& ip,
-                         uint16_t port, uint16_t bus_port) noexcept {
+                        uint16_t port, uint16_t bus_port) noexcept {
     ClusterNodeInfo self;
     self.id = self_id;
     self.ip = ip;
@@ -120,8 +121,8 @@ class ClusterState {
   }
 
   // Create a new state with assigned slots
-  std::shared_ptr<ClusterState> WithSlotAssigned(
-      const std::string& node_id, uint16_t slot) const noexcept {
+  std::shared_ptr<ClusterState> WithSlotAssigned(const std::string& node_id,
+                                                 uint16_t slot) const noexcept {
     auto new_state = std::make_shared<ClusterState>(*this);
     if (slot < 16384) {
       new_state->slot_owners_[slot] = node_id;
@@ -162,7 +163,8 @@ class ClusterStateAccessor {
   }
 
   // Get slot owner for a key
-  static std::optional<std::string> GetSlotOwner(const std::string& key) noexcept {
+  static std::optional<std::string> GetSlotOwner(
+      const std::string& key) noexcept {
     auto* state = Get();
     if (!state || !state->IsEnabled()) {
       return std::nullopt;
@@ -224,9 +226,8 @@ class SlotSerializer {
     std::sort(sorted_slots.begin(), sorted_slots.end());
 
     // Remove duplicates
-    sorted_slots.erase(
-        std::unique(sorted_slots.begin(), sorted_slots.end()),
-        sorted_slots.end());
+    sorted_slots.erase(std::unique(sorted_slots.begin(), sorted_slots.end()),
+                       sorted_slots.end());
 
     std::string result;
     size_t i = 0;
@@ -236,8 +237,7 @@ class SlotSerializer {
       uint16_t end = start;
 
       // Find continuous range
-      while (i + 1 < sorted_slots.size() &&
-             sorted_slots[i + 1] == end + 1) {
+      while (i + 1 < sorted_slots.size() && sorted_slots[i + 1] == end + 1) {
         i++;
         end = sorted_slots[i];
       }
@@ -287,8 +287,10 @@ class SlotSerializer {
 
       if (dash_pos != std::string::npos) {
         // Range: "start-end"
-        uint16_t range_start = static_cast<uint16_t>(std::stoul(part.substr(0, dash_pos)));
-        uint16_t range_end = static_cast<uint16_t>(std::stoul(part.substr(dash_pos + 1)));
+        uint16_t range_start =
+            static_cast<uint16_t>(std::stoul(part.substr(0, dash_pos)));
+        uint16_t range_end =
+            static_cast<uint16_t>(std::stoul(part.substr(dash_pos + 1)));
 
         for (uint16_t slot = range_start; slot <= range_end; ++slot) {
           slots.push_back(slot);
@@ -334,8 +336,10 @@ class SlotSerializer {
       size_t dash_pos = part.find('-');
       if (dash_pos != std::string::npos) {
         // Range
-        uint16_t range_start = static_cast<uint16_t>(std::stoul(part.substr(0, dash_pos)));
-        uint16_t range_end = static_cast<uint16_t>(std::stoul(part.substr(dash_pos + 1)));
+        uint16_t range_start =
+            static_cast<uint16_t>(std::stoul(part.substr(0, dash_pos)));
+        uint16_t range_end =
+            static_cast<uint16_t>(std::stoul(part.substr(dash_pos + 1)));
         stats.slot_count += (range_end - range_start + 1);
         stats.compressed_ranges++;
       } else {
@@ -344,9 +348,10 @@ class SlotSerializer {
       }
     }
 
-    stats.compression_ratio = stats.slot_count > 0
-                                 ? static_cast<double>(stats.string_size) / stats.slot_count
-                                 : 0.0;
+    stats.compression_ratio =
+        stats.slot_count > 0
+            ? static_cast<double>(stats.string_size) / stats.slot_count
+            : 0.0;
 
     return stats;
   }

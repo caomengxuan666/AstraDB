@@ -113,9 +113,7 @@ class MetricsRegistry {
   ~MetricsRegistry() = default;
 
   // Helper to check if metrics are enabled (fast path for zero-cost)
-  bool IsEnabled() const {
-    return enabled_.load(std::memory_order_acquire);
-  }
+  bool IsEnabled() const { return enabled_.load(std::memory_order_acquire); }
 
   MetricsRegistry(const MetricsRegistry&) = delete;
   MetricsRegistry& operator=(const MetricsRegistry&) = delete;
@@ -141,12 +139,11 @@ class AstraMetrics {
   }
 
   void Disable() {
-    MetricsRegistry::Instance().enabled_.store(false, std::memory_order_release);
+    MetricsRegistry::Instance().enabled_.store(false,
+                                               std::memory_order_release);
   }
 
-  bool IsEnabled() const {
-    return MetricsRegistry::Instance().IsEnabled();
-  }
+  bool IsEnabled() const { return MetricsRegistry::Instance().IsEnabled(); }
 
   void Init(const MetricsConfig& config) {
     config_ = config;
@@ -215,23 +212,23 @@ class AstraMetrics {
 
     // Total connections
     total_connections_ = &prometheus::BuildCounter()
-                             .Name("astradb_connections_received_total")
-                             .Help("Total connections received")
-                             .Register(*registry.GetRegistry());
+                              .Name("astradb_connections_received_total")
+                              .Help("Total connections received")
+                              .Register(*registry.GetRegistry());
     total_connections_received_ = &total_connections_->Add({});
 
     // Total commands
     total_commands_ = &prometheus::BuildCounter()
-                          .Name("astradb_commands_total_all")
-                          .Help("Total commands processed")
-                          .Register(*registry.GetRegistry());
+                           .Name("astradb_commands_total_all")
+                           .Help("Total commands processed")
+                           .Register(*registry.GetRegistry());
     total_commands_processed_ = &total_commands_->Add({});
 
     // Keys total
     keys_total_ = &prometheus::BuildGauge()
-                      .Name("astradb_keys_total")
-                      .Help("Total number of keys")
-                      .Register(*registry.GetRegistry());
+                       .Name("astradb_keys_total")
+                       .Help("Total number of keys")
+                       .Register(*registry.GetRegistry());
     keys_total_current_ = &keys_total_->Add({});
 
     // Network traffic
@@ -249,9 +246,9 @@ class AstraMetrics {
 
     // Slow queries
     slowlog_count_ = &prometheus::BuildCounter()
-                         .Name("astradb_slowlog_count_total")
-                         .Help("Total number of slow queries (> 10ms)")
-                         .Register(*registry.GetRegistry());
+                          .Name("astradb_slowlog_count_total")
+                          .Help("Total number of slow queries (> 10ms)")
+                          .Register(*registry.GetRegistry());
     slowlog_count_current_ = &slowlog_count_->Add({});
 
     // Keyspace stats
@@ -275,21 +272,21 @@ class AstraMetrics {
     error_total_current_ = &error_total_->Add({});
 
     error_rejected_ = &prometheus::BuildCounter()
-                          .Name("astradb_errors_rejected_connections_total")
-                          .Help("Total rejected connections")
-                          .Register(*registry.GetRegistry());
+                           .Name("astradb_errors_rejected_connections_total")
+                           .Help("Total rejected connections")
+                           .Register(*registry.GetRegistry());
     error_rejected_current_ = &error_rejected_->Add({});
 
     error_syntax_ = &prometheus::BuildCounter()
-                        .Name("astradb_errors_syntax_total")
-                        .Help("Total syntax errors")
-                        .Register(*registry.GetRegistry());
+                         .Name("astradb_errors_syntax_total")
+                         .Help("Total syntax errors")
+                         .Register(*registry.GetRegistry());
     error_syntax_current_ = &error_syntax_->Add({});
 
     error_protocol_ = &prometheus::BuildCounter()
-                          .Name("astradb_errors_protocol_total")
-                          .Help("Total protocol errors")
-                          .Register(*registry.GetRegistry());
+                           .Name("astradb_errors_protocol_total")
+                           .Help("Total protocol errors")
+                           .Register(*registry.GetRegistry());
     error_protocol_current_ = &error_protocol_->Add({});
 
     // Memory eviction metrics
@@ -299,28 +296,29 @@ class AstraMetrics {
                                .Register(*registry.GetRegistry());
     evicted_keys_total_current_ = &evicted_keys_total_->Add({});
 
-    eviction_operations_total_ = &prometheus::BuildCounter()
-                                     .Name("astradb_eviction_operations_total")
-                                     .Help("Total number of eviction operations")
-                                     .Register(*registry.GetRegistry());
+    eviction_operations_total_ =
+        &prometheus::BuildCounter()
+             .Name("astradb_eviction_operations_total")
+             .Help("Total number of eviction operations")
+             .Register(*registry.GetRegistry());
     eviction_operations_total_current_ = &eviction_operations_total_->Add({});
 
     memory_max_bytes_ = &prometheus::BuildGauge()
-                            .Name("astradb_memory_max_bytes")
-                            .Help("Maximum memory limit in bytes")
-                            .Register(*registry.GetRegistry());
+                             .Name("astradb_memory_max_bytes")
+                             .Help("Maximum memory limit in bytes")
+                             .Register(*registry.GetRegistry());
     memory_max_bytes_current_ = &memory_max_bytes_->Add({});
 
     memory_used_bytes_ = &prometheus::BuildGauge()
-                             .Name("astradb_memory_used_bytes")
-                             .Help("Used memory in bytes")
-                             .Register(*registry.GetRegistry());
+                              .Name("astradb_memory_used_bytes")
+                              .Help("Used memory in bytes")
+                              .Register(*registry.GetRegistry());
     memory_used_bytes_current_ = &memory_used_bytes_->Add({});
 
     memory_usage_ratio_ = &prometheus::BuildGauge()
-                              .Name("astradb_memory_usage_ratio")
-                              .Help("Memory usage ratio (0.0-1.0)")
-                              .Register(*registry.GetRegistry());
+                               .Name("astradb_memory_usage_ratio")
+                               .Help("Memory usage ratio (0.0-1.0)")
+                               .Register(*registry.GetRegistry());
     memory_usage_ratio_current_ = &memory_usage_ratio_->Add({});
 
     initialized_ = true;
@@ -474,7 +472,8 @@ class AstraMetrics {
     }
 
     if (memory_usage_ratio_current_ && max_bytes > 0) {
-      double ratio = static_cast<double>(used_bytes) / static_cast<double>(max_bytes);
+      double ratio =
+          static_cast<double>(used_bytes) / static_cast<double>(max_bytes);
       memory_usage_ratio_current_->Set(ratio);
     }
   }
@@ -511,7 +510,8 @@ class AstraMetrics {
     memory_used_->Set(bytes);
 
     auto* stats = server::ServerStatsAccessor::Instance().GetStats();
-    stats->used_memory_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
+    stats->used_memory_bytes.store(static_cast<uint64_t>(bytes),
+                                   std::memory_order_relaxed);
   }
 
   void SetMemoryTotal(double bytes) {
@@ -519,7 +519,8 @@ class AstraMetrics {
     memory_total_->Set(bytes);
 
     auto* stats = server::ServerStatsAccessor::Instance().GetStats();
-    stats->used_memory_rss_bytes.store(static_cast<uint64_t>(bytes), std::memory_order_relaxed);
+    stats->used_memory_rss_bytes.store(static_cast<uint64_t>(bytes),
+                                       std::memory_order_relaxed);
   }
 
   // Keys tracking (also updates ServerStats)
@@ -528,7 +529,8 @@ class AstraMetrics {
     keys_->Add({{"db", absl::StrCat(db_index)}}).Set(count);
 
     auto* stats = server::ServerStatsAccessor::Instance().GetStats();
-    stats->total_keys.store(static_cast<uint64_t>(count), std::memory_order_relaxed);
+    stats->total_keys.store(static_cast<uint64_t>(count),
+                            std::memory_order_relaxed);
   }
 
   // Cluster status
@@ -650,12 +652,14 @@ class AstraMetrics {
 
     // Update uptime
     if (uptime_current_) {
-      uptime_current_->Set(stats->uptime_seconds.load(std::memory_order_relaxed));
+      uptime_current_->Set(
+          stats->uptime_seconds.load(std::memory_order_relaxed));
     }
 
     // Update connections
     if (connections_current_) {
-      connections_current_->Set(stats->connected_clients.load(std::memory_order_relaxed));
+      connections_current_->Set(
+          stats->connected_clients.load(std::memory_order_relaxed));
     }
     if (total_connections_received_) {
       total_connections_received_->Increment(
@@ -664,22 +668,28 @@ class AstraMetrics {
 
     // Update memory
     if (memory_used_) {
-      memory_used_->Set(stats->used_memory_bytes.load(std::memory_order_relaxed));
+      memory_used_->Set(
+          stats->used_memory_bytes.load(std::memory_order_relaxed));
     }
     if (memory_total_) {
-      memory_total_->Set(stats->used_memory_rss_bytes.load(std::memory_order_relaxed));
+      memory_total_->Set(
+          stats->used_memory_rss_bytes.load(std::memory_order_relaxed));
     }
 
     // Update keys
     if (keys_total_current_) {
-      keys_total_current_->Set(stats->total_keys.load(std::memory_order_relaxed));
+      keys_total_current_->Set(
+          stats->total_keys.load(std::memory_order_relaxed));
     }
 
-    // Update total commands (NO SHARING architecture: from aggregated ServerStats)
+    // Update total commands (NO SHARING architecture: from aggregated
+    // ServerStats)
     if (total_commands_processed_) {
-      auto current_value = stats->total_commands_processed.load(std::memory_order_relaxed);
+      auto current_value =
+          stats->total_commands_processed.load(std::memory_order_relaxed);
       // Increment by the difference to support aggregation
-      total_commands_processed_->Increment(current_value - last_commands_processed_);
+      total_commands_processed_->Increment(current_value -
+                                           last_commands_processed_);
       last_commands_processed_ = current_value;
     }
 
@@ -687,7 +697,8 @@ class AstraMetrics {
 
     // Update cluster info
     if (cluster_info_) {
-      cluster_info_->Add({{"enabled", stats->cluster_enabled.load() ? "true" : "false"}})
+      cluster_info_
+          ->Add({{"enabled", stats->cluster_enabled.load() ? "true" : "false"}})
           .Set(stats->cluster_enabled.load() ? 1 : 0);
       cluster_info_->Add({{"metric", "slots_assigned"}})
           .Set(stats->cluster_slots_assigned.load(std::memory_order_relaxed));
@@ -695,9 +706,11 @@ class AstraMetrics {
 
     // Update persistence info
     if (persistence_info_) {
-      persistence_info_->Add({{"aof_enabled", stats->aof_enabled.load() ? "true" : "false"}})
+      persistence_info_
+          ->Add({{"aof_enabled", stats->aof_enabled.load() ? "true" : "false"}})
           .Set(stats->aof_enabled.load() ? 1 : 0);
-      persistence_info_->Add({{"rdb_enabled", stats->rdb_enabled.load() ? "true" : "false"}})
+      persistence_info_
+          ->Add({{"rdb_enabled", stats->rdb_enabled.load() ? "true" : "false"}})
           .Set(stats->rdb_enabled.load() ? 1 : 0);
       persistence_info_->Add({{"type", "aof_size"}})
           .Set(stats->aof_size_bytes.load(std::memory_order_relaxed));

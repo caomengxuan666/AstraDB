@@ -33,9 +33,10 @@ struct KeyMetadata {
   uint64_t version = 0;  // Version for WATCH/optimistic locking
 
   // Eviction tracking fields
-  uint32_t access_time_ms = 0;   // LRU access timestamp (24-bit, wraps every 194 days)
-  uint8_t lfu_counter = 0;       // LFU counter (8-bit, logarithmic)
-  uint32_t estimated_size = 0;   // Estimated memory size in bytes
+  uint32_t access_time_ms =
+      0;  // LRU access timestamp (24-bit, wraps every 194 days)
+  uint8_t lfu_counter = 0;      // LFU counter (8-bit, logarithmic)
+  uint32_t estimated_size = 0;  // Estimated memory size in bytes
 
   KeyMetadata() : type(KeyType::kNone) {}
 
@@ -87,8 +88,10 @@ struct KeyMetadata {
 
   // Update access information (called on every read/write)
   void UpdateAccess() {
-    access_time_ms = static_cast<uint32_t>(GetCurrentTimeMs() & 0xFFFFFF);  // 24-bit
-    lfu_counter = std::min(static_cast<uint8_t>(lfu_counter + 1), static_cast<uint8_t>(255));
+    access_time_ms =
+        static_cast<uint32_t>(GetCurrentTimeMs() & 0xFFFFFF);  // 24-bit
+    lfu_counter = std::min(static_cast<uint8_t>(lfu_counter + 1),
+                           static_cast<uint8_t>(255));
   }
 
   // Get access time for LRU

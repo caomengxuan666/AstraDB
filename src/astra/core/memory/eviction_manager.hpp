@@ -7,16 +7,17 @@
 #pragma once
 
 #include <absl/random/random.h>
+
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "astra/core/metrics.hpp"
+#include "astra/storage/key_metadata.hpp"
 #include "eviction_policy.hpp"
 #include "eviction_strategy_2q.hpp"
 #include "memory_tracker.hpp"
-#include "astra/storage/key_metadata.hpp"
-#include "astra/core/metrics.hpp"
 
 // Forward declarations
 namespace astra::storage {
@@ -85,25 +86,28 @@ class EvictionManager {
     }
 
     EvictionPolicy policy = memory_tracker_->GetEvictionPolicy();
-    
+
     // Get total memory usage across all workers if callback is available
     size_t current_memory = memory_tracker_->GetCurrentMemory();
     if (get_total_memory_callback_) {
       current_memory = get_total_memory_callback_();
     }
-    
+
     size_t max_memory = memory_tracker_->GetMaxMemory();
     bool should_evict = ShouldEvict(current_memory, max_memory, policy);
 
-    ASTRADB_LOG_DEBUG("CheckAndEvict: policy={}, current_memory={}, max_memory={}, should_evict={}",
-                     static_cast<int>(policy), current_memory, max_memory, should_evict);
+    ASTRADB_LOG_DEBUG(
+        "CheckAndEvict: policy={}, current_memory={}, max_memory={}, "
+        "should_evict={}",
+        static_cast<int>(policy), current_memory, max_memory, should_evict);
 
     if (!should_evict) {
       return 0;
     }
 
     if (policy == EvictionPolicy::kNoEviction) {
-      ASTRADB_LOG_DEBUG("CheckAndEvict: policy is noeviction, skipping eviction");
+      ASTRADB_LOG_DEBUG(
+          "CheckAndEvict: policy is noeviction, skipping eviction");
       return 0;
     }
 
@@ -112,7 +116,8 @@ class EvictionManager {
     const uint32_t max_iterations = 100;  // Prevent infinite loops
     uint32_t iterations = 0;
 
-    while (ShouldEvict(current_memory, max_memory, policy) && iterations < max_iterations) {
+    while (ShouldEvict(current_memory, max_memory, policy) &&
+           iterations < max_iterations) {
       std::string victim_key = SelectVictim(policy);
       if (victim_key.empty()) {
         break;  // No more keys to evict
@@ -121,9 +126,10 @@ class EvictionManager {
       ASTRADB_LOG_DEBUG("CheckAndEvict: selected victim key: {}", victim_key);
       if (ExecuteEviction(victim_key)) {
         evicted_count++;
-        ASTRADB_LOG_DEBUG("CheckAndEvict: successfully evicted key: {}, total evicted: {}", 
-                         victim_key, evicted_count);
-        
+        ASTRADB_LOG_DEBUG(
+            "CheckAndEvict: successfully evicted key: {}, total evicted: {}",
+            victim_key, evicted_count);
+
         // Update current_memory after eviction
         if (get_total_memory_callback_) {
           current_memory = get_total_memory_callback_();
@@ -137,7 +143,8 @@ class EvictionManager {
       iterations++;
     }
 
-    ASTRADB_LOG_DEBUG("CheckAndEvict: finished, evicted {} keys", evicted_count);
+    ASTRADB_LOG_DEBUG("CheckAndEvict: finished, evicted {} keys",
+                      evicted_count);
     return evicted_count;
   }
 
@@ -206,7 +213,8 @@ class EvictionManager {
     }
 
     // Remove from 2Q strategy if active
-    if (strategy_2q_ && memory_tracker_->GetEvictionPolicy() == EvictionPolicy::k2Q) {
+    if (strategy_2q_ &&
+        memory_tracker_->GetEvictionPolicy() == EvictionPolicy::k2Q) {
       strategy_2q_->RemoveKey(key);
     }
 
@@ -337,7 +345,8 @@ class EvictionManager {
   std::unique_ptr<EvictionStrategy2Q> strategy_2q_;  // For 2Q policy
 
   // Check if eviction is needed
-  bool ShouldEvict(size_t current_memory, size_t max_memory, EvictionPolicy policy) {
+  bool ShouldEvict(size_t current_memory, size_t max_memory,
+                   EvictionPolicy policy) {
     if (!memory_tracker_->IsTrackingEnabled()) return false;
     if (max_memory == 0) return false;  // No limit
     if (!IsEvictionActive(policy)) return false;

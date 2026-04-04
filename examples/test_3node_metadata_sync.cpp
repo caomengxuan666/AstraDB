@@ -1,3 +1,4 @@
+#include <atomic>
 #include <chrono>
 #include <core/gossip_core.hpp>
 #include <iostream>
@@ -6,7 +7,6 @@
 #include <net/json_serializer.hpp>
 #include <net/transport_factory.hpp>
 #include <thread>
-#include <atomic>
 
 using namespace libgossip;
 
@@ -80,7 +80,8 @@ int main() {
 
   auto transport1 = gossip::net::transport_factory::create_transport(
       gossip::net::transport_type::tcp, "127.0.0.1", 18001);
-  auto transport1_shared = std::shared_ptr<gossip::net::transport>(transport1.release());
+  auto transport1_shared =
+      std::shared_ptr<gossip::net::transport>(transport1.release());
 
   auto core1 = std::make_shared<gossip_core>(
       self1,
@@ -89,16 +90,17 @@ int main() {
       },
       [](const node_view& node, node_status old_status) {
         total_events++;
-        std::cout << "[node1] EVENT: " << NodeIdToString(node.id)
-                  << " status " << static_cast<int>(old_status)
-                  << " -> " << static_cast<int>(node.status)
+        std::cout << "[node1] EVENT: " << NodeIdToString(node.id) << " status "
+                  << static_cast<int>(old_status) << " -> "
+                  << static_cast<int>(node.status)
                   << " heartbeat=" << node.heartbeat
                   << " config_epoch=" << node.config_epoch << std::endl;
         print_metadata("  [node1] " + NodeIdToString(node.id), node.metadata);
       });
 
   transport1_shared->set_gossip_core(core1);
-  transport1_shared->set_serializer(std::make_unique<gossip::net::json_serializer>());
+  transport1_shared->set_serializer(
+      std::make_unique<gossip::net::json_serializer>());
   transport1_shared->start();
   std::cout << "[node1] Started on port 18001" << std::endl;
 
@@ -115,7 +117,8 @@ int main() {
 
   auto transport2 = gossip::net::transport_factory::create_transport(
       gossip::net::transport_type::tcp, "127.0.0.1", 18002);
-  auto transport2_shared = std::shared_ptr<gossip::net::transport>(transport2.release());
+  auto transport2_shared =
+      std::shared_ptr<gossip::net::transport>(transport2.release());
 
   auto core2 = std::make_shared<gossip_core>(
       self2,
@@ -124,16 +127,17 @@ int main() {
       },
       [](const node_view& node, node_status old_status) {
         total_events++;
-        std::cout << "[node2] EVENT: " << NodeIdToString(node.id)
-                  << " status " << static_cast<int>(old_status)
-                  << " -> " << static_cast<int>(node.status)
+        std::cout << "[node2] EVENT: " << NodeIdToString(node.id) << " status "
+                  << static_cast<int>(old_status) << " -> "
+                  << static_cast<int>(node.status)
                   << " heartbeat=" << node.heartbeat
                   << " config_epoch=" << node.config_epoch << std::endl;
         print_metadata("  [node2] " + NodeIdToString(node.id), node.metadata);
       });
 
   transport2_shared->set_gossip_core(core2);
-  transport2_shared->set_serializer(std::make_unique<gossip::net::json_serializer>());
+  transport2_shared->set_serializer(
+      std::make_unique<gossip::net::json_serializer>());
   transport2_shared->start();
   std::cout << "[node2] Started on port 18002" << std::endl;
 
@@ -150,7 +154,8 @@ int main() {
 
   auto transport3 = gossip::net::transport_factory::create_transport(
       gossip::net::transport_type::tcp, "127.0.0.1", 18003);
-  auto transport3_shared = std::shared_ptr<gossip::net::transport>(transport3.release());
+  auto transport3_shared =
+      std::shared_ptr<gossip::net::transport>(transport3.release());
 
   auto core3 = std::make_shared<gossip_core>(
       self3,
@@ -159,16 +164,17 @@ int main() {
       },
       [](const node_view& node, node_status old_status) {
         total_events++;
-        std::cout << "[node3] EVENT: " << NodeIdToString(node.id)
-                  << " status " << static_cast<int>(old_status)
-                  << " -> " << static_cast<int>(node.status)
+        std::cout << "[node3] EVENT: " << NodeIdToString(node.id) << " status "
+                  << static_cast<int>(old_status) << " -> "
+                  << static_cast<int>(node.status)
                   << " heartbeat=" << node.heartbeat
                   << " config_epoch=" << node.config_epoch << std::endl;
         print_metadata("  [node3] " + NodeIdToString(node.id), node.metadata);
       });
 
   transport3_shared->set_gossip_core(core3);
-  transport3_shared->set_serializer(std::make_unique<gossip::net::json_serializer>());
+  transport3_shared->set_serializer(
+      std::make_unique<gossip::net::json_serializer>());
   transport3_shared->start();
   std::cout << "[node3] Started on port 18003" << std::endl;
 
@@ -199,7 +205,7 @@ int main() {
 
   // Node 1 meets node 2 and node 3
   std::cout << "\n=== Node 1 meeting node 2 and node 3 ===" << std::endl;
-  
+
   // Create node_view for meet node 2
   node_view target2;
   std::string target2_id_str = "meet_127.0.0.1_18002";
@@ -211,7 +217,7 @@ int main() {
   target2.version = 0;
   core1->meet(target2);
   std::cout << "[node1] Meeting 127.0.0.1:18002" << std::endl;
-  
+
   // Create node_view for meet node 3
   node_view target3;
   std::string target3_id_str = "meet_127.0.0.1_18003";
@@ -229,10 +235,12 @@ int main() {
 
   // Record initial event count
   int initial_events = total_events.load();
-  std::cout << "\n=== Initial events: " << initial_events << " ===" << std::endl;
+  std::cout << "\n=== Initial events: " << initial_events
+            << " ===" << std::endl;
 
   // Node 1 updates metadata
-  std::cout << "\n=== Node 1 updating metadata with slots='4-7' ===" << std::endl;
+  std::cout << "\n=== Node 1 updating metadata with slots='4-7' ==="
+            << std::endl;
   std::map<std::string, std::string> metadata;
   metadata["slots"] = "4-7";
   core1->update_self_metadata(metadata);
@@ -253,12 +261,15 @@ int main() {
   std::cout << "\n=== Results ===" << std::endl;
   std::cout << "Events before metadata update: " << initial_events << std::endl;
   std::cout << "Events after metadata update: " << final_events << std::endl;
-  std::cout << "New events (should be 2, one for node2 and one for node3): " << new_events << std::endl;
+  std::cout << "New events (should be 2, one for node2 and one for node3): "
+            << new_events << std::endl;
 
   if (new_events >= 2) {
-    std::cout << "✅ SUCCESS: Metadata was propagated to other nodes!" << std::endl;
+    std::cout << "✅ SUCCESS: Metadata was propagated to other nodes!"
+              << std::endl;
   } else {
-    std::cout << "❌ FAILURE: Metadata was NOT propagated to other nodes!" << std::endl;
+    std::cout << "❌ FAILURE: Metadata was NOT propagated to other nodes!"
+              << std::endl;
   }
 
   // Stop

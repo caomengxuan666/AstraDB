@@ -41,7 +41,8 @@ class RdbReader {
   RdbReader& operator=(RdbReader&&) = delete;
 
   // Initialize RDB reader
-  bool Init(const std::string& file_path, bool verify_checksum = true) noexcept {
+  bool Init(const std::string& file_path,
+            bool verify_checksum = true) noexcept {
     file_path_ = file_path;
     verify_checksum_ = verify_checksum;
 
@@ -59,12 +60,14 @@ class RdbReader {
   void Stop() noexcept { current_file_.reset(); }
 
   // Load RDB file and call callback for each key-value pair
-  bool Load(const std::function<void(int, const RdbKeyValue&)>& load_callback) noexcept {
+  bool Load(const std::function<void(int, const RdbKeyValue&)>&
+                load_callback) noexcept {
     if (!initialized_.load(std::memory_order_acquire)) {
       return false;
     }
 
-    current_file_ = std::make_unique<std::ifstream>(file_path_, std::ios::binary);
+    current_file_ =
+        std::make_unique<std::ifstream>(file_path_, std::ios::binary);
     if (!current_file_->is_open()) {
       ASTRADB_LOG_ERROR("Failed to open RDB file: {}", file_path_);
       current_file_.reset();
@@ -92,7 +95,7 @@ class RdbReader {
     while (true) {
       if (opcode == RDB_OPCODE_EOF) {
         ASTRADB_LOG_DEBUG("RDB EOF read, current CRC32C: {}",
-                         static_cast<uint32_t>(crc_value_));
+                          static_cast<uint32_t>(crc_value_));
         break;
       }
 
@@ -102,8 +105,8 @@ class RdbReader {
       } else if (opcode == RDB_OPCODE_RESIZEDB) {
         db_size = ReadLength();
         expires_size = ReadLength();
-        ASTRADB_LOG_DEBUG("RDB: Database {} has {} keys, {} expires", 
-                         current_db, db_size, expires_size);
+        ASTRADB_LOG_DEBUG("RDB: Database {} has {} keys, {} expires",
+                          current_db, db_size, expires_size);
       } else {
         // It's a value type
         int64_t expire_ms = -1;
@@ -183,7 +186,7 @@ class RdbReader {
     }
 
     ASTRADB_LOG_DEBUG("RDB header read, current CRC32C: {}",
-                     static_cast<uint32_t>(crc_value_));
+                      static_cast<uint32_t>(crc_value_));
     return true;
   }
 
@@ -275,8 +278,9 @@ class RdbReader {
   }
 
   // Read key-value pair
-  void ReadKeyValue(uint8_t type, int64_t expire_ms, int db_num,
-                    const std::function<void(int, const RdbKeyValue&)>& callback) noexcept {
+  void ReadKeyValue(
+      uint8_t type, int64_t expire_ms, int db_num,
+      const std::function<void(int, const RdbKeyValue&)>& callback) noexcept {
     std::string key = ReadString();
     if (key.empty()) {
       return;  // Failed to read key
@@ -303,11 +307,11 @@ class RdbReader {
     uint32_t computed_checksum = static_cast<uint32_t>(crc_value_);
 
     ASTRADB_LOG_DEBUG("RDB checksum verification: file={}, computed={}",
-                     file_checksum, computed_checksum);
+                      file_checksum, computed_checksum);
 
     if (file_checksum != computed_checksum) {
       ASTRADB_LOG_ERROR("RDB checksum mismatch: file={}, computed={}",
-                       file_checksum, computed_checksum);
+                        file_checksum, computed_checksum);
       return false;
     }
 

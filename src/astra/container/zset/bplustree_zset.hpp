@@ -50,7 +50,7 @@ class ZSet {
 
   // Non-copyable, non-movable (same as original)
   ZSet(const ZSet&) = delete;
-  
+
   ZSet& operator=(const ZSet&) = delete;
 
   ZSet(ZSet&&) = delete;
@@ -72,14 +72,16 @@ class ZSet {
   // Get rank of a member (0-based)
   // Returns nullopt if member not found
   // reverse = true for reverse rank (highest score = 0)
-  std::optional<uint64_t> GetRank(const MemberType& member, bool reverse = false) const;
+  std::optional<uint64_t> GetRank(const MemberType& member,
+                                  bool reverse = false) const;
 
   // Get member by rank (0-based)
   // Returns nullopt if rank is out of range
   // reverse = true for reverse order
-  std::optional<MemberType> GetByRank(uint64_t rank, bool reverse = false) const;
+  std::optional<MemberType> GetByRank(uint64_t rank,
+                                      bool reverse = false) const;
 
-    // Get score by rank
+  // Get score by rank
   // Returns nullopt if rank is out of range
   std::optional<ScoreType> GetScoreByRank(uint64_t rank,
                                           bool reverse = false) const;

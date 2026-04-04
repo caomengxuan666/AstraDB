@@ -198,8 +198,9 @@ class RdbWriter {
       Write(&b, 1);
     } else if (len < 0x4000) {
       uint16_t v = static_cast<uint16_t>(len) | 0x4000;
-      uint8_t b1 = static_cast<uint8_t>((v >> 8) & 0xFF);  // High byte first (big-endian)
-      uint8_t b2 = static_cast<uint8_t>(v & 0xFF);           // Low byte
+      uint8_t b1 = static_cast<uint8_t>((v >> 8) &
+                                        0xFF);  // High byte first (big-endian)
+      uint8_t b2 = static_cast<uint8_t>(v & 0xFF);  // Low byte
       Write(&b1, 1);
       Write(&b2, 1);
     } else {
