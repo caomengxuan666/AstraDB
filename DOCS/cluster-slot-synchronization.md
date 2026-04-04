@@ -310,23 +310,23 @@ None - uses existing dependencies:
 
 ---
 
-## MOVED/ASK 重定向实现计划
+## MOVED/ASK Redirection Implementation Plan
 
-### 概述
+### Overview
 
-MOVED/ASK 重定向是 Redis Cluster 的核心功能，允许客户端自动将请求路由到正确的节点。
+MOVED/ASK redirection is a core feature of Redis Cluster that allows clients to automatically route requests to the correct node.
 
-- **MOVED 重定向**: 当 slot 永久分配到其他节点时返回，客户端应更新本地缓存
-- **ASK 重定向**: 当 slot 正在迁移过程中时返回，客户端应临时重定向，不更新缓存
+- **MOVED Redirection**: Returned when a slot is permanently assigned to another node, client should update local cache
+- **ASK Redirection**: Returned when a slot is in the process of migration, client should temporarily redirect without updating cache
 
-### 实现方案
+### Implementation Approach
 
-#### 1. 命令级别的 Slot 检查
+#### 1. Command-Level Slot Checking
 
-在命令执行前，检查 key 所属的 slot 是否由当前节点负责：
+Before command execution, check if the key's slot is owned by the current node:
 
 ```cpp
-// 在 Worker::ExecuteCommand 或类似位置添加
+// Add in Worker::ExecuteCommand or similar location
 std::vector<std::string> keys = CommandExtractor::ExtractKeys(command);
 
 if (!keys.empty() && cluster_state->IsEnabled()) {
@@ -335,30 +335,30 @@ if (!keys.empty() && cluster_state->IsEnabled()) {
         auto owner = cluster_state->GetSlotOwner(slot);
         
         if (owner.has_value() && *owner != my_node_id_) {
-            // 返回 MOVED 错误
+            // Return MOVED error
             return BuildMovedError(slot, owner);
         }
     }
 }
 ```
 
-#### 2. 已存在的辅助函数（待使用）
+#### 2. Existing Helper Functions (To Be Used)
 
-以下函数已经在 `cluster_commands.cpp` 中定义，需要集成到命令执行流程：
+The following functions are already defined in `cluster_commands.cpp` and need to be integrated into the command execution flow:
 
 ```cpp
-// 计算 key 的 hash slot（支持 hash tag）
+// Calculate hash slot for a key (with hash tag support)
 [[maybe_unused]] static uint16_t GetSlotForKey(const std::string& key) noexcept {
     return cluster::HashSlotCalculator::CalculateWithTag(key);
 }
 
-// 检查 key 是否需要重定向
+// Check if a key needs redirection
 [[maybe_unused]] static std::optional<std::string> CheckKeyRedirect(
     const std::string& key, CommandContext* context) {
     return cluster::ClusterStateAccessor::CheckKeyRedirect(key);
 }
 
-// 构建 MOVED 错误响应
+// Build MOVED error response
 [[maybe_unused]] static CommandResult BuildMovedError(
     uint16_t slot, const std::string& target_node) {
     std::string error = "-MOVED " + std::to_string(slot) + " " + target_node;
@@ -367,7 +367,7 @@ if (!keys.empty() && cluster_state->IsEnabled()) {
     return CommandResult(false, error);
 }
 
-// 构建 ASK 错误响应
+// Build ASK error response
 [[maybe_unused]] static CommandResult BuildAskError(
     uint16_t slot, const std::string& target_node) {
     std::string error = "-ASK " + std::to_string(slot) + " " + target_node;
@@ -377,49 +377,49 @@ if (!keys.empty() && cluster_state->IsEnabled()) {
 }
 ```
 
-#### 3. 集成点：Worker::ExecuteCommand
+#### 3. Integration Point: Worker::ExecuteCommand
 
 ```cpp
 CommandResult Worker::ExecuteCommand(const protocol::Command& command) {
-    // ... 现有代码 ...
+    // ... existing code ...
     
-    // 如果启用集群模式且不是集群命令，检查重定向
+    // If cluster mode is enabled and not a cluster command, check for redirection
     if (cluster_state_ && cluster_state_->IsEnabled() && 
         !IsClusterCommand(command.GetCommandName())) {
         
         auto redirect = CheckCommandRedirect(command);
         if (redirect.has_value()) {
-            return *redirect; // 返回 MOVED/ASK 错误
+            return *redirect; // Return MOVED/ASK error
         }
     }
     
-    // ... 继续执行命令 ...
+    // ... continue command execution ...
 }
 ```
 
-#### 4. Key 提取器
+#### 4. Key Extractor
 
-需要实现一个辅助函数来从命令中提取所有 key：
+Need to implement a helper function to extract all keys from a command:
 
 ```cpp
 // cluster_config.hpp
 class KeyExtractor {
 public:
-    // 从命令中提取所有受影响的 key
+    // Extract all affected keys from a command
     static std::vector<std::string> ExtractKeys(const protocol::Command& command);
     
 private:
-    // 命令 key 位置映射
+    // Command key position mapping
     static const std::unordered_map<std::string, KeyPosition> kCommandKeyPositions;
 };
 
-// 实现示例
+// Implementation example
 std::vector<std::string> KeyExtractor::ExtractKeys(const protocol::Command& command) {
     const auto& cmd_name = command.GetCommandName();
     auto it = kCommandKeyPositions.find(cmd_name);
     
     if (it == kCommandKeyPositions.end()) {
-        return {}; // 该命令不涉及 key
+        return {}; // This command doesn't involve keys
     }
     
     std::vector<std::string> keys;
@@ -435,42 +435,42 @@ std::vector<std::string> KeyExtractor::ExtractKeys(const protocol::Command& comm
 }
 ```
 
-### 实现步骤
+### Implementation Steps
 
-#### Phase 1: 重定向检查基础（核心）
+#### Phase 1: Redirection Check Foundation (Core)
 
-1. **实现 KeyExtractor**:
-   - 定义所有命令的 key 位置
-   - 实现 ExtractKeys 函数
-   - 支持 MSET/MGET 等多 key 命令
+1. **Implement KeyExtractor**:
+   - Define key positions for all commands
+   - Implement ExtractKeys function
+   - Support multi-key commands like MSET/MGET
 
-2. **实现 CheckCommandRedirect**:
+2. **Implement CheckCommandRedirect**:
    ```cpp
    std::optional<CommandResult> Worker::CheckCommandRedirect(
        const protocol::Command& command) {
        
        auto keys = KeyExtractor::ExtractKeys(command);
        if (keys.empty()) {
-           return std::nullopt; // 无 key，无需检查
+           return std::nullopt; // No keys, no check needed
        }
        
-       // 检查所有 key 是否在同一个 slot
+       // Check if all keys are in the same slot
        uint16_t first_slot = GetSlotForKey(keys[0]);
        for (const auto& key : keys) {
            if (GetSlotForKey(key) != first_slot) {
-               // keys 不在同一 slot，返回错误
+               // Keys not in same slot, return error
                return BuildCrossSlotError();
            }
        }
        
-       // 检查 slot 是否由当前节点负责
+       // Check if slot is owned by current node
        auto owner = cluster_state_->GetSlotOwner(first_slot);
        if (!owner.has_value()) {
-           return std::nullopt; // slot 未分配，本地处理
+           return std::nullopt; // Slot not assigned, process locally
        }
        
        if (*owner != my_node_id_) {
-           // 获取目标节点的地址
+           // Get target node's address
            auto target_node = cluster_state_->GetNodeInfo(*owner);
            if (target_node) {
                return BuildMovedError(first_slot, target_node->address);
@@ -481,14 +481,14 @@ std::vector<std::string> KeyExtractor::ExtractKeys(const protocol::Command& comm
    }
    ```
 
-3. **集成到命令执行流程**:
-   - 修改 `Worker::ExecuteCommand`
-   - 在执行前添加重定向检查
-   - 跳过集群命令（CLUSTER INFO, CLUSTER NODES 等）
+3. **Integrate into command execution flow**:
+   - Modify `Worker::ExecuteCommand`
+   - Add redirection check before execution
+   - Skip cluster commands (CLUSTER INFO, CLUSTER NODES, etc.)
 
-#### Phase 2: 多 key 命令处理
+#### Phase 2: Multi-Key Command Handling
 
-1. **验证跨 slot 错误**:
+1. **Cross-slot error**:
    ```cpp
    CommandResult BuildCrossSlotError() {
        std::string error = "-CROSSSLOT Keys in request don't hash to the same slot";
@@ -498,17 +498,17 @@ std::vector<std::string> KeyExtractor::ExtractKeys(const protocol::Command& comm
    }
    ```
 
-2. **支持的特殊命令**:
-   - MSET/MGET: 允许不同 slot，但需要分批处理
-   - SUNION/SDIFF: 允许不同 slot，需要跨节点聚合
-   - ZUNION/ZINTER: 允许不同 slot，需要跨节点聚合
+2. **Special command support**:
+   - MSET/MGET: Allow different slots but need batch processing
+   - SUNION/SDIFF: Allow different slots but need cross-node aggregation
+   - ZUNION/ZINTER: Allow different slots but need cross-node aggregation
 
-#### Phase 3: ASK 重定向（可选）
+#### Phase 3: ASK Redirection (Optional)
 
-用于 slot 迁移场景：
+For slot migration scenarios:
 
 ```cpp
-// 在 CheckCommandRedirect 中检查迁移状态
+// Check migration state in CheckCommandRedirect
 if (cluster_state_->IsSlotMigrating(first_slot)) {
     auto importing_node = cluster_state_->GetSlotImportingFrom(first_slot);
     if (importing_node.has_value()) {
@@ -517,82 +517,70 @@ if (cluster_state_->IsSlotMigrating(first_slot)) {
 }
 ```
 
-#### Phase 4: 测试
+#### Phase 4: Testing
 
-1. **单元测试**:
-   - 测试 GetSlotForKey 正确性
-   - 测试 KeyExtractor 提取各种命令的 key
-   - 测试 CheckCommandRedirect 逻辑
+1. **Unit tests**:
+   - Test GetSlotForKey correctness
+   - Test KeyExtractor extracting keys from various commands
+   - Test CheckCommandRedirect logic
 
-2. **集成测试**:
-   - 启动 3 节点集群
-   - Node 2 分配 slots 4-7
-   - 从 Node 1 访问 slot 4 的 key
-   - 验证返回 MOVED 错误
+2. **Integration tests**:
+   - Start 3-node cluster
+   - Node 2 assigned slots 4-7
+   - Access slot 4 key from Node 1
+   - Verify MOVED error is returned
 
-3. **Redis 客户端兼容性测试**:
+3. **Redis client compatibility tests**:
    ```bash
-   # 启动集群
+   # Start cluster
    ./astradb --config config/astradb-node1.toml &
    ./astradb --config config/astradb-node2.toml &
    
-   # Node 2 分配 slot 4
+   # Node 2 assign slot 4
    redis-cli -p 7002 CLUSTER ADDSLOTS 4
    
-   # Node 1 尝试访问 slot 4 的 key
+   # Node 1 try to access slot 4 key
    redis-cli -p 7001 SET test3330 value
-   # 期望: -MOVED 4 127.0.0.1:7002
+   # Expected: -MOVED 4 127.0.0.1:7002
    
-   # 使用集群模式客户端
+   # Use cluster mode client
    redis-cli -c -p 7001 SET test3330 value
-   # 期望: 自动重定向到 Node 2，成功
+   # Expected: Automatically redirect to Node 2, success
    ```
 
-### 代码变更总结
+### Code Changes Summary
 
-#### 需要修改的文件
+#### Files to Modify
 
 1. **`src/astra/cluster/cluster_config.hpp`**:
-   - 实现 `KeyExtractor` 类
-   - 添加命令 key 位置映射
+   - Implement `KeyExtractor` class
+   - Add command key position mapping
 
 2. **`src/astra/server/worker.hpp`**:
-   - 添加 `CheckCommandRedirect()` 方法
-   - 修改 `ExecuteCommand()` 添加重定向检查
+   - Add `CheckCommandRedirect()` method
+   - Modify `ExecuteCommand()` to add redirection check
 
 3. **`src/astra/commands/cluster_commands.cpp`**:
-   - 移除 `[[maybe_unused]]` 标记（函数将正式使用）
+   - Remove `[[maybe_unused]]` markers (functions will be officially used)
 
-#### 新增依赖
+#### New Dependencies
 
-无 - 使用现有依赖
+None - uses existing dependencies
 
-### 成功标准
+### Success Criteria
 
-- ✅ 正确识别 key 所属 slot
-- ✅ slot 不属于当前节点时返回 MOVED 错误
-- ✅ 错误格式符合 Redis 规范: `-MOVED <slot> <ip:port>`
-- ✅ Redis 客户端能够自动处理 MOVED 重定向
-- ✅ 跨 slot 多 key 命令返回 CROSSSLOT 错误
-- ✅ 性能影响 < 5%（slot 检查开销）
+- ✅ Correctly identify key's slot
+- ✅ Return MOVED error when slot not owned by current node
+- ✅ Error format follows Redis specification: `-MOVED <slot> <ip:port>`
+- ✅ Redis clients can automatically handle MOVED redirection
+- ✅ Cross-slot multi-key commands return CROSSSLOT error
+- ✅ Performance impact < 5% (slot checking overhead)
 
-### 预计时间
+### Estimated Time
 
-- **Phase 1**: 2-3 小时（基础重定向检查）
-- **Phase 2**: 1-2 小时（多 key 命令处理）
-- **Phase 3**: 1 小时（ASK 重定向，可选）
-- **Phase 4**: 2 小时（测试和验证）
+- **Phase 1**: 2-3 hours (basic redirection check)
+- **Phase 2**: 1-2 hours (multi-key command handling)
+- **Phase 3**: 1 hour (ASK redirection, optional)
+- **Phase 4**: 2 hours (testing and validation)
 
-**总计**: 6-8 小时完成完整实现
-
-### 参考资料
-
-- Redis Cluster 重定向规范: https://redis.io/docs/manual/scaling/
-- Redis CRC16 算法: https://redis.io/docs/reference/cluster-spec/#key-distribution-model
-- ASK vs MOVED: https://redis.io/docs/manual/scaling/#moved-redirection
-
-## References
-
-- Redis Cluster Specification: https://redis.io/docs/manual/scaling/
-- libgossip Documentation: https://github.com/libgossip/libgossip
-- FlatBuffers Documentation: https://google.github.io/flatbuffers/
+**Total**: 6-8 hours for complete implementation
