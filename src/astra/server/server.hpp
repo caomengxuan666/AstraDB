@@ -13,6 +13,12 @@
 #include "managers.hpp"  // Manager class definitions
 #include "worker.hpp"
 
+// Include cluster headers for full type definitions
+#include "astra/cluster/cluster_config.hpp"
+#include "astra/cluster/cluster_manager.hpp"
+#include "astra/cluster/gossip_manager.hpp"
+#include "astra/cluster/shard_manager.hpp"
+
 namespace astra::server {
 
 // Forward declarations
@@ -20,9 +26,8 @@ namespace astra::persistence {
 class PersistenceManager;
 }
 
-namespace astra::cluster {
-class ClusterManager;
-}
+// Note: ClusterManager, GossipManager, and ShardManager are included in
+// server.cpp to avoid circular dependencies
 
 namespace astra::commands {
 class PubSubManager;
@@ -59,10 +64,10 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   std::string acl_default_password = "";
 
   // Metrics
-  bool metrics_enabled = true;
+  bool metrics_enabled = false;
   std::string metrics_bind_addr = "0.0.0.0";
-  uint16_t metrics_port = 9999;
-  
+  [[maybe_unused]] uint16_t metrics_port = 9100;
+
   // Stats aggregation frequency (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
   // Default: 10 seconds for optimal performance and monitoring
   int stats_frequency_seconds = 10;
@@ -93,8 +98,21 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.use_so_reuseport = base_config.use_so_reuseport;
     config.persistence = base_config.persistence;
     config.cluster = base_config.cluster;
+
+    // Map cluster fields
+    config.cluster_enabled = base_config.cluster.enabled;
+    config.cluster_node_id = base_config.cluster.node_id;
+    config.cluster_bind_addr = base_config.cluster.bind_addr;
+    config.cluster_gossip_port = base_config.cluster.gossip_port;
+    config.cluster_seeds = base_config.cluster.seeds;
+    config.cluster_shard_count = base_config.cluster.shard_count;
+
     config.metrics = base_config.metrics;
-    config.stats_frequency_seconds = base_config.metrics.stats_frequency_seconds;
+    config.metrics_enabled = base_config.metrics.enabled;
+    config.metrics_bind_addr = base_config.metrics.bind_addr;
+    config.metrics_port = base_config.metrics.port;
+    config.stats_frequency_seconds =
+        base_config.metrics.stats_frequency_seconds;
 
     // Copy AOF configuration
     config.aof = base_config.aof;
@@ -135,7 +153,11 @@ class Server {
   class PersistenceManager* GetPersistenceManager() {
     return persistence_manager_.get();
   }
-  class ClusterManager* GetClusterManager() { return cluster_manager_.get(); }
+  cluster::ClusterManager* GetClusterManager() {
+    return cluster_manager_.get();
+  }
+  cluster::GossipManager* GetGossipManager() { return gossip_manager_.get(); }
+  cluster::ShardManager* GetShardManager() { return shard_manager_.get(); }
   ::astra::replication::ReplicationManager* GetReplicationManager() {
     return replication_manager_.get();
   }
@@ -162,12 +184,16 @@ class Server {
   }
 
   // Get worker scheduler (for cross-worker task dispatch)
+
   class WorkerScheduler* GetWorkerScheduler() {
     return worker_scheduler_.get();
   }
+  // Update cluster state for all workers (uses DispatchOnAll to avoid deadlock)
+  // Implementation is in server.cpp to avoid circular dependency with
+  // worker.hpp
+  void UpdateClusterState(std::shared_ptr<cluster::ClusterState> new_state);
 
- private:
-  // Initialize persistence
+ private:  // Initialize persistence
   bool InitPersistence() noexcept;
 
   // Initialize RDB
@@ -175,6 +201,16 @@ class Server {
 
   // Initialize cluster
   bool InitCluster() noexcept;
+
+  // Handle cluster events (NO SHARING architecture - updates all workers'
+  // ClusterState)
+  void OnClusterEvent(cluster::ClusterEvent event,
+                      const cluster::AstraNodeView& node_view) noexcept;
+
+  // Process cluster event asynchronously (not in libgossip's tick thread)
+  void ProcessClusterEventAsync(
+      cluster::ClusterEvent event,
+      const cluster::AstraNodeView& node_view) noexcept;
 
   // Initialize ACL
   bool InitACL() noexcept;
@@ -202,11 +238,16 @@ class Server {
 
   // Server-level managers (shared by all workers via MPSC if needed)
   std::unique_ptr<PersistenceManager> persistence_manager_;
-  std::unique_ptr<ClusterManager> cluster_manager_;
+  std::unique_ptr<cluster::ClusterManager> cluster_manager_;
+  std::unique_ptr<cluster::GossipManager> gossip_manager_;
+  std::unique_ptr<cluster::ShardManager> shard_manager_;
   std::unique_ptr<::astra::security::AclManager> acl_manager_;
   std::unique_ptr<MetricsManager> metrics_manager_;
   std::unique_ptr<::astra::replication::ReplicationManager>
       replication_manager_;
+
+  // Initial ClusterState (set during InitCluster, used by Worker::Start)
+  std::shared_ptr<cluster::ClusterState> initial_cluster_state_;
 
   // Server state
   std::atomic<bool> running_{false};
@@ -214,6 +255,9 @@ class Server {
   // Stats aggregation thread (NO SHARING architecture)
   std::thread stats_aggregation_thread_;
   std::atomic<bool> stats_aggregation_running_{false};
+
+  // Gossip tick thread (NO SHARING architecture)
+  std::thread gossip_tick_thread_;
 
   // Disable copy and move
   Server(const Server&) = delete;

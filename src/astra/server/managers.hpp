@@ -225,7 +225,10 @@ class PersistenceManager {
 
     // Check if RDB file exists - if not, this is normal (first run)
     if (!std::filesystem::exists(options_.save_path)) {
-      ASTRADB_LOG_INFO("PersistenceManager: RDB file not found (first run), skipping load: {}", options_.save_path);
+      ASTRADB_LOG_INFO(
+          "PersistenceManager: RDB file not found (first run), skipping load: "
+          "{}",
+          options_.save_path);
       return true;  // File not found is normal, not an error
     }
 
@@ -403,20 +406,8 @@ class PersistenceManager {
   std::thread bg_save_thread_;
 };
 
-// Simple cluster manager stub
-// TODO: Implement full cluster with Gossip, ShardManager
-class ClusterManager {
- public:
-  ClusterManager() = default;
-  ~ClusterManager() = default;
-
-  bool Init(const std::string& node_id) {
-    ASTRADB_LOG_INFO("ClusterManager: Init with node_id={}", node_id);
-    return true;
-  }
-
-  void Shutdown() { ASTRADB_LOG_INFO("ClusterManager: Shutdown"); }
-};
+// Note: ClusterManager has been moved to astra/cluster/cluster_manager.hpp
+// This stub has been removed to avoid naming conflicts
 
 // Metrics Manager - Prometheus metrics collection and HTTP server
 // Uses prometheus-cpp built-in Exposer for NO SHARING architecture
@@ -513,19 +504,22 @@ class MetricsManager {
 
     ASTRADB_LOG_INFO("MetricsManager: Shutting down");
 
+    // Stop HTTP server first
+    astra::metrics::MetricsRegistry::Instance().StopHTTPServer();
+
     // Stop io_context
     if (metrics_io_context_) {
-        metrics_io_context_->stop();
+      metrics_io_context_->stop();
     }
 
     // Wait for HTTP server thread
     if (metrics_thread_.joinable()) {
-        metrics_thread_.join();
+      metrics_thread_.join();
     }
 
     // Wait for periodic update thread
     if (update_thread_.joinable()) {
-        update_thread_.join();
+      update_thread_.join();
     }
 
     ASTRADB_LOG_INFO("MetricsManager: Shutdown complete");

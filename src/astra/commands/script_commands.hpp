@@ -25,7 +25,8 @@ namespace astra::commands {
 // Lua script context
 class LuaScriptContext {
  public:
-  LuaScriptContext(size_t worker_id, Database* db, CommandRegistry* registry, CommandContext* context);
+  LuaScriptContext(size_t worker_id, Database* db, CommandRegistry* registry,
+                   CommandContext* context);
   ~LuaScriptContext();
 
   // Execute Lua script

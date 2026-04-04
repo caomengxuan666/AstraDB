@@ -1,10 +1,12 @@
 # ==============================================================================
-# astra_cluster - Cluster management with libgossip (header-only)
+# astra_cluster - Cluster management with libgossip
 # ==============================================================================
 
-add_library(astra_cluster INTERFACE)
+add_library(astra_cluster
+  cluster_config.cpp
+)
 
-target_include_directories(astra_cluster INTERFACE
+target_include_directories(astra_cluster PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
   ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -20,7 +22,7 @@ if(flatbuffers_ADDED OR TARGET flatbuffers::flatbuffers OR TARGET flatbuffers::f
 endif()
 
 # Link dependencies
-target_link_libraries(astra_cluster INTERFACE
+target_link_libraries(astra_cluster PUBLIC
   astra_server
   absl::strings
   absl::time

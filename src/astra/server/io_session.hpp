@@ -9,8 +9,8 @@
 #include <string>
 
 #include "astra/base/logging.hpp"
-#include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 
 namespace astra::server {
@@ -20,8 +20,7 @@ namespace astra::server {
 class IOSession : public std::enable_shared_from_this<IOSession> {
  public:
   explicit IOSession(asio::ip::tcp::socket socket, size_t worker_id)
-      : socket_(std::move(socket)),
-        worker_id_(worker_id) {
+      : socket_(std::move(socket)), worker_id_(worker_id) {
     ASTRADB_LOG_INFO("Worker {}: Session created", worker_id_);
   }
 
@@ -43,7 +42,8 @@ class IOSession : public std::enable_shared_from_this<IOSession> {
             // Append to receive buffer
             receive_buffer_.append(buffer_.data(), bytes_transferred);
 
-            // Process all complete commands in buffer (IO thread: minimal parsing only)
+            // Process all complete commands in buffer (IO thread: minimal
+            // parsing only)
             ProcessCommands();
 
             // Continue reading
@@ -67,7 +67,8 @@ class IOSession : public std::enable_shared_from_this<IOSession> {
       auto value_opt = astra::protocol::RespParser::Parse(data_view);
 
       if (!value_opt) {
-        ASTRADB_LOG_ERROR("Worker {}: Failed to parse RESP command", worker_id_);
+        ASTRADB_LOG_ERROR("Worker {}: Failed to parse RESP command",
+                          worker_id_);
         // Send error and close
         SendError("ERR invalid RESP protocol");
         return;
@@ -90,7 +91,7 @@ class IOSession : public std::enable_shared_from_this<IOSession> {
     }
   }
 
-void HandleCommand(const astra::protocol::Command& command) {
+  void HandleCommand(const astra::protocol::Command& command) {
     ASTRADB_LOG_INFO("Worker {}: Received command: {}", worker_id_,
                      command.name);
 

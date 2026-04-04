@@ -2,8 +2,9 @@
 // Eviction Policy Unit Tests
 // =============================================================================
 
-#include <gtest/gtest.h>
 #include "astra/core/memory/eviction_policy.hpp"
+
+#include <gtest/gtest.h>
 
 namespace astra::core::memory {
 
@@ -11,12 +12,17 @@ namespace astra::core::memory {
 TEST(EvictionPolicyTest, StringToEvictionPolicy) {
   EXPECT_EQ(StringToEvictionPolicy("noeviction"), EvictionPolicy::kNoEviction);
   EXPECT_EQ(StringToEvictionPolicy("allkeys-lru"), EvictionPolicy::kAllKeysLRU);
-  EXPECT_EQ(StringToEvictionPolicy("volatile-lru"), EvictionPolicy::kVolatileLRU);
+  EXPECT_EQ(StringToEvictionPolicy("volatile-lru"),
+            EvictionPolicy::kVolatileLRU);
   EXPECT_EQ(StringToEvictionPolicy("allkeys-lfu"), EvictionPolicy::kAllKeysLFU);
-  EXPECT_EQ(StringToEvictionPolicy("volatile-lfu"), EvictionPolicy::kVolatileLFU);
-  EXPECT_EQ(StringToEvictionPolicy("allkeys-random"), EvictionPolicy::kAllKeysRandom);
-  EXPECT_EQ(StringToEvictionPolicy("volatile-random"), EvictionPolicy::kVolatileRandom);
-  EXPECT_EQ(StringToEvictionPolicy("volatile-ttl"), EvictionPolicy::kVolatileTTL);
+  EXPECT_EQ(StringToEvictionPolicy("volatile-lfu"),
+            EvictionPolicy::kVolatileLFU);
+  EXPECT_EQ(StringToEvictionPolicy("allkeys-random"),
+            EvictionPolicy::kAllKeysRandom);
+  EXPECT_EQ(StringToEvictionPolicy("volatile-random"),
+            EvictionPolicy::kVolatileRandom);
+  EXPECT_EQ(StringToEvictionPolicy("volatile-ttl"),
+            EvictionPolicy::kVolatileTTL);
 }
 
 TEST(EvictionPolicyTest, StringToEvictionPolicy_Invalid) {
@@ -28,12 +34,17 @@ TEST(EvictionPolicyTest, StringToEvictionPolicy_Invalid) {
 TEST(EvictionPolicyTest, EvictionPolicyToString) {
   EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kNoEviction), "noeviction");
   EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kAllKeysLRU), "allkeys-lru");
-  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileLRU), "volatile-lru");
+  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileLRU),
+            "volatile-lru");
   EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kAllKeysLFU), "allkeys-lfu");
-  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileLFU), "volatile-lfu");
-  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kAllKeysRandom), "allkeys-random");
-  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileRandom), "volatile-random");
-  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileTTL), "volatile-ttl");
+  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileLFU),
+            "volatile-lfu");
+  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kAllKeysRandom),
+            "allkeys-random");
+  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileRandom),
+            "volatile-random");
+  EXPECT_EQ(EvictionPolicyToString(EvictionPolicy::kVolatileTTL),
+            "volatile-ttl");
 }
 
 // Test IsVolatilePolicy
@@ -63,20 +74,16 @@ TEST(EvictionPolicyTest, IsEvictionActive) {
 // Test All supported eviction policies
 TEST(EvictionPolicyTest, AllEvictionPolicies) {
   const std::vector<EvictionPolicy> all_policies = {
-    EvictionPolicy::kNoEviction,
-    EvictionPolicy::kAllKeysLRU,
-    EvictionPolicy::kVolatileLRU,
-    EvictionPolicy::kAllKeysLFU,
-    EvictionPolicy::kVolatileLFU,
-    EvictionPolicy::kAllKeysRandom,
-    EvictionPolicy::kVolatileRandom,
-    EvictionPolicy::kVolatileTTL
-  };
+      EvictionPolicy::kNoEviction,     EvictionPolicy::kAllKeysLRU,
+      EvictionPolicy::kVolatileLRU,    EvictionPolicy::kAllKeysLFU,
+      EvictionPolicy::kVolatileLFU,    EvictionPolicy::kAllKeysRandom,
+      EvictionPolicy::kVolatileRandom, EvictionPolicy::kVolatileTTL};
 
   for (auto policy : all_policies) {
     std::string policy_str = EvictionPolicyToString(policy);
     EvictionPolicy policy_from_str = StringToEvictionPolicy(policy_str);
-    EXPECT_EQ(policy, policy_from_str) << "Policy roundtrip failed for: " << policy_str;
+    EXPECT_EQ(policy, policy_from_str)
+        << "Policy roundtrip failed for: " << policy_str;
   }
 }
 

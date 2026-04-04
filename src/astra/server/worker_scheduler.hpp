@@ -14,9 +14,8 @@
 #include <mutex>
 #include <vector>
 
-#include "astra/base/logging.hpp"
 #include "asio/awaitable.hpp"
-
+#include "astra/base/logging.hpp"
 #include "astra/server/worker.hpp"
 
 namespace astra::server {
@@ -25,19 +24,21 @@ class Worker;
 
 /**
  * @brief Worker Scheduler - Central coordinator for cross-Worker task dispatch
- * 
- * This class provides a Dragonfly-like scheduling mechanism for dispatching tasks
- * to specific Workers or all Workers. It maintains NO SHARING architecture by:
+ *
+ * This class provides a Dragonfly-like scheduling mechanism for dispatching
+ * tasks to specific Workers or all Workers. It maintains NO SHARING
+ * architecture by:
  * - Only dispatching tasks, not sharing data
  * - Using thread-safe queues for communication
  * - Each Worker maintains its own task queue
- * 
+ *
  * Design Principles:
  * - Use coroutines (asio::awaitable) when possible for cleaner code
  * - Use async operations when performance-critical
  * - Use Abseil containers for better performance
- * 
- * Similar to Dragonfly's EngineShardSet but adapted for our NO SHARING architecture.
+ *
+ * Similar to Dragonfly's EngineShardSet but adapted for our NO SHARING
+ * architecture.
  */
 class WorkerScheduler {
  public:
@@ -57,7 +58,7 @@ class WorkerScheduler {
 
   /**
    * @brief Add task to specific worker (async, non-blocking)
-   * 
+   *
    * @param worker_id Target worker ID
    * @param func Task to execute (must be copyable)
    * @return true if task was added, false if worker_id is invalid
@@ -75,7 +76,7 @@ class WorkerScheduler {
 
   /**
    * @brief Add task to specific worker and wait for result
-   * 
+   *
    * @param worker_id Target worker ID
    * @param func Task to execute (must be copyable)
    * @return Result of func(), or throws if worker_id is invalid
@@ -83,34 +84,35 @@ class WorkerScheduler {
   template <typename F>
   auto Await(size_t worker_id, F&& func) -> decltype(func()) {
     using ResultType = decltype(func());
-    
+
     if (worker_id >= workers_.size()) {
-      throw std::out_of_range("Invalid worker_id: " + std::to_string(worker_id));
+      throw std::out_of_range("Invalid worker_id: " +
+                              std::to_string(worker_id));
     }
 
     std::promise<ResultType> promise;
     auto future = promise.get_future();
 
-    workers_[worker_id]->AddTask([func = std::forward<F>(func),
-                                  promise = std::move(promise)]() mutable {
-      try {
-        if constexpr (std::is_void_v<ResultType>) {
-          func();
-          promise.set_value();
-        } else {
-          promise.set_value(func());
-        }
-      } catch (...) {
-        promise.set_exception(std::current_exception());
-      }
-    });
+    workers_[worker_id]->AddTask(
+        [func = std::forward<F>(func), promise = std::move(promise)]() mutable {
+          try {
+            if constexpr (std::is_void_v<ResultType>) {
+              func();
+              promise.set_value();
+            } else {
+              promise.set_value(func());
+            }
+          } catch (...) {
+            promise.set_exception(std::current_exception());
+          }
+        });
 
     return future.get();
   }
 
   /**
    * @brief Run function on all workers in parallel and wait for completion
-   * 
+   *
    * @param func Function to run on each worker (must be copyable)
    */
   template <typename F>
@@ -141,7 +143,7 @@ class WorkerScheduler {
 
   /**
    * @brief Run function on all workers asynchronously (non-blocking)
-   * 
+   *
    * @param func Function to run on each worker (must be copyable)
    */
   template <typename F>
@@ -153,7 +155,7 @@ class WorkerScheduler {
 
   /**
    * @brief Run function on selected workers in parallel and wait
-   * 
+   *
    * @param func Function to run
    * @param predicate Predicate to select workers (bool(worker_id))
    */

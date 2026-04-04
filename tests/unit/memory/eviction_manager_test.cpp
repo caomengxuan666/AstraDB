@@ -2,8 +2,10 @@
 // Eviction Manager Unit Tests
 // =============================================================================
 
-#include <gtest/gtest.h>
 #include "astra/core/memory/eviction_manager.hpp"
+
+#include <gtest/gtest.h>
+
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/storage/key_metadata.hpp"
 
@@ -23,24 +25,21 @@ class EvictionManagerTest : public ::testing::Test {
     metadata_manager_ = std::make_unique<astra::storage::KeyMetadataManager>();
 
     eviction_manager_ = std::make_unique<EvictionManager>(
-      memory_tracker_.get(),
-      metadata_manager_.get());
+        memory_tracker_.get(), metadata_manager_.get());
 
     // Set up eviction callback
     eviction_manager_->SetEvictionCallback(
-      [this](const std::string& key, astra::storage::KeyType type) -> bool {
-        evicted_keys_.push_back(key);
-        // Simulate freeing memory when key is evicted
-        memory_tracker_->SubtractMemory(10000);  // Free 10KB
-        // Remove the key from metadata manager
-        metadata_manager_->UnregisterKey(key);
-        return true;
-      });
+        [this](const std::string& key, astra::storage::KeyType type) -> bool {
+          evicted_keys_.push_back(key);
+          // Simulate freeing memory when key is evicted
+          memory_tracker_->SubtractMemory(10000);  // Free 10KB
+          // Remove the key from metadata manager
+          metadata_manager_->UnregisterKey(key);
+          return true;
+        });
   }
 
-  void TearDown() override {
-    evicted_keys_.clear();
-  }
+  void TearDown() override { evicted_keys_.clear(); }
 
   // Helper function to add test keys
   void AddTestKeys(const std::vector<std::string>& keys) {
@@ -167,8 +166,9 @@ TEST_F(EvictionManagerTest, CheckAndEvict_VolatileTTL) {
 
   // Add test keys, some with TTL
   AddTestKeys({"key1", "key2", "key3"});
-  metadata_manager_->SetExpireSeconds("key1", 1);   // key1 expires in 1 second
-  metadata_manager_->SetExpireSeconds("key3", 10);  // key3 expires in 10 seconds
+  metadata_manager_->SetExpireSeconds("key1", 1);  // key1 expires in 1 second
+  metadata_manager_->SetExpireSeconds("key3",
+                                      10);  // key3 expires in 10 seconds
 
   size_t evicted = eviction_manager_->CheckAndEvict();
   EXPECT_GT(evicted, 0);  // At least one key should be evicted
@@ -196,8 +196,6 @@ TEST_F(EvictionManagerTest, GetStats) {
   EXPECT_EQ(stats.random_evicted, 0);
   EXPECT_EQ(stats.ttl_evicted, 0);
 }
-
-
 
 // Test multiple evictions
 TEST_F(EvictionManagerTest, MultipleEvictions) {

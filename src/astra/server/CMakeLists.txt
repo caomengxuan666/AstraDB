@@ -9,6 +9,13 @@ target_include_directories(astra_server PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
 
+# Add libgossip's third_party directory for magic_enum headers
+if(TARGET libgossip OR libgossip_SOURCE_DIR)
+  target_include_directories(astra_server PUBLIC
+    ${libgossip_SOURCE_DIR}/third_party
+  )
+endif()
+
 target_sources(astra_server PRIVATE
   server.cpp
   server.hpp
@@ -22,6 +29,7 @@ target_link_libraries(astra_server PUBLIC
   astra_network
   astra_protocol_resp
   astra_commands_whole
+  astra_cluster
   flatbuffers_generated
   concurrentqueue
   astra_persistence

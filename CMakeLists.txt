@@ -27,6 +27,7 @@ option(ASTRADB_ENABLE_ACL "Enable ACL (Access Control List)" ON)
 option(ASTRADB_ENABLE_SIMD "Enable SIMD optimizations" ON)
 option(ASTRADB_ENABLE_IO_URING "Enable io_uring backend (Linux only, experimental)" OFF)
 option(ASTRADB_STRIP_SYMBOLS "Strip debug symbols from release builds" ON)
+option(ASTRADB_BUILD_EXAMPLES "Build examples" ON)
 
 # ==============================================================================
 # Load Configuration Modules
@@ -206,6 +207,11 @@ add_subdirectory(tests/benchmark)
 # Build integration tests
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/CMakeLists.txt")
   add_subdirectory(tests/integration)
+endif()
+
+# Build examples
+if(ASTRADB_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+  add_subdirectory(examples)
 endif()
 
 # ==============================================================================

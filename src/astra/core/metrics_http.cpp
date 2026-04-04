@@ -54,13 +54,16 @@ class MetricsHTTPServer
         asio::detached);
   }
 
-  ~MetricsHTTPServer() {
-    ASTRADB_LOG_INFO("Shutting down Metrics HTTP server");
-
+  void Stop() {
     if (running_.exchange(false)) {
       std::error_code ec;
       acceptor_.close(ec);
     }
+  }
+
+  ~MetricsHTTPServer() {
+    ASTRADB_LOG_INFO("Shutting down Metrics HTTP server");
+    Stop();
   }
 
  private:
@@ -101,8 +104,7 @@ class MetricsHTTPServer
 
     asio::error_code ec;
     size_t bytes_read = co_await socket->async_read_some(
-        asio::buffer(buffer),
-        asio::redirect_error(asio::use_awaitable, ec));
+        asio::buffer(buffer), asio::redirect_error(asio::use_awaitable, ec));
 
     if (ec) {
       ASTRADB_LOG_DEBUG("Metrics HTTP: Read error: {}", ec.message());
@@ -115,10 +117,11 @@ class MetricsHTTPServer
     if (request.find("GET /metrics") == 0) {
       std::vector<prometheus::MetricFamily> metrics = registry_->Collect();
       std::string body = SerializeMetrics(metrics);
-      response = "HTTP/1.1 200 OK\r\n"
-                 "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-                 "Content-Length: " +
-                 std::to_string(body.size()) + "\r\n\r\n" + body;
+      response =
+          "HTTP/1.1 200 OK\r\n"
+          "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
+          "Content-Length: " +
+          std::to_string(body.size()) + "\r\n\r\n" + body;
 
       ASTRADB_LOG_DEBUG("Metrics HTTP: Sending metrics response (size={})",
                         body.size());
@@ -127,9 +130,8 @@ class MetricsHTTPServer
       ASTRADB_LOG_DEBUG("Metrics HTTP: 404 Not Found");
     }
 
-    co_await asio::async_write(
-        *socket, asio::buffer(response),
-        asio::redirect_error(asio::use_awaitable, ec));
+    co_await asio::async_write(*socket, asio::buffer(response),
+                               asio::redirect_error(asio::use_awaitable, ec));
 
     if (!ec) {
       ASTRADB_LOG_DEBUG("Metrics HTTP: Response sent successfully");
@@ -250,6 +252,14 @@ void MetricsRegistry::StartHTTPServer(asio::io_context& io_context,
   g_http_server = std::make_shared<MetricsHTTPServer>(
       io_context, config.bind_addr, config.port, registry_);
   g_http_server->Start();
+}
+
+// Stop HTTP server implementation
+void MetricsRegistry::StopHTTPServer() {
+  if (g_http_server) {
+    g_http_server->Stop();
+    g_http_server.reset();
+  }
 }
 
 }  // namespace astra::metrics

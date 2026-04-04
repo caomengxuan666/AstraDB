@@ -11,17 +11,17 @@
 #include <vector>
 
 #ifdef _WIN32
-  // Windows
-  #include <winsock2.h>
-  #include <windows.h>
+// Windows
+#include <windows.h>
+#include <winsock2.h>
 #else
-  // Linux/Unix
-  #include <sys/socket.h>
-  
-  // SO_REUSEPORT option for Linux (for kernel-level load balancing)
-  #ifndef SO_REUSEPORT
-    #define SO_REUSEPORT 15
-  #endif
+// Linux/Unix
+#include <sys/socket.h>
+
+// SO_REUSEPORT option for Linux (for kernel-level load balancing)
+#ifndef SO_REUSEPORT
+#define SO_REUSEPORT 15
+#endif
 #endif
 
 namespace astra::core::async {
@@ -31,7 +31,8 @@ using NewConnectionCallback =
     std::function<void(size_t worker_id, asio::ip::tcp::socket socket)>;
 
 // New IO Context Pool with SO_REUSEPORT support
-// Implements per-worker event loop architecture with kernel-level load balancing
+// Implements per-worker event loop architecture with kernel-level load
+// balancing
 class NewIOContextPool : public std::enable_shared_from_this<NewIOContextPool> {
  public:
   explicit NewIOContextPool(size_t num_workers = 0);

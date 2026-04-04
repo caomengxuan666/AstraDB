@@ -19,10 +19,12 @@ namespace astra::core::memory {
 
 // Eviction monitor configuration
 struct EvictionMonitorConfig {
-  std::chrono::milliseconds check_interval = std::chrono::milliseconds(100);  // Check every 100ms
-  bool enable_sampling = true;  // Enable sampling for memory estimation
+  std::chrono::milliseconds check_interval =
+      std::chrono::milliseconds(100);  // Check every 100ms
+  bool enable_sampling = true;         // Enable sampling for memory estimation
   size_t sample_size = 100;  // Number of keys to sample for estimation
-  double probationary_ratio = 0.067;  // 6.7% for probationary buffer (like Dragonfly)
+  double probationary_ratio =
+      0.067;  // 6.7% for probationary buffer (like Dragonfly)
 };
 
 // Eviction monitor - runs in background thread and periodically checks memory
@@ -37,9 +39,7 @@ class EvictionMonitor {
         running_(false),
         thread_() {}
 
-  ~EvictionMonitor() {
-    Stop();
-  }
+  ~EvictionMonitor() { Stop(); }
 
   // Disable copy and move
   EvictionMonitor(const EvictionMonitor&) = delete;
@@ -50,7 +50,7 @@ class EvictionMonitor {
   // Start the monitor thread
   void Start() {
     if (running_) return;
-    
+
     running_ = true;
     thread_ = std::thread(&EvictionMonitor::MonitorLoop, this);
     ASTRADB_LOG_INFO("Eviction monitor started with interval {}ms",
@@ -60,7 +60,7 @@ class EvictionMonitor {
   // Stop the monitor thread
   void Stop() {
     if (!running_) return;
-    
+
     running_ = false;
     cv_.notify_all();
     if (thread_.joinable()) {
@@ -87,18 +87,20 @@ class EvictionMonitor {
   void MonitorLoop() {
     while (running_) {
       absl::MutexLock lock(&mutex_);
-      
+
       // Wait for check interval or stop signal
-      absl::Duration timeout = absl::Milliseconds(config_.check_interval.count());
+      absl::Duration timeout =
+          absl::Milliseconds(config_.check_interval.count());
       cv_.WaitWithTimeout(&mutex_, timeout, [this]() { return !running_; });
-      
+
       if (!running_) break;
-      
+
       lock.Release();
-      
+
       // Check memory and perform eviction if needed
       if (memory_tracker_->ShouldEvict()) {
-        ASTRADB_LOG_DEBUG("Eviction monitor: memory threshold reached, performing eviction");
+        ASTRADB_LOG_DEBUG(
+            "Eviction monitor: memory threshold reached, performing eviction");
         eviction_manager_->CheckAndEvict();
       }
     }
@@ -107,7 +109,7 @@ class EvictionMonitor {
   EvictionManager* eviction_manager_;
   MemoryTracker* memory_tracker_;
   EvictionMonitorConfig config_;
-  
+
   std::atomic<bool> running_;
   std::thread thread_;
   absl::Mutex mutex_;

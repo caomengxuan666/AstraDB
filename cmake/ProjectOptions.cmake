@@ -65,6 +65,33 @@ else()  # DYNAMIC
 endif()
 
 # ==============================================================================
+# Sanitizers Configuration (Address Sanitizer, Thread Sanitizer, etc.)
+# ==============================================================================
+
+if(ASTRADB_ENABLE_SANITIZERS)
+  message(STATUS "Sanitizers: ENABLED")
+  
+  # Address Sanitizer
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+    message(STATUS "  Address Sanitizer: Enabled")
+    
+    # Additional ASAN options for better diagnostics
+    add_compile_definitions(ASAN_ENABLED=1)
+  endif()
+  
+  # Uncomment to enable Thread Sanitizer (for thread safety issues)
+  # add_compile_options(-fsanitize=thread)
+  # add_link_options(-fsanitize=thread)
+  
+  # Uncomment to enable Undefined Behavior Sanitizer
+  # add_compile_options(-fsanitize=undefined)
+  # add_link_options(-fsanitize=undefined)
+  
+endif()
+
+# ==============================================================================
 # C++ Standard Configuration
 # ==============================================================================
 

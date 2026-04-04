@@ -12,8 +12,8 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/mutex.h"
-#include "eviction_policy.hpp"
 #include "astra/storage/key_metadata.hpp"
+#include "eviction_policy.hpp"
 
 namespace astra::core::memory {
 
@@ -48,7 +48,8 @@ class EvictionStrategy2Q {
         PromoteToProtected(key);
       } else if (it != key_state_.end() && it->second == KeyState::kProtected) {
         // Update access time in protected buffer (move to end)
-        auto prot_it = std::find(protected_queue_.begin(), protected_queue_.end(), key);
+        auto prot_it =
+            std::find(protected_queue_.begin(), protected_queue_.end(), key);
         if (prot_it != protected_queue_.end()) {
           protected_queue_.erase(prot_it);
           protected_queue_.push_back(key);
@@ -62,8 +63,10 @@ class EvictionStrategy2Q {
     absl::MutexLock lock(&mutex_);
 
     // Calculate probationary buffer size
-    size_t probationary_size = static_cast<size_t>(total_keys * probationary_ratio_);
-    size_t probationary_count = std::min(probationary_size, probationary_queue_.size());
+    size_t probationary_size =
+        static_cast<size_t>(total_keys * probationary_ratio_);
+    size_t probationary_count =
+        std::min(probationary_size, probationary_queue_.size());
 
     // First, try to evict from probationary buffer (FIFO)
     if (probationary_count > 0) {
@@ -92,14 +95,14 @@ class EvictionStrategy2Q {
     if (it != key_state_.end()) {
       if (it->second == KeyState::kProbationary) {
         // Remove from probationary queue
-        probationary_queue_.erase(
-          std::remove(probationary_queue_.begin(), probationary_queue_.end(), key),
-          probationary_queue_.end());
+        probationary_queue_.erase(std::remove(probationary_queue_.begin(),
+                                              probationary_queue_.end(), key),
+                                  probationary_queue_.end());
       } else {
         // Remove from protected queue
         protected_queue_.erase(
-          std::remove(protected_queue_.begin(), protected_queue_.end(), key),
-          protected_queue_.end());
+            std::remove(protected_queue_.begin(), protected_queue_.end(), key),
+            protected_queue_.end());
       }
       key_state_.erase(it);
     }
@@ -121,15 +124,16 @@ class EvictionStrategy2Q {
   // Promote a key from probationary to protected buffer
   void PromoteToProtected(const std::string& key) {
     // Remove from probationary queue
-    probationary_queue_.erase(
-      std::remove(probationary_queue_.begin(), probationary_queue_.end(), key),
-      probationary_queue_.end());
+    probationary_queue_.erase(std::remove(probationary_queue_.begin(),
+                                          probationary_queue_.end(), key),
+                              probationary_queue_.end());
     key_state_[key] = KeyState::kProtected;
 
     // Evict one key from protected buffer if it's too full
     // This maintains the 6.7% ratio for probationary buffer
     size_t total_keys = key_state_.size();
-    size_t probationary_size = static_cast<size_t>(total_keys * probationary_ratio_);
+    size_t probationary_size =
+        static_cast<size_t>(total_keys * probationary_ratio_);
     size_t protected_max = total_keys - probationary_size;
 
     if (protected_queue_.size() >= protected_max && !protected_queue_.empty()) {
@@ -169,8 +173,9 @@ class MemorySamplingEstimator {
   ~MemorySamplingEstimator() = default;
 
   // Estimate total memory usage from sampled keys
-  uint64_t EstimateTotalMemory(const std::vector<std::string>& all_keys,
-                               const std::function<uint32_t(const std::string&)>& get_key_size) {
+  uint64_t EstimateTotalMemory(
+      const std::vector<std::string>& all_keys,
+      const std::function<uint32_t(const std::string&)>& get_key_size) {
     if (all_keys.empty()) {
       return 0;
     }
@@ -212,9 +217,7 @@ class MemorySamplingEstimator {
   }
 
   // Get current sample size
-  size_t GetSampleSize() const {
-    return sample_size_;
-  }
+  size_t GetSampleSize() const { return sample_size_; }
 
  private:
   size_t sample_size_;

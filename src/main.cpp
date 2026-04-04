@@ -4,10 +4,11 @@
 // License: Apache 2.0
 // ==============================================================================
 
-#include <csignal>
-#include <cxxopts.hpp>
 #include <fmt/color.h>
 #include <fmt/core.h>
+
+#include <csignal>
+#include <cxxopts.hpp>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -138,6 +139,8 @@ int main(int argc, char** argv) {
 
   // Print AstraDB startup banner with ASCII art logo (always visible)
   // Use vibrant gradient colors from cyan to magenta via RGB
+  
+  // clang-format off
   fmt::print("\n");
   fmt::print(fmt::fg(fmt::rgb(0, 255, 255)) | fmt::emphasis::bold, "               AAA                                       tttt                                             DDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB   \n");
   fmt::print(fmt::fg(fmt::rgb(0, 230, 255)) | fmt::emphasis::bold, "              A:::A                                   ttt:::t                                             D::::::::::::DDD   B::::::::::::::::B  \n");
@@ -156,6 +159,7 @@ int main(int argc, char** argv) {
   fmt::print(fmt::fg(fmt::rgb(225, 0, 255)) | fmt::emphasis::bold, " A:::::A                 A:::::As:::::::::::ss          tt:::::::::::ttr:::::r           a::::::::::aa:::aD::::::::::::DDD   B::::::::::::::::B  \n");
   fmt::print(fmt::fg(fmt::rgb(255, 0, 255)) | fmt::emphasis::bold, "AAAAAAA                   AAAAAAAsssssssssss              ttttttttttt  rrrrrrr            aaaaaaaaaa  aaaaDDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB \n");
   fmt::print("\n");
+  // clang-format on
 
   // Print version information
   ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
@@ -230,7 +234,9 @@ int main(int argc, char** argv) {
   server_config.num_databases = config.num_databases;
   server_config.num_shards = config.num_shards;
   server_config.thread_count = config.thread_count;
-  server_config.num_workers = config.thread_count > 0 ? config.thread_count : std::thread::hardware_concurrency();
+  server_config.num_workers = config.thread_count > 0
+                                  ? config.thread_count
+                                  : std::thread::hardware_concurrency();
   server_config.use_async_commands = config.use_async_commands;
   server_config.use_per_worker_io = config.use_per_worker_io;
   server_config.use_so_reuseport = config.use_so_reuseport;
@@ -250,11 +256,23 @@ int main(int argc, char** argv) {
   server_config.cluster.gossip_port = config.cluster.gossip_port;
   server_config.cluster.shard_count = config.cluster.shard_count;
   server_config.cluster.seeds = config.cluster.seeds;
+  server_config.cluster.use_tcp = config.cluster.use_tcp;
+
+  // Also copy to direct member variables (used by Server)
+  server_config.cluster_enabled = config.cluster.enabled;
+  server_config.cluster_node_id = config.cluster.node_id;
+  server_config.cluster_bind_addr = config.cluster.bind_addr;
+  server_config.cluster_gossip_port = config.cluster.gossip_port;
+  server_config.cluster_shard_count = config.cluster.shard_count;
+  server_config.cluster_seeds = config.cluster.seeds;
 
   // Copy metrics config
   server_config.metrics.enabled = config.metrics.enabled;
   server_config.metrics.bind_addr = config.metrics.bind_addr;
   server_config.metrics.port = config.metrics.port;
+  server_config.metrics_enabled = config.metrics.enabled;
+  server_config.metrics_bind_addr = config.metrics.bind_addr;
+  server_config.metrics_port = config.metrics.port;
 
   // Copy memory config
   server_config.memory.max_memory = config.memory.max_memory;

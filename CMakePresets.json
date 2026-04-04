@@ -125,7 +125,8 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "ASTRADB_ENABLE_LTO": "OFF",
         "ASTRADB_LINK_MODE": "PARTIAL_STATIC",
-        "ASTRADB_STRIP_SYMBOLS": "OFF"
+        "ASTRADB_STRIP_SYMBOLS": "OFF",
+        "ASTRADB_ENABLE_SANITIZERS": "ON"
       }
     },
     {
@@ -211,6 +212,7 @@
         "ASTRADB_ENABLE_LTO": "ON",
         "ASTRADB_BUILD_TESTS": "OFF",
         "ASTRADB_BUILD_BENCHMARKS": "OFF",
+        "ASTRADB_BUILD_EXAMPLES": "OFF",
         "ASTRADB_ENABLE_IO_URING": "OFF"
       }
     },

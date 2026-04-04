@@ -6,9 +6,6 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/strings/ascii.h>
 
-#include "astra/server/worker.hpp"
-#include "astra/server/worker_scheduler.hpp"
-
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -20,6 +17,8 @@
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
 #include "astra/core/server_stats.hpp"
+#include "astra/server/worker.hpp"
+#include "astra/server/worker_scheduler.hpp"
 #include "astra/storage/key_metadata.hpp"
 #include "command_auto_register.hpp"
 #include "scan_manager.hpp"
@@ -63,19 +62,26 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
   oss << "redis_version:7.0.0\r\n";
   oss << "os:Linux\r\n";
   oss << "arch_bits:64\r\n";
-  oss << "uptime_in_seconds:" << stats->uptime_seconds.load(std::memory_order_relaxed) << "\r\n";
+  oss << "uptime_in_seconds:"
+      << stats->uptime_seconds.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Clients section
   oss << "# Clients\r\n";
-  oss << "connected_clients:" << stats->connected_clients.load(std::memory_order_relaxed) << "\r\n";
-  oss << "total_connections_received:" << stats->total_connections_received.load(std::memory_order_relaxed) << "\r\n";
-  oss << "total_connections_rejected:" << stats->total_connections_rejected.load(std::memory_order_relaxed) << "\r\n";
+  oss << "connected_clients:"
+      << stats->connected_clients.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_connections_received:"
+      << stats->total_connections_received.load(std::memory_order_relaxed)
+      << "\r\n";
+  oss << "total_connections_rejected:"
+      << stats->total_connections_rejected.load(std::memory_order_relaxed)
+      << "\r\n";
   oss << "\r\n";
 
   // Memory section
   oss << "# Memory\r\n";
-  uint64_t used_memory = stats->used_memory_bytes.load(std::memory_order_relaxed);
+  uint64_t used_memory =
+      stats->used_memory_bytes.load(std::memory_order_relaxed);
   if (used_memory > 0) {
     oss << "used_memory:" << used_memory << "\r\n";
     oss << "used_memory_human:" << FormatBytes(used_memory) << "\r\n";
@@ -98,11 +104,17 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
 
   // Stats section (NO SHARING architecture - from aggregated ServerStats)
   oss << "# Stats\r\n";
-  oss << "total_commands_processed:" << stats->total_commands_processed.load(std::memory_order_relaxed) << "\r\n";
-  oss << "total_commands_failed:" << stats->total_commands_failed.load(std::memory_order_relaxed) << "\r\n";
-  oss << "keyspace_hits:" << stats->keyspace_hits.load(std::memory_order_relaxed) << "\r\n";
-  oss << "keyspace_misses:" << stats->keyspace_misses.load(std::memory_order_relaxed) << "\r\n";
-  oss << "slowlog_count:" << stats->slowlog_count.load(std::memory_order_relaxed) << "\r\n";
+  oss << "total_commands_processed:"
+      << stats->total_commands_processed.load(std::memory_order_relaxed)
+      << "\r\n";
+  oss << "total_commands_failed:"
+      << stats->total_commands_failed.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_hits:"
+      << stats->keyspace_hits.load(std::memory_order_relaxed) << "\r\n";
+  oss << "keyspace_misses:"
+      << stats->keyspace_misses.load(std::memory_order_relaxed) << "\r\n";
+  oss << "slowlog_count:"
+      << stats->slowlog_count.load(std::memory_order_relaxed) << "\r\n";
   oss << "\r\n";
 
   // Cluster section
@@ -136,7 +148,8 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
   }
   oss << "\r\n";
 
-  // Command stats section (NO SHARING architecture - from aggregated ServerStats)
+  // Command stats section (NO SHARING architecture - from aggregated
+  // ServerStats)
   oss << "# Commandstats\r\n";
   oss << stats->GetCommandStatsInfo();
   oss << "\r\n";
@@ -846,10 +859,11 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
   }
 
   const auto& subcommand = command[0].AsString();
+  std::string upper_subcommand = absl::AsciiStrToUpper(subcommand);
 
   if (!context || !context->IsClusterEnabled()) {
     // Return error for cluster commands when cluster is not enabled
-    if (subcommand == "INFO") {
+    if (upper_subcommand == "INFO") {
       std::string info =
           "cluster_state:down\r\n"
           "cluster_slots_assigned:0\r\n"
@@ -869,15 +883,29 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
   auto* gossip = context->GetGossipManagerMutable();
 
-  if (subcommand == "INFO") {
+  if (upper_subcommand == "INFO") {
     // Return real cluster info
     auto stats =
         gossip ? gossip->GetStats() : cluster::GossipManager::GossipStats{};
 
+    // Calculate actual slot assignment from ClusterState
+    uint32_t slots_assigned = 0;
+    if (auto* ctx = dynamic_cast<server::WorkerCommandContext*>(context)) {
+      auto cluster_state = ctx->GetClusterState();
+      if (cluster_state) {
+        // Count assigned slots
+        for (uint16_t slot = 0; slot < 16384; ++slot) {
+          if (cluster_state->GetSlotOwner(slot).has_value()) {
+            slots_assigned++;
+          }
+        }
+      }
+    }
+
     std::ostringstream oss;
     oss << "cluster_state:ok\r\n";
-    oss << "cluster_slots_assigned:16384\r\n";
-    oss << "cluster_slots_ok:16384\r\n";
+    oss << "cluster_slots_assigned:" << slots_assigned << "\r\n";
+    oss << "cluster_slots_ok:" << slots_assigned << "\r\n";
     oss << "cluster_slots_pfail:0\r\n";
     oss << "cluster_slots_fail:0\r\n";
     oss << "cluster_known_nodes:" << stats.known_nodes << "\r\n";
@@ -892,10 +920,31 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString(oss.str(), protocol::RespType::kBulkString);
     return CommandResult(response);
 
-  } else if (subcommand == "NODES") {
-    // Return real node info
+  } else if (upper_subcommand == "KEYSLOT") {
+    // CLUSTER KEYSLOT <key>
+    // Returns the hash slot for the specified key
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false, "ERR wrong number of arguments for 'cluster|keyslot' command");
+    }
+
+    const auto& key = command[1].AsString();
+    uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+
+    RespValue response;
+    response.SetInteger(slot);
+    return CommandResult(response);
+
+  } else if (upper_subcommand == "NODES") {
+    // Return real node info with slot assignments from ClusterState
     std::ostringstream oss;
     auto* shard_manager = context->GetClusterShardManager();
+
+    // Get ClusterState for slot information
+    std::shared_ptr<cluster::ClusterState> cluster_state;
+    if (auto* ctx = dynamic_cast<server::WorkerCommandContext*>(context)) {
+      cluster_state = ctx->GetClusterState();
+    }
 
     if (gossip) {
       auto nodes = gossip->GetNodes();
@@ -933,8 +982,42 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
         oss << node.config_epoch << " ";
         oss << "connected ";  // link_state
 
-        // Add slots for self
-        if (self.id == node.id && shard_manager) {
+        // Add slots from ClusterState
+        if (cluster_state) {
+          std::string slots_str;
+          uint16_t slot_start = 0;
+          bool in_range = false;
+          for (uint16_t slot = 0; slot < 16384; ++slot) {
+            auto owner = cluster_state->GetSlotOwner(slot);
+            if (owner.has_value() && owner.value() == node_id) {
+              if (!in_range) {
+                slot_start = slot;
+                in_range = true;
+              }
+            } else {
+              if (in_range) {
+                if (slot_start == slot - 1) {
+                  slots_str += std::to_string(slot_start);
+                } else {
+                  slots_str += std::to_string(slot_start) + "-" +
+                               std::to_string(slot - 1);
+                }
+                slots_str += " ";
+                in_range = false;
+              }
+            }
+          }
+          // Handle last range
+          if (in_range) {
+            if (slot_start == 16383) {
+              slots_str += std::to_string(slot_start);
+            } else {
+              slots_str += std::to_string(slot_start) + "-16383";
+            }
+          }
+          oss << slots_str;
+        } else if (self.id == node.id && shard_manager) {
+          // Fallback: show all slots for self if no ClusterState
           oss << "0-16383";
         }
         oss << "\r\n";
@@ -954,7 +1037,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString(oss.str(), protocol::RespType::kBulkString);
     return CommandResult(response);
 
-  } else if (subcommand == "MEET") {
+  } else if (upper_subcommand == "MEET") {
     // CLUSTER MEET <ip> <port>
     if (command.ArgCount() < 3) {
       return CommandResult(
@@ -979,7 +1062,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       return CommandResult(false, "ERR failed to meet node");
     }
 
-  } else if (subcommand == "SLOTS") {
+  } else if (upper_subcommand == "SLOTS") {
     // Return slot distribution
     std::vector<RespValue> result;
 
@@ -1011,7 +1094,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
     return CommandResult(RespValue(std::move(result)));
 
-  } else if (subcommand == "FORGET") {
+  } else if (upper_subcommand == "FORGET") {
     // CLUSTER FORGET <node_id>
     // Remove a node from the cluster
     if (command.ArgCount() < 2) {
@@ -1045,7 +1128,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(response);
 
-  } else if (subcommand == "REPLICATE") {
+  } else if (upper_subcommand == "REPLICATE") {
     // CLUSTER REPLICATE <master_node_id>
     // Configure this node as a replica of the specified master node
     if (command.ArgCount() < 2) {
@@ -1089,10 +1172,80 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     response.SetString("OK", protocol::RespType::kSimpleString);
     return CommandResult(response);
 
-  } else if (subcommand == "ADDSLOTS" || subcommand == "DELSLOTS") {
-    return CommandResult(false,
-                         "ERR cluster slot management not implemented yet");
-  } else if (subcommand == "SETSLOT") {
+  } else if (upper_subcommand == "ADDSLOTS") {
+    // CLUSTER ADDSLOTS <slot1> <slot2> ...
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false,
+          "ERR wrong number of arguments for 'cluster|addslots' command");
+    }
+
+    // Parse slot numbers
+    std::vector<uint16_t> slots;
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      try {
+        int slot = std::stoi(command[i].AsString());
+        if (slot < 0 || slot >= 16384) {
+          return CommandResult(false, "ERR Invalid slot number");
+        }
+        slots.push_back(static_cast<uint16_t>(slot));
+      } catch (const std::exception& e) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+    }
+
+    // Check for duplicate slots
+    absl::flat_hash_set<uint16_t> slot_set(slots.begin(), slots.end());
+    if (slot_set.size() != slots.size()) {
+      return CommandResult(false, "ERR Duplicate slots provided");
+    }
+
+    // Add slots using context
+    if (context->ClusterAddSlots(slots)) {
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+    } else {
+      return CommandResult(false, "ERR Failed to add slots");
+    }
+
+  } else if (upper_subcommand == "DELSLOTS") {
+    // CLUSTER DELSLOTS <slot1> <slot2> ...
+    if (command.ArgCount() < 2) {
+      return CommandResult(
+          false,
+          "ERR wrong number of arguments for 'cluster|delslots' command");
+    }
+
+    // Parse slot numbers
+    std::vector<uint16_t> slots;
+    for (size_t i = 1; i < command.ArgCount(); ++i) {
+      try {
+        int slot = std::stoi(command[i].AsString());
+        if (slot < 0 || slot >= 16384) {
+          return CommandResult(false, "ERR Invalid slot number");
+        }
+        slots.push_back(static_cast<uint16_t>(slot));
+      } catch (const std::exception& e) {
+        return CommandResult(false, "ERR Invalid slot number");
+      }
+    }
+
+    // Check for duplicate slots
+    absl::flat_hash_set<uint16_t> slot_set(slots.begin(), slots.end());
+    if (slot_set.size() != slots.size()) {
+      return CommandResult(false, "ERR Duplicate slots provided");
+    }
+
+    // Remove slots using context
+    if (context->ClusterDelSlots(slots)) {
+      RespValue response;
+      response.SetString("OK", protocol::RespType::kSimpleString);
+      return CommandResult(response);
+    } else {
+      return CommandResult(false, "ERR Failed to remove slots");
+    }
+  } else if (upper_subcommand == "SETSLOT") {
     // CLUSTER SETSLOT <slot> IMPORTING|MIGRATING|STABLE|NODE <node_id>
     // Used during manual slot migration
     if (command.ArgCount() < 3) {
@@ -1178,7 +1331,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       return CommandResult(false, "ERR unknown setslot action");
     }
 
-  } else if (subcommand == "GETKEYSINSLOT") {
+  } else if (upper_subcommand == "GETKEYSINSLOT") {
     // CLUSTER GETKEYSINSLOT <slot> <count>
     // Returns keys in the specified slot
     if (command.ArgCount() < 3) {
@@ -1218,9 +1371,11 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 CommandResult HandleBgSave(const astra::protocol::Command& command,
                            CommandContext* context) {
   // Check if this is WorkerCommandContext (NO SHARING architecture)
-  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  auto* worker_ctx =
+      dynamic_cast<astra::server::WorkerCommandContext*>(context);
   if (!worker_ctx) {
-    return CommandResult(false, "ERR BGSAVE command requires WorkerCommandContext");
+    return CommandResult(false,
+                         "ERR BGSAVE command requires WorkerCommandContext");
   }
 
   // Get RDB save callback
@@ -1266,9 +1421,11 @@ CommandResult HandleLastSave(const astra::protocol::Command& command,
 CommandResult HandleSave(const astra::protocol::Command& command,
                          CommandContext* context) {
   // Check if this is WorkerCommandContext (NO SHARING architecture)
-  auto* worker_ctx = dynamic_cast<astra::server::WorkerCommandContext*>(context);
+  auto* worker_ctx =
+      dynamic_cast<astra::server::WorkerCommandContext*>(context);
   if (!worker_ctx) {
-    return CommandResult(false, "ERR SAVE command requires WorkerCommandContext");
+    return CommandResult(false,
+                         "ERR SAVE command requires WorkerCommandContext");
   }
 
   // Get RDB save callback
@@ -1457,15 +1614,16 @@ CommandResult HandleKeys(const astra::protocol::Command& command,
   if (worker_scheduler && worker_scheduler->size() > 1) {
     std::vector<RespValue> result;
     auto all_workers = worker_scheduler->GetAllWorkers();
-    
+
     // Collect keys from all workers
     for (auto* worker : all_workers) {
       auto all_keys = worker->GetDataShard().GetDatabase().GetAllKeys();
-      
+
       // Pattern matching for each key
       for (const auto& key : all_keys) {
         // Simple pattern matching: only support * wildcard
-        if (pattern == "*" || key.find(pattern.substr(1)) != std::string::npos) {
+        if (pattern == "*" ||
+            key.find(pattern.substr(1)) != std::string::npos) {
           RespValue key_val;
           key_val.SetString(key, protocol::RespType::kBulkString);
           result.push_back(key_val);
@@ -1517,46 +1675,49 @@ CommandResult HandleRandomKey(const astra::protocol::Command& command,
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
     server::Worker* current_worker = context->GetWorker();
-    
+
     // Collect all keys from all workers
     std::vector<std::future<std::vector<std::string>>> futures;
     futures.reserve(all_workers.size());
-    
+
     for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
       auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
       auto future = promise->get_future();
       futures.push_back(std::move(future));
-      
+
       server::Worker* target_worker = all_workers[worker_id];
-      
-      // Check if this is the current worker - execute directly to avoid deadlock
+
+      // Check if this is the current worker - execute directly to avoid
+      // deadlock
       if (target_worker == current_worker) {
         // Execute directly in current thread
-        std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+        std::vector<std::string> keys =
+            target_worker->GetDataShard().GetDatabase().GetAllKeys();
         promise->set_value(keys);
       } else {
         // Execute on other worker via queue
         all_workers[worker_id]->AddTask([target_worker, promise]() {
           try {
-            std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+            std::vector<std::string> keys =
+                target_worker->GetDataShard().GetDatabase().GetAllKeys();
             promise->set_value(keys);
           } catch (...) {
             promise->set_exception(std::current_exception());
           }
         });
-        
+
         // Notify worker to process task immediately
         all_workers[worker_id]->NotifyTaskProcessing();
       }
     }
-    
+
     // Aggregate all keys from all workers
     std::vector<std::string> all_keys;
     for (auto& future : futures) {
       auto keys = future.get();
       all_keys.insert(all_keys.end(), keys.begin(), keys.end());
     }
-    
+
     if (all_keys.empty()) {
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
@@ -1810,7 +1971,7 @@ CommandResult HandleDbSize(const astra::protocol::Command& command,
   if (worker_scheduler && worker_scheduler->size() > 1) {
     size_t total_size = 0;
     auto all_workers = worker_scheduler->GetAllWorkers();
-    
+
     // Collect DBSIZE from all workers
     for (auto* worker : all_workers) {
       total_size += worker->GetDataShard().GetDatabase().DbSize();
@@ -1970,10 +2131,13 @@ CommandResult HandleConfig(const protocol::Command& command,
         RespValue value;
         // Get maxmemory from memory tracker (0 = no limit)
         uint64_t max_memory = 0;
-        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
-          max_memory = context->GetDatabase()->GetMemoryTracker()->GetMaxMemory();
+        if (context->GetDatabase() &&
+            context->GetDatabase()->GetMemoryTracker()) {
+          max_memory =
+              context->GetDatabase()->GetMemoryTracker()->GetMaxMemory();
         }
-        value.SetString(absl::StrCat(max_memory), protocol::RespType::kBulkString);
+        value.SetString(absl::StrCat(max_memory),
+                        protocol::RespType::kBulkString);
         result.push_back(value);
       } else if (upper_param == "MAXMEMORY-POLICY" || upper_param == "*" ||
                  upper_param == "*MAXMEMORY-POLICY*") {
@@ -1984,8 +2148,10 @@ CommandResult HandleConfig(const protocol::Command& command,
         RespValue value;
         // Get eviction policy from memory tracker
         std::string policy = "noeviction";
-        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
-          auto astra_policy = context->GetDatabase()->GetMemoryTracker()->GetEvictionPolicy();
+        if (context->GetDatabase() &&
+            context->GetDatabase()->GetMemoryTracker()) {
+          auto astra_policy =
+              context->GetDatabase()->GetMemoryTracker()->GetEvictionPolicy();
           policy = astra::core::memory::EvictionPolicyToString(astra_policy);
         }
         value.SetString(policy, protocol::RespType::kBulkString);
@@ -1999,8 +2165,10 @@ CommandResult HandleConfig(const protocol::Command& command,
         RespValue value;
         // Get eviction samples from memory tracker
         uint32_t samples = 5;
-        if (context->GetDatabase() && context->GetDatabase()->GetMemoryTracker()) {
-          samples = context->GetDatabase()->GetMemoryTracker()->GetEvictionSamples();
+        if (context->GetDatabase() &&
+            context->GetDatabase()->GetMemoryTracker()) {
+          samples =
+              context->GetDatabase()->GetMemoryTracker()->GetEvictionSamples();
         }
         value.SetString(absl::StrCat(samples), protocol::RespType::kBulkString);
         result.push_back(value);
@@ -2103,46 +2271,49 @@ CommandResult HandleScan(const protocol::Command& command,
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
     server::Worker* current_worker = context->GetWorker();
-    
+
     // Collect all keys from all workers
     std::vector<std::future<std::vector<std::string>>> futures;
     futures.reserve(all_workers.size());
-    
+
     for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
       auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
       auto future = promise->get_future();
       futures.push_back(std::move(future));
-      
+
       server::Worker* target_worker = all_workers[worker_id];
-      
-      // Check if this is the current worker - execute directly to avoid deadlock
+
+      // Check if this is the current worker - execute directly to avoid
+      // deadlock
       if (target_worker == current_worker) {
         // Execute directly in current thread
-        std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+        std::vector<std::string> keys =
+            target_worker->GetDataShard().GetDatabase().GetAllKeys();
         promise->set_value(keys);
       } else {
         // Execute on other worker via queue
         all_workers[worker_id]->AddTask([target_worker, promise]() {
           try {
-            std::vector<std::string> keys = target_worker->GetDataShard().GetDatabase().GetAllKeys();
+            std::vector<std::string> keys =
+                target_worker->GetDataShard().GetDatabase().GetAllKeys();
             promise->set_value(keys);
           } catch (...) {
             promise->set_exception(std::current_exception());
           }
         });
-        
+
         // Notify worker to process task immediately
         all_workers[worker_id]->NotifyTaskProcessing();
       }
     }
-    
+
     // Aggregate all keys from all workers
     std::vector<std::string> keys;
     for (auto& future : futures) {
       auto worker_keys = future.get();
       keys.insert(keys.end(), worker_keys.begin(), worker_keys.end());
     }
-    
+
     // Filter keys by pattern
     std::vector<std::string> filtered_keys;
     for (const auto& key : keys) {

@@ -27,8 +27,8 @@
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/core/memory/object_size_estimator.hpp"
 #include "astra/core/memory/string_pool.hpp"
-#include "astra/persistence/rocksdb_adapter.hpp"
 #include "astra/persistence/data_serializer.hpp"
+#include "astra/persistence/rocksdb_adapter.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
 
@@ -126,10 +126,12 @@ class Database {
   }
 
   // Initialize eviction manager (called after SetMemoryTracker)
-  void InitializeEvictionManager(core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
+  void InitializeEvictionManager(core::memory::GetTotalMemoryCallback
+                                     get_total_memory_callback = nullptr) {
     if (memory_tracker_ && !eviction_manager_) {
       eviction_manager_ = std::make_unique<core::memory::EvictionManager>(
-          memory_tracker_, &metadata_manager_, std::move(get_total_memory_callback));
+          memory_tracker_, &metadata_manager_,
+          std::move(get_total_memory_callback));
 
       // Set eviction callback to delete keys from all data structures
       eviction_manager_->SetEvictionCallback(
@@ -193,7 +195,8 @@ class Database {
           }
           case astra::storage::KeyType::kStream: {
             // TODO: Implement stream serialization
-            ASTRADB_LOG_WARN("EvictKey: Stream type not yet supported for RocksDB");
+            ASTRADB_LOG_WARN(
+                "EvictKey: Stream type not yet supported for RocksDB");
             break;
           }
           default:
@@ -202,7 +205,8 @@ class Database {
 
         if (success && !serialized.empty()) {
           if (!rocksdb_adapter_->Put(key, serialized)) {
-            ASTRADB_LOG_WARN("EvictKey: failed to write key to RocksDB: {}", key);
+            ASTRADB_LOG_WARN("EvictKey: failed to write key to RocksDB: {}",
+                             key);
           } else {
             ASTRADB_LOG_DEBUG("EvictKey: saved key to RocksDB: {}", key);
           }
@@ -221,8 +225,10 @@ class Database {
       uint32_t metadata_size =
           core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
 
-      ASTRADB_LOG_DEBUG("EvictKey: successfully removed key: {}, estimated_size={}, metadata_size={}",
-                       key, estimated_size, metadata_size);
+      ASTRADB_LOG_DEBUG(
+          "EvictKey: successfully removed key: {}, estimated_size={}, "
+          "metadata_size={}",
+          key, estimated_size, metadata_size);
 
       // Subtract memory from tracker
       if (memory_tracker_) {
@@ -272,7 +278,8 @@ class Database {
     const std::string& old_value_str = key_existed ? old_value.value : "";
     const std::string& new_value_str = value.value;
 
-    // Update metadata (register key first, so metadata_manager_.UpdateEstimatedSize can find it)
+    // Update metadata (register key first, so
+    // metadata_manager_.UpdateEstimatedSize can find it)
     strings_.Insert(key, std::move(value));
     metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
     metadata_manager_.UpdateAccessInfo(key);
@@ -280,12 +287,15 @@ class Database {
     // Update memory tracker using helper (after key is registered)
     if (memory_tracker_) {
       core::memory::MemoryTrackerHelper::UpdateString(
-          memory_tracker_, &metadata_manager_, key, old_value_str, new_value_str);
+          memory_tracker_, &metadata_manager_, key, old_value_str,
+          new_value_str);
     }
 
     // Check and perform eviction if needed (performance optimized)
-    // Only check eviction when memory is close to threshold to avoid performance impact
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    // Only check eviction when memory is close to threshold to avoid
+    // performance impact
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -307,14 +317,15 @@ class Database {
     if (strings_.Get(key, &value)) {
       // Update access time for LRU/LFU
       metadata_manager_.UpdateAccessInfo(key);
-      
+
       // Record access for 2Q strategy if active
-      if (eviction_manager_ && memory_tracker_ && 
-          memory_tracker_->GetEvictionPolicy() == core::memory::EvictionPolicy::k2Q) {
+      if (eviction_manager_ && memory_tracker_ &&
+          memory_tracker_->GetEvictionPolicy() ==
+              core::memory::EvictionPolicy::k2Q) {
         // Access to 2Q strategy is handled via callback
         // We'll add this later
       }
-      
+
       return value;
     }
     return std::nullopt;
@@ -472,7 +483,7 @@ class Database {
             const std::string& value) {
     // Check if hash already exists
     auto hash = GetHash(key);
-    
+
     // Check if field already exists
     std::string old_field_value;
     bool field_existed = false;
@@ -490,11 +501,13 @@ class Database {
     // Update memory tracker using helper
     if (memory_tracker_) {
       core::memory::MemoryTrackerHelper::UpdateHashField(
-          memory_tracker_, &metadata_manager_, key, field_existed, old_field_value, value);
+          memory_tracker_, &metadata_manager_, key, field_existed,
+          old_field_value, value);
     }
 
     // Check and perform eviction if needed (performance optimized)
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -712,7 +725,7 @@ class Database {
   bool SAdd(const std::string& key, const std::string& member) {
     // Check if set already exists
     auto set = GetSet(key);
-    
+
     // Check if member already exists
     bool member_existed = false;
     if (set) {
@@ -733,7 +746,8 @@ class Database {
     }
 
     // Check and perform eviction if needed (performance optimized)
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -1067,7 +1081,7 @@ class Database {
   bool ZAdd(const std::string& key, double score, const std::string& member) {
     // Check if zset already exists
     auto zset = GetZSet(key);
-    
+
     // Check if member already exists
     bool member_existed = false;
     if (zset) {
@@ -1084,11 +1098,13 @@ class Database {
     // Update memory tracker using helper
     if (memory_tracker_) {
       core::memory::MemoryTrackerHelper::UpdateZSetMember(
-          memory_tracker_, &metadata_manager_, key, member_existed, member, score);
+          memory_tracker_, &metadata_manager_, key, member_existed, member,
+          score);
     }
 
     // Check and perform eviction if needed (performance optimized)
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -1643,7 +1659,8 @@ class Database {
     }
 
     // Check and perform eviction if needed (performance optimized)
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -1670,7 +1687,8 @@ class Database {
     }
 
     // Check and perform eviction if needed (performance optimized)
-    if (eviction_manager_ && memory_tracker_ && memory_tracker_->ShouldCheckEviction()) {
+    if (eviction_manager_ && memory_tracker_ &&
+        memory_tracker_->ShouldCheckEviction()) {
       eviction_manager_->CheckAndEvict();
     }
 
@@ -2020,7 +2038,8 @@ class Database {
   std::unique_ptr<core::memory::StringPool> string_pool_;
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned
   std::unique_ptr<core::memory::EvictionManager> eviction_manager_;  // Owned
-  persistence::RocksDBAdapter* rocksdb_adapter_ = nullptr;  // Not owned, managed by Worker
+  persistence::RocksDBAdapter* rocksdb_adapter_ =
+      nullptr;                                   // Not owned, managed by Worker
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
   std::function<void(const std::string&)> aof_callback_;  // For persistence
 };

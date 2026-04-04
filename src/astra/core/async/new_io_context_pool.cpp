@@ -35,7 +35,8 @@ void NewIOContextPool::Start() {
     return;
   }
 
-  ASTRADB_LOG_INFO("Starting NewIOContextPool with {} workers...", num_workers_);
+  ASTRADB_LOG_INFO("Starting NewIOContextPool with {} workers...",
+                   num_workers_);
 
   running_ = true;
 
@@ -87,7 +88,7 @@ void NewIOContextPool::WorkerLoop(size_t worker_id) {
 }
 
 void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
-                                    uint16_t port, bool reuse_port) {
+                                     uint16_t port, bool reuse_port) {
   if (worker_id >= io_contexts_.size()) {
     ASTRADB_LOG_ERROR("Invalid worker_id: {}", worker_id);
     return;
@@ -125,13 +126,15 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
   }
 
   // Enable port reuse for multiple acceptors binding to the same address/port
-  // ASIO's reuse_address option is cross-platform and handles platform differences
+  // ASIO's reuse_address option is cross-platform and handles platform
+  // differences
   // - Windows: Uses SO_REUSEADDR (allows binding to address/port in use)
   // - Linux: Uses SO_REUSEADDR (allows rebinding after TIME_WAIT)
   // - macOS/BSD: Uses SO_REUSEADDR
   //
   // On Linux, we additionally use SO_REUSEPORT for kernel-level load balancing
-  // (allows multiple acceptors to share the same port with kernel distributing connections)
+  // (allows multiple acceptors to share the same port with kernel distributing
+  // connections)
   if (reuse_port) {
 #ifndef _WIN32
     // On Linux/Unix, try to enable SO_REUSEPORT for kernel-level load balancing
@@ -163,13 +166,16 @@ void NewIOContextPool::StartAcceptor(size_t worker_id, const std::string& host,
 #else
     // On Windows, SO_REUSEPORT is not supported
     // Windows uses SO_REUSEADDR which is already set above
-    // Note: Windows 10+ has SO_REUSE_UNICASTPORT but it's not directly available via ASIO
+    // Note: Windows 10+ has SO_REUSE_UNICASTPORT but it's not directly
+    // available via ASIO
     ASTRADB_LOG_WARN(
-        "Worker {}: SO_REUSEPORT not supported on Windows (using single acceptor mode)",
+        "Worker {}: SO_REUSEPORT not supported on Windows (using single "
+        "acceptor mode)",
         worker_id);
     if (worker_id == 0) {
       ASTRADB_LOG_INFO(
-          "Using single acceptor mode - connections will be accepted by worker 0 "
+          "Using single acceptor mode - connections will be accepted by worker "
+          "0 "
           "only");
     }
     // Only worker 0 should continue on Windows
@@ -229,22 +235,20 @@ void NewIOContextPool::DoAccept(size_t worker_id) {
 
   // Use a shared_ptr to manage the connection callback lifetime
   auto callback = std::make_shared<NewConnectionCallback>(connection_callback_);
-  
+
   // Capture 'this' pointer directly - the pool outlives the worker threads
   // and we have work_guards_ to keep io_contexts alive
-  acceptor.async_accept([callback, worker_id, this](asio::error_code ec,
-                                         asio::ip::tcp::socket socket) {
+  acceptor.async_accept([callback, worker_id, this](
+                            asio::error_code ec, asio::ip::tcp::socket socket) {
     ASTRADB_LOG_INFO("Worker {}: Accept callback entered", worker_id);
-    
+
     if (!ec) {
-    
-          ASTRADB_LOG_INFO("Worker {} accepted new connection", worker_id);
-    
-    
-    
-          // Check if running
+      ASTRADB_LOG_INFO("Worker {} accepted new connection", worker_id);
+
+      // Check if running
       if (!running_) {
-        ASTRADB_LOG_WARN("Worker {} pool not running, closing socket", worker_id);
+        ASTRADB_LOG_WARN("Worker {} pool not running, closing socket",
+                         worker_id);
         socket.close();
         return;
       }
@@ -252,12 +256,14 @@ void NewIOContextPool::DoAccept(size_t worker_id) {
       // Call the connection callback if set
       if (*callback) {
         ASTRADB_LOG_DEBUG("Worker {} calling connection_callback", worker_id);
-        
+
         try {
           (*callback)(worker_id, std::move(socket));
-          ASTRADB_LOG_DEBUG("Worker {} connection_callback returned", worker_id);
+          ASTRADB_LOG_DEBUG("Worker {} connection_callback returned",
+                            worker_id);
         } catch (const std::exception& e) {
-          ASTRADB_LOG_ERROR("Worker {} connection_callback threw exception: {}", worker_id, e.what());
+          ASTRADB_LOG_ERROR("Worker {} connection_callback threw exception: {}",
+                            worker_id, e.what());
         }
       } else {
         ASTRADB_LOG_WARN(
@@ -266,8 +272,7 @@ void NewIOContextPool::DoAccept(size_t worker_id) {
         socket.close();
       }
     } else if (running_) {
-      ASTRADB_LOG_ERROR("Worker {} accept error: {}", worker_id,
-                       ec.message());
+      ASTRADB_LOG_ERROR("Worker {} accept error: {}", worker_id, ec.message());
     }
 
     // Continue accepting if still running

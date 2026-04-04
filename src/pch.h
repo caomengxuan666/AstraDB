@@ -25,11 +25,14 @@
 #include <cstring>
 #include <ctime>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -40,14 +43,10 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
-#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <filesystem>
-#include <fstream>
-
 
 // Abseil Library - Core Components
 #include <absl/container/flat_hash_map.h>
@@ -69,16 +68,16 @@
 #include <asio.hpp>
 
 // SPDLOG
-#include <spdlog/spdlog.h>
-#include <spdlog/common.h>                
-#include <spdlog/details/null_mutex.h>       
-#include <spdlog/details/os.h>                  
-#include <spdlog/sinks/base_sink.h>             
-#include <spdlog/details/synchronous_factory.h> 
-#include <spdlog/details/log_msg.h>              
+#include <spdlog/common.h>
+#include <spdlog/details/log_msg.h>
+#include <spdlog/details/null_mutex.h>
+#include <spdlog/details/os.h>
+#include <spdlog/details/synchronous_factory.h>
 #include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 // fmt
 #include <fmt/format.h>
@@ -93,15 +92,14 @@
 // ==============================================================================
 // Project Headers - Core Infrastructure
 // ==============================================================================
+#include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/base/macros.hpp"
 #include "astra/base/simd_utils.hpp"
-#include "astra/base/concurrentqueue_wrapper.hpp"
-
-#include "astra/commands/database.hpp"
 #include "astra/commands/command_handler.hpp"
-#include "astra/protocol/resp/resp_types.hpp"
+#include "astra/commands/database.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
+#include "astra/protocol/resp/resp_types.hpp"
 
 // ==============================================================================
 // Platform-specific includes

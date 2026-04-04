@@ -123,7 +123,8 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
     if (data["aof"]) {
       auto aof = *data["aof"].as_table();
       config.aof.enabled = aof["enabled"].value_or<bool>(false);
-      config.aof.path = aof["path"].value_or<std::string>("./data/aof/appendonly.aof");
+      config.aof.path =
+          aof["path"].value_or<std::string>("./data/aof/appendonly.aof");
       config.aof.sync_everysec = aof["sync_everysec"].value_or<bool>(true);
     }
 
@@ -147,6 +148,7 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
           cluster["gossip_port"].value_or<uint16_t>(7946);
       config.cluster.shard_count =
           cluster["shard_count"].value_or<uint32_t>(256);
+      config.cluster.use_tcp = cluster["use_tcp"].value_or<bool>(false);
 
       // Parse seed nodes array
       if (cluster["seeds"]) {
@@ -188,10 +190,16 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
     // Metrics
     if (data["metrics"]) {
       auto metrics = *data["metrics"].as_table();
-      config.metrics.enabled = metrics["enabled"].value_or<bool>(true);
+      config.metrics.enabled = metrics["enabled"].value_or<bool>(false);
       config.metrics.bind_addr =
           metrics["bind_addr"].value_or<std::string>("0.0.0.0");
       config.metrics.port = metrics["port"].value_or<uint16_t>(9100);
+      std::cout << "Config loaded: metrics.enabled = " << config.metrics.enabled
+                << ", port = " << config.metrics.port << std::endl;
+    } else {
+      std::cout
+          << "Config: [metrics] section not found, using defaults (disabled)"
+          << std::endl;
     }
 
   } catch (const std::exception& e) {

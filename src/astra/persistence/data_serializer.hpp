@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <absl/strings/str_split.h>
-#include <absl/strings/str_cat.h>
-#include <absl/strings/string_view.h>
 #include <absl/strings/numbers.h>
+#include <absl/strings/str_cat.h>
+#include <absl/strings/str_split.h>
+#include <absl/strings/string_view.h>
 
 #include <optional>
 #include <string>
@@ -71,7 +71,8 @@ class HashSerializer : public DataSerializer {
  public:
   std::string Serialize(const std::string& key, void* data) override {
     (void)key;
-    auto* hash_map = static_cast<std::vector<std::pair<std::string, std::string>>*>(data);
+    auto* hash_map =
+        static_cast<std::vector<std::pair<std::string, std::string>>*>(data);
     std::string result;
     result.reserve(128);
     result += kTypeHash;
@@ -86,12 +87,15 @@ class HashSerializer : public DataSerializer {
     if (serialized.empty() || serialized[0] != kTypeHash) {
       return false;
     }
-    auto* out_hash = static_cast<std::vector<std::pair<std::string, std::string>>*>(out_data);
+    auto* out_hash =
+        static_cast<std::vector<std::pair<std::string, std::string>>*>(
+            out_data);
     out_hash->clear();
-    
+
     std::string content = serialized.substr(2);  // Skip prefix and delimiter
-    std::vector<std::string> pairs = absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
-    
+    std::vector<std::string> pairs =
+        absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
+
     for (const auto& pair : pairs) {
       auto eq_pos = pair.find('=');
       if (eq_pos != std::string::npos) {
@@ -128,7 +132,7 @@ class SetSerializer : public DataSerializer {
     }
     auto* out_set = static_cast<std::vector<std::string>*>(out_data);
     out_set->clear();
-    
+
     std::string content = serialized.substr(2);  // Skip prefix and delimiter
     *out_set = absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
     return true;
@@ -144,7 +148,8 @@ class ZSetSerializer : public DataSerializer {
  public:
   std::string Serialize(const std::string& key, void* data) override {
     (void)key;
-    auto* zset = static_cast<std::vector<std::pair<std::string, double>>*>(data);
+    auto* zset =
+        static_cast<std::vector<std::pair<std::string, double>>*>(data);
     std::string result;
     result.reserve(128);
     result += kTypeZSet;
@@ -159,12 +164,14 @@ class ZSetSerializer : public DataSerializer {
     if (serialized.empty() || serialized[0] != kTypeZSet) {
       return false;
     }
-    auto* out_zset = static_cast<std::vector<std::pair<std::string, double>>*>(out_data);
+    auto* out_zset =
+        static_cast<std::vector<std::pair<std::string, double>>*>(out_data);
     out_zset->clear();
-    
+
     std::string content = serialized.substr(2);  // Skip prefix and delimiter
-    std::vector<std::string> members = absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
-    
+    std::vector<std::string> members =
+        absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
+
     for (const auto& member_score : members) {
       auto colon_pos = member_score.find(':');
       if (colon_pos != std::string::npos) {
@@ -206,7 +213,7 @@ class ListSerializer : public DataSerializer {
     }
     auto* out_list = static_cast<std::vector<std::string>*>(out_data);
     out_list->clear();
-    
+
     std::string content = serialized.substr(2);  // Skip prefix and delimiter
     *out_list = absl::StrSplit(content, kDelimiter, absl::SkipEmpty());
     return true;
@@ -269,7 +276,8 @@ class SerializerFactory {
   }
 
   // Extract type from serialized data
-  static std::optional<astra::storage::KeyType> ExtractType(const std::string& serialized) {
+  static std::optional<astra::storage::KeyType> ExtractType(
+      const std::string& serialized) {
     if (serialized.empty()) {
       return std::nullopt;
     }

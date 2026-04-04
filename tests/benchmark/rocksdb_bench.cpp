@@ -1,8 +1,9 @@
 #include <benchmark/benchmark.h>
+
+#include <filesystem>
+#include <string>
 #include <thread>
 #include <vector>
-#include <string>
-#include <filesystem>
 
 #include "astra/persistence/rocksdb_adapter.hpp"
 
@@ -146,14 +147,16 @@ static void BM_RocksDB_CompressionWrite(benchmark::State& state) {
   config.cache_size = 128 * 1024 * 1024;
   config.enable_wal = true;
   config.enable_compression = true;
-  config.compression_type = static_cast<rocksdb::CompressionType>(state.range(0));
+  config.compression_type =
+      static_cast<rocksdb::CompressionType>(state.range(0));
 
   RocksDBAdapter db(config);
 
   size_t counter = 0;
   for (auto _ : state) {
     std::string key = "key_" + std::to_string(counter);
-    std::string value = "value_" + std::to_string(counter) + "_data_" + std::string(100, 'x');
+    std::string value =
+        "value_" + std::to_string(counter) + "_data_" + std::string(100, 'x');
     db.Put(key, value);
     counter++;
   }
@@ -188,7 +191,8 @@ static void BM_RocksDB_MultiThreadWrite(benchmark::State& state) {
     threads.emplace_back([&, t]() {
       size_t counter = 0;
       while (state.KeepRunning()) {
-        std::string key = "key_" + std::to_string(t) + "_" + std::to_string(counter);
+        std::string key =
+            "key_" + std::to_string(t) + "_" + std::to_string(counter);
         std::string value = "value_" + std::to_string(counter);
         dbs[t]->Put(key, value);
         counter++;
@@ -227,9 +231,7 @@ BENCHMARK(BM_RocksDB_RandomRead)
     ->Threads(1)
     ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_RocksDB_BatchWrite)
-    ->Threads(1)
-    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_RocksDB_BatchWrite)->Threads(1)->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_RocksDB_CompressionWrite)
     ->Arg(rocksdb::kNoCompression)

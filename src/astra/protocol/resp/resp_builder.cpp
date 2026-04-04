@@ -158,6 +158,20 @@ std::string RespBuilder::BuildError(std::string_view type,
   return out;
 }
 
+std::string RespBuilder::BuildMoved(uint16_t slot, const std::string& ip,
+                                    uint16_t port) {
+  std::string out;
+  out += '-';
+  out += "MOVED ";
+  AppendInteger(out, static_cast<int64_t>(slot));
+  out += ' ';
+  out += ip;
+  out += ':';
+  AppendInteger(out, static_cast<int64_t>(port));
+  AppendCRLF(out);
+  return out;
+}
+
 std::string RespBuilder::BuildBoolean(bool b) {
   std::string out;
   out += '#';

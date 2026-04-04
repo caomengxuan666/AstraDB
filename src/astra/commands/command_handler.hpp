@@ -70,7 +70,7 @@ class CommandContext {
   virtual ~CommandContext() = default;
 
   // Get worker scheduler
-  virtual astra::server::WorkerScheduler* GetWorkerScheduler() const{
+  virtual astra::server::WorkerScheduler* GetWorkerScheduler() const {
     // return nullptr if not implemented
     return nullptr;
   }
@@ -99,6 +99,12 @@ class CommandContext {
   // Cluster operations (optional - return nullptr/false if not available)
   virtual bool IsClusterEnabled() const { return false; }
   virtual bool ClusterMeet(const std::string& ip, int port) { return false; }
+  virtual bool ClusterAddSlots(const std::vector<uint16_t>& slots) {
+    return false;
+  }
+  virtual bool ClusterDelSlots(const std::vector<uint16_t>& slots) {
+    return false;
+  }
   virtual cluster::GossipManager* GetGossipManager() const { return nullptr; }
   virtual cluster::GossipManager* GetGossipManagerMutable() { return nullptr; }
   virtual cluster::ShardManager* GetClusterShardManager() const {
@@ -128,8 +134,9 @@ class CommandContext {
   }
   virtual void LogToAof(absl::string_view command,
                         absl::Span<const absl::string_view> args) {
-    ASTRADB_LOG_DEBUG("CommandContext::LogToAof called: command={}, args={}, has_callback={}",
-                     command, args.size(), aof_callback_ != nullptr);
+    ASTRADB_LOG_DEBUG(
+        "CommandContext::LogToAof called: command={}, args={}, has_callback={}",
+        command, args.size(), aof_callback_ != nullptr);
     if (aof_callback_) {
       aof_callback_(command, args);
     }
@@ -227,7 +234,8 @@ struct CommandResult {
 
 // Command handler function signature
 // Using std::function instead of absl::AnyInvocable to support copying
-// (needed for NO SHARING architecture where each Worker has its own CommandRegistry)
+// (needed for NO SHARING architecture where each Worker has its own
+// CommandRegistry)
 using CommandHandler = std::function<CommandResult(
     const astra::protocol::Command& command, CommandContext* context)>;
 

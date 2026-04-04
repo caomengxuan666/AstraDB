@@ -25,7 +25,8 @@ RocksDBAdapter::RocksDBAdapter(const Config& config)
   rocksdb::Status status = rocksdb::DB::Open(options, config_.db_path, &db_);
 
   if (!status.ok()) {
-    logger_->error("Failed to open RocksDB at {}: {}", config_.db_path, status.ToString());
+    logger_->error("Failed to open RocksDB at {}: {}", config_.db_path,
+                   status.ToString());
     db_ = nullptr;
     return;
   }
@@ -105,7 +106,8 @@ bool RocksDBAdapter::Exists(const std::string& key) {
   return status.ok();
 }
 
-bool RocksDBAdapter::BatchPut(const std::vector<std::pair<std::string, std::string>>& kvs) {
+bool RocksDBAdapter::BatchPut(
+    const std::vector<std::pair<std::string, std::string>>& kvs) {
   if (!db_) {
     logger_->error("RocksDB is not open");
     return false;
@@ -163,7 +165,8 @@ bool RocksDBAdapter::Compact() {
     return false;
   }
 
-  rocksdb::Status status = db_->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+  rocksdb::Status status =
+      db_->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
 
   if (!status.ok()) {
     logger_->error("Failed to compact: {}", status.ToString());
@@ -216,14 +219,15 @@ void RocksDBAdapter::ConfigureOptions(rocksdb::Options& options) {
   // TODO: Find alternative way to get statistics
 
   // Performance optimizations
-  options.use_fsync = false;  // Use fdatasync instead of fsync
+  options.use_fsync = false;             // Use fdatasync instead of fsync
   options.bytes_per_sync = 1024 * 1024;  // 1MB
 
   // Table factory settings
   rocksdb::BlockBasedTableOptions table_options;
   table_options.block_cache = rocksdb::NewLRUCache(config_.cache_size);
   table_options.block_size = 16 * 1024;  // 16KB block size
-  options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+  options.table_factory.reset(
+      rocksdb::NewBlockBasedTableFactory(table_options));
 
   // Merge operator - not supported in RocksDB 10.x
   // TODO: Find alternative for StringAppendOperator

@@ -28,7 +28,8 @@ class ObjectSizeEstimator {
     constexpr uint32_t kStringValueOverhead = 24;  // std::string overhead
 
     // DashMap entry overhead
-    constexpr uint32_t kDashMapEntryOverhead = 32;  // key + value pointers + hash
+    constexpr uint32_t kDashMapEntryOverhead =
+        32;  // key + value pointers + hash
 
     // Total: StringValue overhead + key size + value size + DashMap entry
     return kStringValueOverhead + key.size() + value.size() +
@@ -79,8 +80,8 @@ class ObjectSizeEstimator {
 
   // Estimate Set size
   // SetType overhead + sum of member sizes
-  static uint32_t EstimateSetSize(
-      const std::string& key, const std::vector<std::string>& members) {
+  static uint32_t EstimateSetSize(const std::string& key,
+                                  const std::vector<std::string>& members) {
     // SetType overhead (DashSet shared_ptr + internal structure)
     constexpr uint32_t kSetTypeOverhead = 64;
 
@@ -126,7 +127,8 @@ class ObjectSizeEstimator {
     }
 
     // Total: ZSetType overhead + members size + key entry
-    return kBTreeZSetOverhead + members_size + key.size() + kDashMapEntryOverhead;
+    return kBTreeZSetOverhead + members_size + key.size() +
+           kDashMapEntryOverhead;
   }
 
   // Estimate single ZSet member addition size
@@ -156,7 +158,8 @@ class ObjectSizeEstimator {
     }
 
     // Total: ListType overhead + elements size + key entry
-    return kListTypeOverhead + elements_size + key.size() + kDashMapEntryOverhead;
+    return kListTypeOverhead + elements_size + key.size() +
+           kDashMapEntryOverhead;
   }
 
   // Estimate single List element addition size
@@ -171,7 +174,9 @@ class ObjectSizeEstimator {
   // StreamData overhead + sum of entry sizes
   static uint32_t EstimateStreamSize(
       const std::string& key,
-      const std::vector<std::pair<std::string, std::vector<std::pair<std::string, std::string>>>>& entries) {
+      const std::vector<std::pair<
+          std::string, std::vector<std::pair<std::string, std::string>>>>&
+          entries) {
     // StreamData overhead (shared_ptr + stream structure)
     constexpr uint32_t kStreamDataOverhead = 128;
 
@@ -195,7 +200,8 @@ class ObjectSizeEstimator {
     }
 
     // Total: StreamData overhead + entries size + key entry
-    return kStreamDataOverhead + entries_size + key.size() + kDashMapEntryOverhead;
+    return kStreamDataOverhead + entries_size + key.size() +
+           kDashMapEntryOverhead;
   }
 
   // Estimate single Stream entry addition size

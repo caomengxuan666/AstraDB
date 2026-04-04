@@ -1,19 +1,20 @@
 #pragma once
 
-#include <memory>
-#include <string>
-#include <vector>
-#include <optional>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/slice.h>
 #include <rocksdb/status.h>
-#include <rocksdb/write_batch.h>
 #include <rocksdb/table.h>
+#include <rocksdb/write_batch.h>
 #include <spdlog/spdlog.h>
 
-#include "astra/base/macros.hpp"
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "astra/base/logging.hpp"
+#include "astra/base/macros.hpp"
 
 namespace astra {
 namespace persistence {
@@ -52,7 +53,8 @@ class RocksDBAdapter {
     // Maximum level 1 file size (default: 64MB)
     size_t max_file_size = 64 * 1024 * 1024;
 
-    // Enable compression (default: false - compression requires external libraries)
+    // Enable compression (default: false - compression requires external
+    // libraries)
     bool enable_compression = false;
 
     // Compression type (default: kNoCompression)
@@ -62,7 +64,8 @@ class RocksDBAdapter {
     bool enable_wal = true;
 
     // WAL recovery mode (default: kPointInTimeRecovery)
-    rocksdb::WALRecoveryMode wal_recovery_mode = rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+    rocksdb::WALRecoveryMode wal_recovery_mode =
+        rocksdb::WALRecoveryMode::kPointInTimeRecovery;
 
     // Maximum number of open files (default: 1000)
     int max_open_files = 1000;
@@ -157,7 +160,7 @@ class RocksDBAdapter {
    */
   std::string GetStatistics();
 
-// Prevent copying and moving
+  // Prevent copying and moving
   ASTRABI_DISABLE_COPY(RocksDBAdapter);
   ASTRABI_DISABLE_MOVE(RocksDBAdapter);
 
