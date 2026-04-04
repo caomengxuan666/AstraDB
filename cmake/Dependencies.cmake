@@ -590,9 +590,9 @@ CPMAddPackage(
         "WITH_GFLAGS OFF"
         "USE_RTTI ON"
         "ROCKSDB_BUILD_SHARED OFF"
-        "ROCKSDB_INSTALL OFF"
+        "ROCKSDB_INSTALL ON"
         "FAIL_ON_WARNINGS OFF"
-        "CMAKE_SKIP_INSTALL_RULES ON")
+        "CMAKE_SKIP_INSTALL_RULES OFF")
 
 # Create zstd_static alias for RocksDB
 if(TARGET zstd::zstd AND NOT TARGET zstd_static)
