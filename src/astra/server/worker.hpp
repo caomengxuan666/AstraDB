@@ -29,6 +29,7 @@
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
+#include "astra/replication/replication_manager.hpp"
 #include "managers.hpp"
 
 // Cluster support
@@ -701,8 +702,25 @@ class Worker {
     // Initialize pubsub manager
     pubsub_manager_ = std::make_unique<PubSubManager>(this, worker_id_);
 
+    // Initialize replication manager
+    replication_manager_ = std::make_unique<replication::ReplicationManager>();
+    replication::ReplicationConfig repl_config;
+    repl_config.role = replication::ReplicationRole::kMaster;  // Default to master
+    repl_config.read_only = false;
+    if (replication_manager_->Init(repl_config,
+                                    &data_shard_.GetDatabase())) {
+      ASTRADB_LOG_INFO("Worker {}: Replication manager initialized", worker_id_);
+    } else {
+      ASTRADB_LOG_ERROR("Worker {}: Failed to initialize replication manager",
+                        worker_id_);
+    }
+
     // Set pubsub manager in command context (required for PUBSUB commands)
     data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
+
+    // Set replication manager in command context (required for replication commands)
+    data_shard_.GetCommandContext()->SetReplicationManager(
+        replication_manager_.get());
 
     // Set command registry in command context (required for COMMAND command)
     data_shard_.GetCommandContext()->SetCommandRegistry(
@@ -1555,6 +1573,9 @@ class Worker {
 
   // PubSub manager for publish/subscribe commands (NO SHARING architecture)
   std::unique_ptr<PubSubManager> pubsub_manager_;
+
+  // Replication manager for master-slave replication (NO SHARING architecture)
+  std::unique_ptr<replication::ReplicationManager> replication_manager_;
 
   // PubSub message queue for receiving PUBLISH messages from other workers
   moodycamel::ConcurrentQueue<PubSubMessage> pubsub_msg_queue_;
