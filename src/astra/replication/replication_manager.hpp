@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <deque>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -24,6 +25,7 @@
 #include "astra/base/logging.hpp"
 #include "astra/commands/database.hpp"
 #include "astra/persistence/rdb_common.hpp"
+#include "astra/persistence/rdb_reader.hpp"
 #include "astra/persistence/rdb_writer.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
@@ -204,8 +206,99 @@ class ReplicationManager {
   // Handle SYNC command (slave request)
   std::string HandleSync(const std::string& replication_id) noexcept {
     ASTRADB_LOG_INFO("SYNC requested by slave: {}", replication_id);
-    // Generate and return RDB snapshot
-    return GenerateRdbSnapshot();
+    // Return full sync response header
+    uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
+    return "+FULLRESYNC " + master_replid_ + " " + absl::StrCat(current_offset) +
+           "\r\n";
+  }
+
+  // Send RDB snapshot to slave (coroutine)
+  asio::awaitable<void> SendRdbSnapshot(
+      std::shared_ptr<asio::ip::tcp::socket> socket) noexcept {
+    if (!database_) {
+      ASTRADB_LOG_ERROR("Database not set, cannot send RDB snapshot");
+      co_return;
+    }
+
+    ASTRADB_LOG_INFO("Starting to send RDB snapshot to slave");
+
+    // Initialize RDB writer if not already initialized
+    if (!rdb_writer_) {
+      rdb_writer_ = std::make_unique<persistence::RdbWriter>();
+      persistence::RdbOptions options;
+      options.save_path = "./data/dump_sync.rdb";  // Temporary file for sync
+      options.checksum = true;
+      if (!rdb_writer_->Init(options)) {
+        ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
+        co_return;
+      }
+    }
+
+    // Save snapshot to a temporary buffer
+    bool success = rdb_writer_->Save([this](persistence::RdbWriter& writer) {
+      // Note: This is a simplified implementation
+      // In production, we would write to a file and then stream it
+
+      // Select database 0
+      writer.SelectDb(0);
+
+      // Get database size
+      size_t db_size = database_->DbSize();
+      writer.ResizeDb(db_size, 0);
+
+      // Iterate through all keys and write to RDB
+      database_->ForEachKey([&writer](const std::string& key,
+                                      astra::storage::KeyType type,
+                                      const std::string& value, int64_t ttl_ms) {
+        // Convert storage::KeyType to RDB type using the correct mapping
+        uint8_t rdb_type = persistence::KeyTypeToRdbType(type);
+
+        // Calculate expire time (ttl_ms is absolute time in milliseconds)
+        int64_t expire_ms = (ttl_ms > 0) ? ttl_ms : -1;
+
+        // Write key-value pair to RDB
+        writer.WriteKv(rdb_type, key, value, expire_ms);
+      });
+    });
+
+    if (!success) {
+      ASTRADB_LOG_ERROR("Failed to generate RDB snapshot");
+      co_return;
+    }
+
+    // Read the generated RDB file
+    std::ifstream rdb_file("./data/dump_sync.rdb", std::ios::binary);
+    if (!rdb_file.is_open()) {
+      ASTRADB_LOG_ERROR("Failed to open RDB file for reading");
+      co_return;
+    }
+
+    // Send RDB file data
+    asio::error_code ec;
+    std::array<char, 65536> buf;
+    size_t total_bytes = 0;
+
+    while (!rdb_file.eof()) {
+      rdb_file.read(buf.data(), buf.size());
+      size_t bytes_read = rdb_file.gcount();
+
+      if (bytes_read > 0) {
+        size_t bytes_sent = co_await asio::async_write(
+            *socket, asio::buffer(buf.data(), bytes_read),
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec) {
+          ASTRADB_LOG_ERROR("Failed to send RDB data: {}", ec.message());
+          co_return;
+        }
+
+        total_bytes += bytes_sent;
+      }
+    }
+
+    rdb_file.close();
+
+    ASTRADB_LOG_INFO("RDB snapshot sent successfully ({} bytes)", total_bytes);
   }
 
   // Handle PSYNC command (partial sync)
@@ -396,8 +489,89 @@ class ReplicationManager {
     std::string response(response_buf.data(), bytes_received);
     ASTRADB_LOG_INFO("Received master response: {}", response);
 
-    // Start receiving replication data
+    // Parse response
+    if (response.find("+FULLRESYNC") == 0) {
+      // Full sync required - receive RDB snapshot
+      ASTRADB_LOG_INFO("Full sync required, receiving RDB snapshot");
+      co_await ReceiveRdbSnapshot();
+    } else if (response.find("+CONTINUE") == 0) {
+      // Partial sync - skip RDB and receive commands directly
+      ASTRADB_LOG_INFO("Partial sync, skipping RDB");
+    } else {
+      ASTRADB_LOG_ERROR("Unexpected response from master: {}", response);
+      co_return;
+    }
+
+    // Start receiving replication data (command stream)
     co_await ReceiveReplicationData();
+  }
+
+  // Receive RDB snapshot from master (slave only)
+  asio::awaitable<void> ReceiveRdbSnapshot() noexcept {
+    if (!master_socket_ || !master_socket_->is_open()) {
+      co_return;
+    }
+
+    ASTRADB_LOG_INFO("Starting to receive RDB snapshot from master");
+
+    // Create temporary file for RDB data
+    std::string rdb_path = "./data/dump_sync_received.rdb";
+    std::ofstream rdb_file(rdb_path, std::ios::binary);
+    if (!rdb_file.is_open()) {
+      ASTRADB_LOG_ERROR("Failed to create RDB file for writing");
+      co_return;
+    }
+
+    // Receive RDB data
+    asio::error_code ec;
+    std::array<char, 65536> buf;
+    size_t total_bytes = 0;
+
+    // Read until we have enough data or EOF
+    // For simplicity, we read a fixed amount for now
+    // In production, we would read until RDB EOF marker
+    while (running_.load(std::memory_order_acquire)) {
+      size_t bytes_received = co_await master_socket_->async_read_some(
+          asio::buffer(buf),
+          asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec) {
+        if (ec == asio::error::eof) {
+          ASTRADB_LOG_INFO("Master closed RDB transfer (EOF)");
+        } else {
+          ASTRADB_LOG_ERROR("Error receiving RDB data: {}", ec.message());
+        }
+        break;
+      }
+
+      // Write to file
+      rdb_file.write(buf.data(), bytes_received);
+      total_bytes += bytes_received;
+
+      // Check for RDB EOF marker (0xFF)
+      // This is a simplified check - in production, we would parse the RDB properly
+      if (bytes_received > 0 && static_cast<uint8_t>(buf[bytes_received - 1]) == 0xFF) {
+        ASTRADB_LOG_INFO("RDB EOF marker received");
+        break;
+      }
+
+      // Stop if we've received a reasonable amount of data (for testing)
+      if (total_bytes > 1024 * 1024) {  // 1MB limit for testing
+        ASTRADB_LOG_INFO("RDB data limit reached, stopping");
+        break;
+      }
+    }
+
+    rdb_file.close();
+
+    ASTRADB_LOG_INFO("RDB snapshot received ({} bytes)", total_bytes);
+
+    // TODO: Load RDB data into database using RdbReader
+    // This would involve:
+    // 1. Open the RDB file
+    // 2. Parse it using RdbReader
+    // 3. Load data into database_
+    ASTRADB_LOG_INFO("RDB snapshot loading not yet implemented");
   }
 
   // Send command to slave (master only) - coroutine-based
