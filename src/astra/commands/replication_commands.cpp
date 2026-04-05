@@ -109,8 +109,9 @@ CommandResult HandleReplconf(const protocol::Command& command,
         try {
           uint64_t offset = std::stoull(offset_str);
           ASTRADB_LOG_DEBUG("REPLCONF ack: {}", offset);
-          // Update slave's replication offset
-          // repl_manager->UpdateSlaveOffset(offset);
+          // Get slave ID from connection info (simplified - using 0 for now)
+          uint64_t slave_id = 0;  // TODO: Get actual slave ID from connection
+          repl_manager->HandleReplconfAck(slave_id, offset);
         } catch (...) {
           return CommandResult(false, "ERR invalid offset value");
         }

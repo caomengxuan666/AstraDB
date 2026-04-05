@@ -363,6 +363,21 @@ class ReplicationManager {
     return result;
   }
 
+  // Handle REPLCONF ACK (master only)
+  void HandleReplconfAck(uint64_t slave_id, uint64_t offset) noexcept {
+    if (role_ != ReplicationRole::kMaster) {
+      return;
+    }
+
+    absl::MutexLock lock(&slaves_mutex_);
+    auto it = slaves_.find(slave_id);
+    if (it != slaves_.end()) {
+      it->second->repl_offset = offset;
+      ASTRADB_LOG_DEBUG("Received ACK from slave {} (id={}): offset={}",
+                       it->second->host, slave_id, offset);
+    }
+  }
+
   // Get master replication ID
   const std::string& GetMasterReplId() const noexcept {
     return master_replid_;
@@ -619,6 +634,7 @@ class ReplicationManager {
 
     std::array<char, 65536> buf;
     asio::error_code ec;
+    std::string recv_buffer;  // Buffer for incomplete RESP data
 
     while (running_.load(std::memory_order_acquire)) {
       size_t bytes_received = co_await master_socket_->async_read_some(
@@ -635,13 +651,104 @@ class ReplicationManager {
         break;
       }
 
-      // TODO: Process received replication data
-      // This would involve parsing RESP commands and applying them to the database
+      // Append received data to buffer
+      recv_buffer.append(buf.data(), bytes_received);
       ASTRADB_LOG_DEBUG("Received {} bytes of replication data", bytes_received);
+
+      // Process RESP commands from buffer
+      while (!recv_buffer.empty()) {
+        // Try to parse a complete RESP command
+        // This is a simplified implementation - in production, we would use a proper RESP parser
+        size_t cmd_end = FindRespCommandEnd(recv_buffer);
+        if (cmd_end == std::string::npos) {
+          // Incomplete command, wait for more data
+          break;
+        }
+
+        // Extract complete command
+        std::string cmd_data = recv_buffer.substr(0, cmd_end);
+        recv_buffer.erase(0, cmd_end);
+
+        // Parse and execute command
+        ProcessReplicationCommand(cmd_data);
+      }
     }
 
     master_connected_.store(false, std::memory_order_release);
     ASTRADB_LOG_INFO("Stopped receiving replication data");
+  }
+
+  // Find the end of a RESP command (simplified)
+  size_t FindRespCommandEnd(const std::string& buffer) const {
+    // This is a simplified implementation
+    // In production, we would properly parse RESP protocol
+    // For now, we look for \r\n at the end
+    size_t pos = buffer.find("\r\n");
+    if (pos != std::string::npos) {
+      // Check if this is an array (starts with *)
+      if (buffer[0] == '*') {
+        // For arrays, we need to find the end of all elements
+        // This is complex, so we'll just return the first \r\n for now
+        return pos + 2;
+      }
+      return pos + 2;
+    }
+    return std::string::npos;
+  }
+
+  // Process a replication command (simplified)
+  void ProcessReplicationCommand(const std::string& cmd_data) noexcept {
+    // TODO: Parse RESP command and execute it
+    // This would involve:
+    // 1. Parse the RESP protocol
+    // 2. Create a Command object
+    // 3. Execute the command on the database
+    // 4. Update replication offset
+
+    ASTRADB_LOG_DEBUG("Processing replication command: {}", cmd_data);
+
+    // Increment replication offset
+    repl_offset_.fetch_add(1, std::memory_order_relaxed);
+
+    // Send ACK to master (periodically)
+    // In production, we would send ACK every N commands or every T seconds
+    uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
+    if (current_offset % 100 == 0) {  // Send ACK every 100 commands
+      SendAckToMaster(current_offset);
+    }
+
+    // For now, we just log the command
+    // In production, we would execute it using the command callback
+    if (command_callback_) {
+      // Parse command and call callback
+      // This is a placeholder - actual parsing would be more complex
+      protocol::Command cmd;
+      cmd.name = "SET";  // Placeholder
+      command_callback_(cmd);
+    }
+  }
+
+  // Send ACK to master (slave only)
+  void SendAckToMaster(uint64_t offset) noexcept {
+    if (role_ != ReplicationRole::kSlave || !master_socket_ || !master_socket_->is_open()) {
+      return;
+    }
+
+    // Send REPLCONF ACK command
+    std::string ack_cmd = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" +
+                         std::to_string(std::to_string(offset).size()) + "\r\n" +
+                         std::to_string(offset) + "\r\n";
+
+    // Note: This is a synchronous send for simplicity
+    // In production, we would use async send
+    asio::error_code ec;
+    size_t bytes_sent = asio::write(*master_socket_, asio::buffer(ack_cmd), ec);
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to send ACK to master: {}", ec.message());
+    } else {
+      ASTRADB_LOG_DEBUG("Sent ACK to master: offset={} ({} bytes)", offset, bytes_sent);
+    }
   }
 
   // Convert Command to RESP format
