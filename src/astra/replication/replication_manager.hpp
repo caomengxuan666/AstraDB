@@ -205,7 +205,7 @@ class ReplicationManager {
 
   // Handle SYNC command (slave request)
   std::string HandleSync(const std::string& replication_id) noexcept {
-    ASTRADB_LOG_INFO("SYNC requested by slave: {}", replication_id);
+    ASTRADB_LOG_DEBUG("SYNC requested by slave: {}", replication_id);
     // Return full sync response header
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
     return "+FULLRESYNC " + master_replid_ + " " + absl::StrCat(current_offset) +
@@ -220,7 +220,7 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_INFO("Starting to send RDB snapshot to slave");
+    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave");
 
     // Initialize RDB writer if not already initialized
     if (!rdb_writer_) {
@@ -298,13 +298,13 @@ class ReplicationManager {
 
     rdb_file.close();
 
-    ASTRADB_LOG_INFO("RDB snapshot sent successfully ({} bytes)", total_bytes);
+    ASTRADB_LOG_DEBUG("RDB snapshot sent successfully ({} bytes)", total_bytes);
   }
 
   // Handle PSYNC command (partial sync)
   std::string HandlePsync(const std::string& replication_id,
                           uint64_t offset) noexcept {
-    ASTRADB_LOG_INFO("PSYNC requested: id={}, offset={}", replication_id,
+    ASTRADB_LOG_DEBUG("PSYNC requested: id={}, offset={}", replication_id,
                      offset);
 
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
@@ -319,12 +319,12 @@ class ReplicationManager {
 
     if (offset >= backlog_start_offset && offset <= current_offset) {
       // Partial sync possible
-      ASTRADB_LOG_INFO("Partial sync accepted: offset={}, current_offset={}",
+      ASTRADB_LOG_DEBUG("Partial sync accepted: offset={}, current_offset={}",
                        offset, current_offset);
       return "+CONTINUE\r\n";
     } else {
       // Full sync required
-      ASTRADB_LOG_INFO("Full sync required: offset={}, current_offset={}",
+      ASTRADB_LOG_DEBUG("Full sync required: offset={}, current_offset={}",
                        offset, current_offset);
       return "+FULLRESYNC " + master_replid_ + " " + absl::StrCat(current_offset) +
              "\r\n";

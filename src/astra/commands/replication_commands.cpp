@@ -43,12 +43,12 @@ CommandResult HandleSync(const protocol::Command& command,
 
   std::string response_header = repl_manager->HandleSync("?");
 
-  ASTRADB_LOG_INFO("SYNC: socket pointer={}", static_cast<void*>(socket));
+  ASTRADB_LOG_DEBUG("SYNC: socket pointer={}", static_cast<void*>(socket));
 
   // TODO: The current implementation uses a blocking write for the SYNC response header
   // This works for testing but should be made non-blocking in production
 
-  ASTRADB_LOG_INFO("SYNC: Writing response header to socket");
+  ASTRADB_LOG_DEBUG("SYNC: Writing response header to socket");
 
   // Write response header directly to socket (blocking for now)
   asio::error_code ec;
@@ -61,7 +61,7 @@ CommandResult HandleSync(const protocol::Command& command,
     return CommandResult(false, "ERR failed to write SYNC response");
   }
 
-  ASTRADB_LOG_INFO("SYNC response header sent ({} bytes)", bytes_sent);
+  ASTRADB_LOG_DEBUG("SYNC response header sent ({} bytes)", bytes_sent);
 
   // Spawn coroutine to send RDB snapshot
   // We need to keep the socket alive during the async operation
@@ -132,19 +132,19 @@ CommandResult HandleReplconf(const protocol::Command& command,
     if (key == "listening-port") {
       if (i + 1 < command.ArgCount()) {
         const std::string& port = command[i + 1].AsString();
-        ASTRADB_LOG_INFO("REPLCONF listening-port: {}", port);
+        ASTRADB_LOG_DEBUG("REPLCONF listening-port: {}", port);
         ++i;
       }
     } else if (key == "ip-address") {
       if (i + 1 < command.ArgCount()) {
         const std::string& ip = command[i + 1].AsString();
-        ASTRADB_LOG_INFO("REPLCONF ip-address: {}", ip);
+        ASTRADB_LOG_DEBUG("REPLCONF ip-address: {}", ip);
         ++i;
       }
     } else if (key == "capa") {
       if (i + 1 < command.ArgCount()) {
         const std::string& capability = command[i + 1].AsString();
-        ASTRADB_LOG_INFO("REPLCONF capability: {}", capability);
+        ASTRADB_LOG_DEBUG("REPLCONF capability: {}", capability);
         ++i;
       }
     } else if (key == "ack") {
