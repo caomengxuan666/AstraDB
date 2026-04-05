@@ -603,7 +603,7 @@ class ReplicationManager {
     }
 
     // Convert command to RESP format
-    std::string resp_cmd = CommandToResp(cmd);
+    std::string resp_cmd = ReplicationManager::CommandToResp(cmd);
 
     asio::error_code ec;
     size_t bytes_sent = co_await asio::async_write(
@@ -751,8 +751,8 @@ class ReplicationManager {
     }
   }
 
-  // Convert Command to RESP format
-  std::string CommandToResp(const protocol::Command& cmd) const {
+  // Convert Command to RESP format (static helper)
+  static std::string CommandToResp(const protocol::Command& cmd) {
     std::ostringstream oss;
 
     // Number of arguments (including command name)
