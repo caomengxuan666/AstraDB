@@ -476,6 +476,44 @@ class ReplicationManager {
     ASTRADB_LOG_INFO("Successfully connected to master at {}:{}",
                      config_.master_host, config_.master_port);
 
+    // Send AUTH command if authentication is configured
+    if (!config_.master_auth.empty()) {
+      ASTRADB_LOG_INFO("Sending AUTH command to master");
+      std::string auth_cmd = "*2\r\n$4\r\nAUTH\r\n$" +
+                             std::to_string(config_.master_auth.size()) + "\r\n" +
+                             config_.master_auth + "\r\n";
+      size_t auth_bytes = co_await asio::async_write(
+          *master_socket_, asio::buffer(auth_cmd),
+          asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec) {
+        ASTRADB_LOG_ERROR("Failed to send AUTH command: {}", ec.message());
+        co_return;
+      }
+
+      // Receive AUTH response
+      std::array<char, 256> auth_response_buf;
+      size_t auth_bytes_received = co_await master_socket_->async_read_some(
+          asio::buffer(auth_response_buf),
+          asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec) {
+        ASTRADB_LOG_ERROR("Failed to receive AUTH response: {}", ec.message());
+        co_return;
+      }
+
+      std::string auth_response(auth_response_buf.data(), auth_bytes_received);
+      ASTRADB_LOG_DEBUG("AUTH response: {}", auth_response);
+
+      // Check if authentication was successful
+      if (auth_response.find("+OK") != 0) {
+        ASTRADB_LOG_ERROR("Authentication failed: {}", auth_response);
+        co_return;
+      }
+
+      ASTRADB_LOG_INFO("Authentication successful");
+    }
+
     // Send PSYNC command
     std::string psync_cmd =
         "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$1\r\n0\r\n";  // PSYNC ? 0
@@ -581,12 +619,54 @@ class ReplicationManager {
 
     ASTRADB_LOG_INFO("RDB snapshot received ({} bytes)", total_bytes);
 
-    // TODO: Load RDB data into database using RdbReader
-    // This would involve:
-    // 1. Open the RDB file
-    // 2. Parse it using RdbReader
-    // 3. Load data into database_
-    ASTRADB_LOG_INFO("RDB snapshot loading not yet implemented");
+    // Load RDB data into database using RdbReader
+    if (database_) {
+      ASTRADB_LOG_INFO("Loading RDB snapshot into database");
+
+      persistence::RdbReader reader;
+      if (reader.Init(rdb_path, true)) {
+        // Clear existing database before loading
+        database_->Clear();
+
+        // Load RDB data
+        bool loaded = reader.Load([this](int db_index, const persistence::RdbKeyValue& kv) {
+          // Insert into database based on type
+          switch (kv.type) {
+            case persistence::RDB_TYPE_STRING:
+              database_->Set(kv.key, commands::StringValue(kv.value));
+              break;
+            // TODO: Handle other types (hash, list, set, zset)
+            case persistence::RDB_TYPE_HASH:
+            case persistence::RDB_TYPE_LIST:
+            case persistence::RDB_TYPE_SET:
+            case persistence::RDB_TYPE_ZSET:
+              ASTRADB_LOG_WARN("Unsupported key type in RDB: {} for key {}",
+                               kv.type, kv.key);
+              break;
+            default:
+              ASTRADB_LOG_WARN("Unknown key type in RDB: {} for key {}",
+                               kv.type, kv.key);
+              break;
+          }
+
+          // TODO: Set TTL for keys that have expiration
+          if (kv.expire_ms > 0) {
+            // Database doesn't have direct TTL support in Set method
+            // Need to use metadata to set expiration
+          }
+        });
+
+        if (loaded) {
+          ASTRADB_LOG_INFO("RDB snapshot loaded successfully");
+        } else {
+          ASTRADB_LOG_ERROR("Failed to load RDB snapshot");
+        }
+      } else {
+        ASTRADB_LOG_ERROR("Failed to initialize RDB reader");
+      }
+    } else {
+      ASTRADB_LOG_WARN("Database not set, cannot load RDB snapshot");
+    }
   }
 
   // Send command to slave (master only) - coroutine-based
@@ -698,33 +778,35 @@ class ReplicationManager {
 
   // Process a replication command (simplified)
   void ProcessReplicationCommand(const std::string& cmd_data) noexcept {
-    // TODO: Parse RESP command and execute it
-    // This would involve:
-    // 1. Parse the RESP protocol
-    // 2. Create a Command object
-    // 3. Execute the command on the database
-    // 4. Update replication offset
-
     ASTRADB_LOG_DEBUG("Processing replication command: {}", cmd_data);
 
     // Increment replication offset
     repl_offset_.fetch_add(1, std::memory_order_relaxed);
 
     // Send ACK to master (periodically)
-    // In production, we would send ACK every N commands or every T seconds
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
     if (current_offset % 100 == 0) {  // Send ACK every 100 commands
       SendAckToMaster(current_offset);
     }
 
-    // For now, we just log the command
-    // In production, we would execute it using the command callback
-    if (command_callback_) {
-      // Parse command and call callback
-      // This is a placeholder - actual parsing would be more complex
-      protocol::Command cmd;
-      cmd.name = "SET";  // Placeholder
-      command_callback_(cmd);
+    // Execute command using callback if available
+    if (command_callback_ && database_) {
+      // Parse RESP command using the existing protocol parser
+      std::string_view data_view(cmd_data);
+      auto value_opt = astra::protocol::RespParser::Parse(data_view);
+
+      if (value_opt) {
+        // Parse command from RESP value
+        auto command_opt = astra::protocol::RespParser::ParseCommand(*value_opt);
+        if (command_opt) {
+          // Execute command
+          command_callback_(*command_opt);
+        } else {
+          ASTRADB_LOG_WARN("Failed to parse replication command");
+        }
+      } else {
+        ASTRADB_LOG_WARN("Failed to parse RESP value from replication data");
+      }
     }
   }
 
