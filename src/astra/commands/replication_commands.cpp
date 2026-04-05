@@ -47,7 +47,6 @@ CommandResult HandleSync(const protocol::Command& command,
 
   // TODO: The current implementation uses a blocking write for the SYNC response header
   // This works for testing but should be made non-blocking in production
-  // The RDB transmission is still done via coroutines
 
   ASTRADB_LOG_INFO("SYNC: Writing response header to socket");
 
@@ -64,9 +63,15 @@ CommandResult HandleSync(const protocol::Command& command,
 
   ASTRADB_LOG_INFO("SYNC response header sent ({} bytes)", bytes_sent);
 
-  // Note: RDB snapshot transmission via coroutine would be here
-  // For now, we just return the header to allow SYNC to work without full RDB transmission
-  
+  // Spawn coroutine to send RDB snapshot
+  // We need to keep the socket alive during the async operation
+  asio::co_spawn(
+      socket->get_executor(),
+      [repl_manager, socket]() -> asio::awaitable<void> {
+        co_await repl_manager->SendRdbSnapshot(socket);
+      },
+      asio::detached);
+
   // Return empty response (data is sent directly to socket)
   protocol::RespValue resp;
   resp.SetString("", protocol::RespType::kBulkString);
