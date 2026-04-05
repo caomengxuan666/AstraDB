@@ -137,6 +137,13 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // Set connection (called when processing a command)
   void SetConnection(void* connection) { connection_ = connection; }
 
+  // Get raw socket (for special operations like replication)
+  // Returns nullptr if not set
+  asio::ip::tcp::socket* GetRawSocket() const override { return socket_ptr_; }
+
+  // Set raw socket (called when processing a command)
+  void SetRawSocket(asio::ip::tcp::socket* socket) { socket_ptr_ = socket; }
+
   // Get connection ID (for blocking manager)
   uint64_t GetConnectionId() const override { return connection_id_; }
 
@@ -247,6 +254,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
+  asio::ip::tcp::socket* socket_ptr_ = nullptr;
   uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
   std::function<std::string(bool)>
@@ -1362,6 +1370,9 @@ class Worker {
               data_shard_.GetCommandContext()->SetConnection(
                   conn_it->second.get());
               data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
+              // Also set raw socket pointer for direct access (e.g., replication)
+              data_shard_.GetCommandContext()->SetRawSocket(
+                  &conn_it->second->GetSocket());
             }
 
             std::string response = data_shard_.Execute(cmd.command);
