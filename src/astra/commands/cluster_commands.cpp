@@ -581,6 +581,60 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     // For now, return empty array - actual implementation would scan keys
     std::vector<RespValue> result;
     return CommandResult(RespValue(result));
+
+  } else if (upper_subcommand == "FAILOVER") {
+    // CLUSTER FAILOVER [FORCE|TAKEOVER]
+    // Manually trigger a failover for this replica node to become a master
+    if (command.ArgCount() > 2) {
+      return CommandResult(
+          false,
+          "ERR wrong number of arguments for 'cluster|failover' command");
+    }
+
+    auto* gossip = context->GetGossipManager();
+    if (!gossip) {
+      return CommandResult(false, "ERR cluster not enabled");
+    }
+
+    auto self = gossip->GetSelf();
+
+    // Check if this node is a replica
+    if (self.role != "replica") {
+      return CommandResult(false, "ERR You can send FAILOVER only when the node is a replica");
+    }
+
+    bool force = false;
+    bool takeover = false;
+
+    if (command.ArgCount() == 2) {
+      const auto& option = command[1].AsString();
+      std::string upper_option = absl::AsciiStrToUpper(option);
+
+      if (upper_option == "FORCE") {
+        force = true;
+      } else if (upper_option == "TAKEOVER") {
+        takeover = true;
+      } else {
+        return CommandResult(false, "ERR FAILOVER option must be FORCE or TAKEOVER");
+      }
+    }
+
+    // In production, we would:
+    // 1. Check if master is reachable
+    // 2. If FORCE or TAKEOVER, skip master reachability check
+    // 3. Update this node's role to master
+    // 4. Claim the master's slots
+    // 5. Notify other nodes via gossip
+    // 6. Start accepting writes
+
+    // For now, we'll just return OK
+    // TODO: Implement actual failover logic
+
+    ASTRADB_LOG_INFO("CLUSTER FAILOVER called: force={}, takeover={}", force, takeover);
+
+    RespValue response;
+    response.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(response);
   }
 
   return CommandResult(false, "ERR unknown cluster subcommand");

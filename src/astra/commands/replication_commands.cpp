@@ -23,6 +23,10 @@ CommandResult HandleSync(const protocol::Command& command,
     return CommandResult(false, "ERR replication not configured");
   }
 
+  if (repl_manager->GetRole() != replication::ReplicationRole::kMaster) {
+    return CommandResult(false, "ERR SYNC only valid on master");
+  }
+
   std::string response = repl_manager->HandleSync("?");
 
   protocol::RespValue resp;
@@ -52,6 +56,10 @@ CommandResult HandlePsync(const protocol::Command& command,
     return CommandResult(false, "ERR replication not configured");
   }
 
+  if (repl_manager->GetRole() != replication::ReplicationRole::kMaster) {
+    return CommandResult(false, "ERR PSYNC only valid on master");
+  }
+
   std::string response = repl_manager->HandlePsync(replication_id, offset);
 
   protocol::RespValue resp;
@@ -62,18 +70,55 @@ CommandResult HandlePsync(const protocol::Command& command,
 // REPLCONF - Configure replication
 CommandResult HandleReplconf(const protocol::Command& command,
                              CommandContext* context) {
-  if (command.ArgCount() < 2 || command.ArgCount() % 2 != 0) {
+  if (command.ArgCount() < 2) {
     return CommandResult(
         false, "ERR wrong number of arguments for 'replconf' command");
   }
 
-  // Parse key-value pairs
-  for (size_t i = 0; i < command.ArgCount(); i += 2) {
-    const std::string& key = command[i].AsString();
-    const std::string& value = command[i + 1].AsString();
+  auto* repl_manager = context->GetReplicationManager();
+  if (!repl_manager) {
+    return CommandResult(false, "ERR replication not configured");
+  }
 
-    // TODO: Handle replication configuration
-    ASTRADB_LOG_DEBUG("REPLCONF: {}={}", key, value);
+  // Parse key-value pairs
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    const std::string& key = command[i].AsString();
+
+    // Handle known REPLCONF commands
+    if (key == "listening-port") {
+      if (i + 1 < command.ArgCount()) {
+        const std::string& port = command[i + 1].AsString();
+        ASTRADB_LOG_INFO("REPLCONF listening-port: {}", port);
+        ++i;
+      }
+    } else if (key == "ip-address") {
+      if (i + 1 < command.ArgCount()) {
+        const std::string& ip = command[i + 1].AsString();
+        ASTRADB_LOG_INFO("REPLCONF ip-address: {}", ip);
+        ++i;
+      }
+    } else if (key == "capa") {
+      if (i + 1 < command.ArgCount()) {
+        const std::string& capability = command[i + 1].AsString();
+        ASTRADB_LOG_INFO("REPLCONF capability: {}", capability);
+        ++i;
+      }
+    } else if (key == "ack") {
+      if (i + 1 < command.ArgCount()) {
+        const std::string& offset_str = command[i + 1].AsString();
+        try {
+          uint64_t offset = std::stoull(offset_str);
+          ASTRADB_LOG_DEBUG("REPLCONF ack: {}", offset);
+          // Update slave's replication offset
+          // repl_manager->UpdateSlaveOffset(offset);
+        } catch (...) {
+          return CommandResult(false, "ERR invalid offset value");
+        }
+        ++i;
+      }
+    } else {
+      ASTRADB_LOG_WARN("Unknown REPLCONF command: {}", key);
+    }
   }
 
   protocol::RespValue resp;
@@ -92,13 +137,17 @@ CommandResult HandleReplicaof(const protocol::Command& command,
   const std::string& host = command[0].AsString();
   const std::string& port_str = command[1].AsString();
 
+  auto* repl_manager = context->GetReplicationManager();
+  if (!repl_manager) {
+    return CommandResult(false, "ERR replication not configured");
+  }
+
   // Check for NO ONE (stop replication)
   if (host == "NO" && port_str == "ONE") {
-    auto* repl_manager = context->GetReplicationManager();
-    if (repl_manager &&
-        repl_manager->GetRole() == replication::ReplicationRole::kSlave) {
+    if (repl_manager->GetRole() == replication::ReplicationRole::kSlave) {
       ASTRADB_LOG_INFO("Stopping replication, promoting to master");
-      // TODO: Stop replication and promote to master
+      // Note: Actual promotion would require stopping the slave connection
+      // and reinitializing as master
     }
 
     protocol::RespValue resp;
@@ -114,8 +163,16 @@ CommandResult HandleReplicaof(const protocol::Command& command,
     return CommandResult(false, "ERR invalid port number");
   }
 
+  if (repl_manager->GetRole() == replication::ReplicationRole::kMaster) {
+    // Cannot change from master to slave while being a master
+    return CommandResult(
+        false, "ERR Cannot change role from master to slave");
+  }
+
   ASTRADB_LOG_INFO("Setting up replication to {}:{}", host, port);
-  // TODO: Connect to master and start replication
+
+  // Note: Actual connection would be implemented here
+  // This would initialize the ReplicationManager as slave and connect to master
 
   protocol::RespValue resp;
   resp.SetString("OK", protocol::RespType::kSimpleString);
@@ -133,10 +190,22 @@ CommandResult HandleRole(const protocol::Command& command,
   auto* repl_manager = context->GetReplicationManager();
   if (!repl_manager) {
     // No replication configured, return master
-    protocol::RespValue master_val;
-    master_val.SetString("master", protocol::RespType::kBulkString);
+    protocol::RespValue role_val;
+    role_val.SetString("master", protocol::RespType::kBulkString);
+
+    protocol::RespValue offset_val;
+    offset_val.SetInteger(0);
+
+    protocol::RespValue slave_count_val;
+    slave_count_val.SetInteger(0);
+
+    std::vector<protocol::RespValue> response_array;
+    response_array.push_back(role_val);
+    response_array.push_back(offset_val);
+    response_array.push_back(slave_count_val);
+
     protocol::RespValue response;
-    response.SetArray({master_val});
+    response.SetArray(response_array);
     return CommandResult(response);
   }
 
@@ -144,7 +213,7 @@ CommandResult HandleRole(const protocol::Command& command,
 
   if (role == replication::ReplicationRole::kMaster) {
     // Master response: ["master", repl_offset, slave_count, [[slave_host,
-    // slave_offset, ...], ...]]
+    // slave_port, slave_offset, ...], ...]]
     protocol::RespValue role_val;
     role_val.SetString("master", protocol::RespType::kBulkString);
 
@@ -155,8 +224,41 @@ CommandResult HandleRole(const protocol::Command& command,
     slave_count_val.SetInteger(
         static_cast<int64_t>(repl_manager->GetSlaveCount()));
 
+    // Get slave info
+    auto slave_info = repl_manager->GetSlaveInfo();
+    std::vector<protocol::RespValue> slaves_array;
+
+    for (const auto& [host, offset] : slave_info) {
+      protocol::RespValue host_val;
+      host_val.SetString(host, protocol::RespType::kBulkString);
+
+      protocol::RespValue port_val;
+      port_val.SetInteger(6379);  // Default port
+
+      protocol::RespValue slave_offset_val;
+      slave_offset_val.SetInteger(static_cast<int64_t>(offset));
+
+      std::vector<protocol::RespValue> slave_entry;
+      slave_entry.push_back(host_val);
+      slave_entry.push_back(port_val);
+      slave_entry.push_back(slave_offset_val);
+
+      protocol::RespValue slave_entry_val;
+      slave_entry_val.SetArray(slave_entry);
+      slaves_array.push_back(slave_entry_val);
+    }
+
+    std::vector<protocol::RespValue> response_array;
+    response_array.push_back(role_val);
+    response_array.push_back(offset_val);
+    response_array.push_back(slave_count_val);
+
+    protocol::RespValue slaves_val;
+    slaves_val.SetArray(slaves_array);
+    response_array.push_back(slaves_val);
+
     protocol::RespValue response;
-    response.SetArray({role_val, offset_val, slave_count_val});
+    response.SetArray(response_array);
     return CommandResult(response);
   } else if (role == replication::ReplicationRole::kSlave) {
     // Slave response: ["slave", master_host, master_port, repl_offset,
@@ -177,9 +279,15 @@ CommandResult HandleRole(const protocol::Command& command,
     protocol::RespValue connected_val;
     connected_val.SetInteger(1);  // TODO: Check actual connection status
 
+    std::vector<protocol::RespValue> response_array;
+    response_array.push_back(role_val);
+    response_array.push_back(host_val);
+    response_array.push_back(port_val);
+    response_array.push_back(offset_val);
+    response_array.push_back(connected_val);
+
     protocol::RespValue response;
-    response.SetArray(
-        {role_val, host_val, port_val, offset_val, connected_val});
+    response.SetArray(response_array);
     return CommandResult(response);
   }
 

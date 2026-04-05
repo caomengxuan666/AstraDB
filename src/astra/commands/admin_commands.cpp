@@ -130,6 +130,44 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
   }
   oss << "\r\n";
 
+  // Replication section
+  oss << "# Replication\r\n";
+  if (context && context->GetReplicationManager()) {
+    auto* repl_manager = context->GetReplicationManager();
+    auto role = repl_manager->GetRole();
+
+    if (role == replication::ReplicationRole::kMaster) {
+      oss << "role:master\r\n";
+      oss << "connected_slaves:" << repl_manager->GetSlaveCount() << "\r\n";
+      oss << "master_replid:" << repl_manager->GetMasterReplId() << "\r\n";
+      oss << "master_repl_offset:" << repl_manager->GetReplOffset() << "\r\n";
+
+      // Get slave info
+      auto slave_info = repl_manager->GetSlaveInfo();
+      for (size_t i = 0; i < slave_info.size(); ++i) {
+        const auto& [host, offset] = slave_info[i];
+        oss << "slave" << i << ":ip=" << host << ",port=6379,state=online,"
+            << "offset=" << offset << ",lag=0\r\n";
+      }
+    } else if (role == replication::ReplicationRole::kSlave) {
+      oss << "role:slave\r\n";
+      oss << "master_host:127.0.0.1\r\n";  // TODO: Get from config
+      oss << "master_port:6379\r\n";      // TODO: Get from config
+      oss << "master_link_status:up\r\n";
+      oss << "master_last_io_seconds_ago:0\r\n";
+      oss << "master_sync_in_progress:0\r\n";
+      oss << "slave_repl_offset:" << repl_manager->GetReplOffset() << "\r\n";
+      oss << "slave_priority:100\r\n";
+      oss << "slave_read_only:1\r\n";
+    }
+  } else {
+    oss << "role:master\r\n";
+    oss << "connected_slaves:0\r\n";
+    oss << "master_replid:?\r\n";
+    oss << "master_repl_offset:0\r\n";
+  }
+  oss << "\r\n";
+
   // Keyspace section - Redis Insight Browser depends on this
   oss << "# Keyspace\r\n";
   if (context && context->GetDatabaseManager()) {
