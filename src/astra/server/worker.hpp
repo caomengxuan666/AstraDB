@@ -708,7 +708,8 @@ class Worker {
     repl_config.role = replication::ReplicationRole::kMaster;  // Default to master
     repl_config.read_only = false;
     if (replication_manager_->Init(repl_config,
-                                    &data_shard_.GetDatabase())) {
+                                    &data_shard_.GetDatabase(),
+                                    &io_context_)) {
       ASTRADB_LOG_INFO("Worker {}: Replication manager initialized", worker_id_);
     } else {
       ASTRADB_LOG_ERROR("Worker {}: Failed to initialize replication manager",

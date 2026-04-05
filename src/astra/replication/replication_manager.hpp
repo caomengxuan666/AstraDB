@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <asio.hpp>
+
 #include "astra/base/logging.hpp"
 #include "astra/commands/database.hpp"
 #include "astra/persistence/rdb_common.hpp"
@@ -38,9 +40,15 @@ struct SlaveInfo {
   uint16_t port;
   uint64_t repl_offset;  // Replication offset
   std::atomic<bool> online{true};
+  std::unique_ptr<asio::ip::tcp::socket> socket;  // Socket for sending commands
 
-  SlaveInfo(uint64_t i, const std::string& h, uint16_t p)
-      : id(i), host(h), port(p), repl_offset(0) {}
+  SlaveInfo(uint64_t i, const std::string& h, uint16_t p,
+            asio::io_context* io_ctx = nullptr)
+      : id(i), host(h), port(p), repl_offset(0) {
+    if (io_ctx) {
+      socket = std::make_unique<asio::ip::tcp::socket>(*io_ctx);
+    }
+  }
 };
 
 // Replication configuration
@@ -69,16 +77,23 @@ class ReplicationManager {
 
   // Initialize replication manager
   bool Init(const ReplicationConfig& config,
-            commands::Database* database = nullptr) noexcept {
+            commands::Database* database = nullptr,
+            asio::io_context* io_context = nullptr) noexcept {
     config_ = config;
     role_ = config.role;
     database_ = database;
+    io_context_ = io_context;
 
     if (role_ == ReplicationRole::kSlave) {
       ASTRADB_LOG_INFO("Replication initialized as slave, master: {}:{}",
                        config_.master_host, config_.master_port);
       // Connect to master asynchronously
-      ConnectToMaster();
+      if (io_context_) {
+        asio::co_spawn(
+            *io_context_,
+            [this]() -> asio::awaitable<void> { co_await ConnectToMaster(); },
+            asio::detached);
+      }
     } else if (role_ == ReplicationRole::kMaster) {
       ASTRADB_LOG_INFO("Replication initialized as master");
       // Generate master replication ID
@@ -88,6 +103,14 @@ class ReplicationManager {
     initialized_.store(true, std::memory_order_release);
     return true;
   }
+
+  // Set io_context (for late initialization)
+  void SetIOContext(asio::io_context* io_context) noexcept {
+    io_context_ = io_context;
+  }
+
+  // Get io_context
+  asio::io_context* GetIOContext() const noexcept { return io_context_; }
 
   // Set database pointer (for late initialization)
   void SetDatabase(commands::Database* database) noexcept {
@@ -116,7 +139,7 @@ class ReplicationManager {
 
     absl::MutexLock lock(&slaves_mutex_);
     uint64_t id = next_slave_id_.fetch_add(1, std::memory_order_relaxed);
-    slaves_[id] = std::make_unique<SlaveInfo>(id, host, port);
+    slaves_[id] = std::make_unique<SlaveInfo>(id, host, port, io_context_);
 
     ASTRADB_LOG_INFO("Slave registered: {}:{} (id={})", host, port, id);
     return true;
@@ -150,13 +173,20 @@ class ReplicationManager {
     }
     repl_backlog_.push_back(cmd);
 
-    // Send to all slaves
-    absl::MutexLock slaves_lock(&slaves_mutex_);
-    for (auto& [id, slave] : slaves_) {
-      if (slave->online.load(std::memory_order_acquire)) {
-        // Send command to slave
-        SendCommandToSlave(slave.get(), cmd);
-        slave->repl_offset = repl_offset_.load(std::memory_order_relaxed);
+    // Send to all slaves asynchronously using coroutines
+    if (io_context_) {
+      absl::MutexLock slaves_lock(&slaves_mutex_);
+      for (auto& [id, slave] : slaves_) {
+        if (slave->online.load(std::memory_order_acquire)) {
+          // Spawn coroutine to send command to slave
+          asio::co_spawn(
+              *io_context_,
+              [this, slave_ptr = slave.get(),
+               cmd]() -> asio::awaitable<void> {
+                co_await this->SendCommandToSlave(slave_ptr, cmd);
+              },
+              asio::detached);
+        }
       }
     }
   }
@@ -271,6 +301,7 @@ class ReplicationManager {
   std::atomic<uint64_t> repl_offset_{0};
   std::atomic<uint64_t> next_slave_id_{1};
   commands::Database* database_{nullptr};
+  asio::io_context* io_context_{nullptr};
 
   absl::flat_hash_map<uint64_t, std::unique_ptr<SlaveInfo>> slaves_;
   mutable absl::Mutex slaves_mutex_;
@@ -281,6 +312,9 @@ class ReplicationManager {
   CommandCallback command_callback_;
   std::unique_ptr<persistence::RdbWriter> rdb_writer_;
   absl::BitGen bit_gen_;
+
+  // Network connections (NO SHARING - each ReplicationManager has its own connections)
+  std::unique_ptr<asio::ip::tcp::socket> master_socket_;  // Slave: connection to master
 
   // Private methods
   void GenerateMasterReplId() noexcept {
@@ -293,33 +327,169 @@ class ReplicationManager {
     ASTRADB_LOG_INFO("Generated master replication ID: {}", master_replid_);
   }
 
-  void ConnectToMaster() noexcept {
+  // Connect to master (slave only) - coroutine-based
+  asio::awaitable<void> ConnectToMaster() noexcept {
     ASTRADB_LOG_INFO("Connecting to master at {}:{}...", config_.master_host,
                      config_.master_port);
 
-    // Note: Actual network connection would be implemented here
-    // This would use asio to connect to the master and start receiving
-    // replication data For now, we just log the attempt
-    master_connected_.store(true, std::memory_order_release);
-
-    // After connecting, we would send SYNC or PSYNC command
-    // and start receiving updates from master
-    ASTRADB_LOG_INFO("Successfully connected to master");
-  }
-
-  void SendCommandToSlave(SlaveInfo* slave,
-                          const protocol::Command& cmd) noexcept {
-    if (!slave || !slave->online.load(std::memory_order_acquire)) {
-      return;
+    if (!io_context_) {
+      ASTRADB_LOG_ERROR("IO context not set, cannot connect to master");
+      co_return;
     }
 
-    // Note: Actual command propagation would be implemented here
-    // This would use asio to send the command to the slave
-    ASTRADB_LOG_DEBUG("Sending command to slave {}:{} (id={})", slave->host,
-                      slave->port, slave->id);
+    // Create socket for master connection
+    master_socket_ = std::make_unique<asio::ip::tcp::socket>(*io_context_);
+
+    asio::error_code ec;
+    auto executor = co_await asio::this_coro::executor;
+
+    // Resolve master address
+    asio::ip::tcp::resolver resolver(executor);
+    auto endpoints = co_await resolver.async_resolve(
+        config_.master_host, std::to_string(config_.master_port),
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to resolve master address: {}", ec.message());
+      co_return;
+    }
+
+    // Connect to master
+    co_await asio::async_connect(
+        *master_socket_, endpoints,
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to connect to master: {}", ec.message());
+      co_return;
+    }
+
+    master_connected_.store(true, std::memory_order_release);
+    ASTRADB_LOG_INFO("Successfully connected to master at {}:{}",
+                     config_.master_host, config_.master_port);
+
+    // Send PSYNC command
+    std::string psync_cmd =
+        "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$1\r\n0\r\n";  // PSYNC ? 0
+    size_t bytes_sent = co_await asio::async_write(
+        *master_socket_, asio::buffer(psync_cmd),
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to send PSYNC command: {}", ec.message());
+      co_return;
+    }
+
+    ASTRADB_LOG_INFO("PSYNC command sent ({} bytes)", bytes_sent);
+
+    // Receive master response
+    std::array<char, 256> response_buf;
+    size_t bytes_received = co_await master_socket_->async_read_some(
+        asio::buffer(response_buf),
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to receive master response: {}", ec.message());
+      co_return;
+    }
+
+    std::string response(response_buf.data(), bytes_received);
+    ASTRADB_LOG_INFO("Received master response: {}", response);
+
+    // Start receiving replication data
+    co_await ReceiveReplicationData();
+  }
+
+  // Send command to slave (master only) - coroutine-based
+  asio::awaitable<void> SendCommandToSlave(SlaveInfo* slave,
+                                            const protocol::Command& cmd) noexcept {
+    if (!slave || !slave->online.load(std::memory_order_acquire)) {
+      co_return;
+    }
+
+    if (!slave->socket || !slave->socket->is_open()) {
+      ASTRADB_LOG_WARN("Slave {}:{} socket not connected", slave->host,
+                       slave->port);
+      co_return;
+    }
+
+    // Convert command to RESP format
+    std::string resp_cmd = CommandToResp(cmd);
+
+    asio::error_code ec;
+    size_t bytes_sent = co_await asio::async_write(
+        *slave->socket, asio::buffer(resp_cmd),
+        asio::redirect_error(asio::use_awaitable, ec));
+
+    if (ec) {
+      ASTRADB_LOG_ERROR("Failed to send command to slave {}:{}: {}",
+                        slave->host, slave->port, ec.message());
+      slave->online.store(false, std::memory_order_release);
+      co_return;
+    }
+
+    ASTRADB_LOG_DEBUG("Sent command to slave {}:{} ({} bytes)", slave->host,
+                      slave->port, bytes_sent);
 
     // Update slave's replication offset
     slave->repl_offset = repl_offset_.load(std::memory_order_relaxed);
+  }
+
+  // Receive replication data from master (slave only)
+  asio::awaitable<void> ReceiveReplicationData() noexcept {
+    if (!master_socket_ || !master_socket_->is_open()) {
+      co_return;
+    }
+
+    ASTRADB_LOG_INFO("Starting to receive replication data from master");
+
+    std::array<char, 65536> buf;
+    asio::error_code ec;
+
+    while (running_.load(std::memory_order_acquire)) {
+      size_t bytes_received = co_await master_socket_->async_read_some(
+          asio::buffer(buf),
+          asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec) {
+        if (ec == asio::error::eof) {
+          ASTRADB_LOG_WARN("Master closed connection");
+        } else {
+          ASTRADB_LOG_ERROR("Error receiving replication data: {}",
+                            ec.message());
+        }
+        break;
+      }
+
+      // TODO: Process received replication data
+      // This would involve parsing RESP commands and applying them to the database
+      ASTRADB_LOG_DEBUG("Received {} bytes of replication data", bytes_received);
+    }
+
+    master_connected_.store(false, std::memory_order_release);
+    ASTRADB_LOG_INFO("Stopped receiving replication data");
+  }
+
+  // Convert Command to RESP format
+  std::string CommandToResp(const protocol::Command& cmd) const {
+    std::ostringstream oss;
+
+    // Number of arguments (including command name)
+    int arg_count = cmd.ArgCount() + 1;
+    oss << "*" << arg_count << "\r\n";
+
+    // Command name
+    oss << "$" << cmd.name.size() << "\r\n";
+    oss << cmd.name << "\r\n";
+
+    // Arguments
+    for (size_t i = 0; i < cmd.ArgCount(); ++i) {
+      const auto& arg = cmd[i];
+      oss << "$" << arg.AsString().size() << "\r\n";
+      oss << arg.AsString() << "\r\n";
+    }
+
+    return oss.str();
   }
 
   std::string GenerateRdbSnapshot() noexcept {
