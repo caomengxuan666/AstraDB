@@ -1066,7 +1066,8 @@ class Worker {
                   ASTRADB_LOG_DEBUG(
                       "Worker {}: Connection {} removed, total connections: {}",
                       worker_id_, conn_id, connections_.size());
-                });
+                },
+                io_context_);
 
             connections_[conn_id] = conn;
             conn->Start();
@@ -1091,14 +1092,16 @@ class Worker {
                moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue,
                moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue,
                std::function<void()> notify_callback,
-               std::function<void(uint64_t)> on_close_callback)
+               std::function<void(uint64_t)> on_close_callback,
+               asio::io_context& io_context)
         : worker_id_(worker_id),
           conn_id_(conn_id),
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue),
           notify_callback_(std::move(notify_callback)),
-          on_close_callback_(std::move(on_close_callback)) {
+          on_close_callback_(std::move(on_close_callback)),
+          io_context_(io_context) {
       // Enable TCP_NODELAY to disable Nagle's algorithm (like Redis)
       asio::ip::tcp::no_delay option(true);
       socket_.set_option(option);
@@ -1177,6 +1180,21 @@ class Worker {
 
     int GetProtocolVersion() const {
       return 3;  // Default to RESP3
+    }
+
+    // TODO: Consider refactoring to use a common interface instead of void* casting
+    // The Worker::Connection and astra::network::Connection classes are separate
+    // but have compatible methods (duck typing). This works but could be improved
+    // with a proper interface in the future.
+    
+    void SetProtocolVersion(int version) {
+      // For now, this is a no-op as Worker::Connection defaults to RESP3
+      // In the future, we may want to support RESP2/RESP3 switching
+      (void)version;
+    }
+    
+    asio::io_context& GetIOContext() {
+      return io_context_;
     }
 
    private:
@@ -1287,6 +1305,7 @@ class Worker {
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
     std::string client_name_;
+    asio::io_context& io_context_;
   };
 
   // Calculate which worker should handle this key (consistent hashing)
