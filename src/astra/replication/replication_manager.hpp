@@ -214,7 +214,7 @@ class ReplicationManager {
 
   // Send RDB snapshot to slave (coroutine)
   asio::awaitable<void> SendRdbSnapshot(
-      std::shared_ptr<asio::ip::tcp::socket> socket) noexcept {
+      asio::ip::tcp::socket* socket) noexcept {
     if (!database_) {
       ASTRADB_LOG_ERROR("Database not set, cannot send RDB snapshot");
       co_return;

@@ -3,8 +3,11 @@
 
 #include "replication_commands.hpp"
 
+#include <asio.hpp>
+
 #include "absl/strings/str_cat.h"
 #include "astra/base/logging.hpp"
+#include "astra/network/connection.hpp"
 #include "astra/replication/replication_manager.hpp"
 #include "command_auto_register.hpp"
 
@@ -27,10 +30,47 @@ CommandResult HandleSync(const protocol::Command& command,
     return CommandResult(false, "ERR SYNC only valid on master");
   }
 
-  std::string response = repl_manager->HandleSync("?");
+  auto* conn = context->GetConnection();
+  if (!conn) {
+    return CommandResult(false, "ERR no connection");
+  }
 
+  // SYNC is a special command that requires direct socket access
+  // We need to:
+  // 1. Write the SYNC response header directly to the socket
+  // 2. Spawn a coroutine to send the RDB snapshot
+  // 3. Then continue sending command stream
+
+  std::string response_header = repl_manager->HandleSync("?");
+
+  // Get shared_ptr to Connection to keep it alive during async operations
+  auto conn_shared = conn->shared_from_this();
+
+  // Spawn coroutine to handle the entire SYNC process
+  asio::co_spawn(
+      conn_shared->GetIOContext(),
+      [repl_manager, conn_shared, response_header]() -> asio::awaitable<void> {
+        // Write response header directly to socket (not through RESP format)
+        asio::error_code ec;
+        size_t bytes_sent = co_await asio::async_write(
+            conn_shared->GetSocket(), asio::buffer(response_header),
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec) {
+          ASTRADB_LOG_ERROR("Failed to write SYNC response: {}", ec.message());
+          co_return;
+        }
+
+        ASTRADB_LOG_INFO("SYNC response header sent ({} bytes)", bytes_sent);
+
+        // Send RDB snapshot
+        co_await repl_manager->SendRdbSnapshot(&conn_shared->GetSocket());
+      },
+      asio::detached);
+
+  // Return empty response (data is sent directly to socket)
   protocol::RespValue resp;
-  resp.SetString(response, protocol::RespType::kBulkString);
+  resp.SetString("", protocol::RespType::kBulkString);
   return CommandResult(resp);
 }
 
