@@ -222,8 +222,7 @@ CommandResult HandleClusterMeet(const protocol::Command& command,
         false, "ERR wrong number of arguments for 'cluster meet' command");
   }
 
-  auto* server = static_cast<server::Server*>(context->GetServer());
-  auto* gossip_manager = server->GetGossipManager();
+  auto* gossip_manager = context->GetGossipManager();
 
   if (!gossip_manager) {
     return CommandResult(false,

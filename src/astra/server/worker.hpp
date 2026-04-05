@@ -399,12 +399,14 @@ class DataShard {
     for (const auto& node : all_nodes) {
       std::string node_id = cluster::GossipManager::NodeIdToString(node.id);
       if (node_id == slot_owner.value()) {
+        // Convert gossip port to data port (data_port = gossip_port - 10000)
+        uint16_t data_port = static_cast<uint16_t>(node.port - 10000);
         // Return MOVED error with target node information
         auto moved_response =
-            astra::protocol::RespBuilder::BuildMoved(slot, node.ip, node.port);
+            astra::protocol::RespBuilder::BuildMoved(slot, node.ip, data_port);
         ASTRADB_LOG_DEBUG(
             "Shard {}: Returning MOVED error - slot={}, target={}:{}",
-            shard_id_, slot, node.ip, node.port);
+            shard_id_, slot, node.ip, data_port);
         return moved_response;
       }
     }
