@@ -155,3 +155,26 @@ eviction_threshold = 0.9
 eviction_samples = 5
 # Enable/disable memory tracking
 enable_tracking = true
+
+# =============================================================================
+# Replication Configuration (NO SHARING Architecture)
+# =============================================================================
+[replication]
+# Enable replication
+enabled = false
+# Role: master or slave
+role = "master"
+# Master host (only for slave)
+master_host = "127.0.0.1"
+# Master port (only for slave)
+master_port = 6379
+# Master authentication password (only for slave)
+master_auth = ""
+# Read-only mode (only for slave)
+read_only = false
+# Replication backlog size in bytes (1MB default)
+repl_backlog_size = 1048576
+# Replication timeout in seconds (60 default)
+repl_timeout = 60
+# Enable/disable memory tracking
+enable_tracking = true

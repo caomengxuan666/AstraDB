@@ -23,8 +23,9 @@ Server::Server(const ServerConfig& config) : config_(config), running_(false) {
 
   // Create all workers (without cross-worker references initially)
   for (size_t i = 0; i < config.num_workers; ++i) {
-    workers_.push_back(std::make_unique<Worker>(i, config.host, config.port,
-                                                std::vector<Worker*>()));
+    workers_.push_back(std::make_unique<Worker>(
+        i, config.host, config.port, std::vector<Worker*>(),
+        config.replication));
   }
 
   // Now, set up cross-worker references

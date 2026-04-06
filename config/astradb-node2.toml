@@ -56,3 +56,10 @@ eviction_policy = "noeviction"
 eviction_threshold = 0.9
 eviction_samples = 5
 enable_tracking = true
+
+[replication]
+role = "slave"
+master_host = "127.0.0.1"
+master_port = 7001
+master_auth = ""
+read_only = true

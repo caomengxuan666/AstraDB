@@ -15,6 +15,7 @@
 #include "absl/container/inlined_vector.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "astra/base/config.hpp"
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/commands/blocking_manager.hpp"
@@ -628,13 +629,23 @@ class Worker {
   friend class PubSubManager;
 
   explicit Worker(size_t worker_id, const std::string& host, uint16_t port,
-                  std::vector<Worker*> all_workers)
+                  std::vector<Worker*> all_workers,
+                  const ::astra::base::ReplicationConfig& replication_config)
       : worker_id_(worker_id),
         io_context_(),
         acceptor_(io_context_),
         data_shard_(worker_id),
         all_workers_(std::move(all_workers)),
         running_(false) {
+    // Copy replication config
+    replication_config_.role = replication_config.role;
+    replication_config_.enabled = replication_config.enabled;
+    replication_config_.master_host = replication_config.master_host;
+    replication_config_.master_port = replication_config.master_port;
+    replication_config_.master_auth = replication_config.master_auth;
+    replication_config_.read_only = replication_config.read_only;
+    replication_config_.repl_backlog_size = replication_config.repl_backlog_size;
+    replication_config_.repl_timeout = replication_config.repl_timeout;
     ASTRADB_LOG_INFO("Worker {}: Creating", worker_id_);
 
     // Setup acceptor
@@ -713,12 +724,31 @@ class Worker {
     // Initialize replication manager
     replication_manager_ = std::make_unique<replication::ReplicationManager>();
     replication::ReplicationConfig repl_config;
-    repl_config.role = replication::ReplicationRole::kMaster;  // Default to master
-    repl_config.read_only = false;
+    // Convert base config to replication config
+    std::string role_lower = replication_config_.role;
+    std::transform(role_lower.begin(), role_lower.end(), role_lower.begin(),
+                   ::tolower);
+    if (role_lower == "master") {
+      repl_config.role = replication::ReplicationRole::kMaster;
+    } else if (role_lower == "slave") {
+      repl_config.role = replication::ReplicationRole::kSlave;
+    } else {
+      repl_config.role = replication::ReplicationRole::kNone;
+    }
+    repl_config.master_host = replication_config_.master_host;
+    repl_config.master_port = replication_config_.master_port;
+    repl_config.master_auth = replication_config_.master_auth;
+    repl_config.read_only = replication_config_.read_only;
+    repl_config.repl_backlog_size = replication_config_.repl_backlog_size;
+
     if (replication_manager_->Init(repl_config,
                                     &data_shard_.GetDatabase(),
                                     &io_context_)) {
-      ASTRADB_LOG_INFO("Worker {}: Replication manager initialized", worker_id_);
+      ASTRADB_LOG_INFO("Worker {}: Replication manager initialized as {}",
+                       worker_id_,
+                       repl_config.role == replication::ReplicationRole::kMaster
+                           ? "master"
+                           : "slave");
     } else {
       ASTRADB_LOG_ERROR("Worker {}: Failed to initialize replication manager",
                         worker_id_);
@@ -1607,6 +1637,18 @@ class Worker {
 
   // Replication manager for master-slave replication (NO SHARING architecture)
   std::unique_ptr<replication::ReplicationManager> replication_manager_;
+
+  // Replication config (NO SHARING architecture - each worker has its own config)
+  struct ReplicationConfig {
+    bool enabled = false;
+    std::string role = "master";
+    std::string master_host = "127.0.0.1";
+    uint16_t master_port = 6379;
+    std::string master_auth = "";
+    bool read_only = false;
+    uint64_t repl_backlog_size = 1 * 1024 * 1024;
+    uint32_t repl_timeout = 60;
+  } replication_config_;
 
   // PubSub message queue for receiving PUBLISH messages from other workers
   moodycamel::ConcurrentQueue<PubSubMessage> pubsub_msg_queue_;
