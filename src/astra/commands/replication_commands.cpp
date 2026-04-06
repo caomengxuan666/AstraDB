@@ -67,8 +67,8 @@ CommandResult HandleSync(const protocol::Command& command,
   // We need to keep the socket alive during the async operation
   asio::co_spawn(
       socket->get_executor(),
-      [repl_manager, socket]() -> asio::awaitable<void> {
-        co_await repl_manager->SendRdbSnapshot(socket);
+      [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+        co_await repl_manager->SendRdbSnapshot(socket, conn_id);
       },
       asio::detached);
 
@@ -138,8 +138,8 @@ CommandResult HandlePsync(const protocol::Command& command,
     // We need to keep the socket alive during the async operation
     asio::co_spawn(
         socket->get_executor(),
-        [repl_manager, socket]() -> asio::awaitable<void> {
-          co_await repl_manager->SendRdbSnapshot(socket);
+        [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+          co_await repl_manager->SendRdbSnapshot(socket, conn_id);
         },
         asio::detached);
   }

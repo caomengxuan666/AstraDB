@@ -114,6 +114,14 @@ class ReplicationManager {
   // Get io_context
   asio::io_context* GetIOContext() const noexcept { return io_context_; }
 
+  // Set worker ID (for NO SHADING compliance - each worker has unique RDB files)
+  void SetWorkerId(size_t worker_id) noexcept {
+    worker_id_ = worker_id;
+  }
+
+  // Get worker ID
+  size_t GetWorkerId() const noexcept { return worker_id_; }
+
   // Set database pointer (for late initialization)
   void SetDatabase(commands::Database* database) noexcept {
     database_ = database;
@@ -225,19 +233,22 @@ class ReplicationManager {
 
   // Send RDB snapshot to slave (coroutine)
   asio::awaitable<void> SendRdbSnapshot(
-      asio::ip::tcp::socket* socket) noexcept {
+      asio::ip::tcp::socket* socket, uint64_t connection_id = 0) noexcept {
     if (!database_) {
       ASTRADB_LOG_ERROR("Database not set, cannot send RDB snapshot");
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave");
+    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave (worker={}, conn={})",
+                     worker_id_, connection_id);
 
     // Initialize RDB writer if not already initialized
     if (!rdb_writer_) {
       rdb_writer_ = std::make_unique<persistence::RdbWriter>();
       persistence::RdbOptions options;
-      options.save_path = "./data/dump_sync.rdb";  // Temporary file for sync
+      // Use worker_id and connection_id to create unique filename (NO SHADING compliance)
+      options.save_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
+                          "_conn_" + std::to_string(connection_id) + ".rdb";
       options.checksum = true;
       if (!rdb_writer_->Init(options)) {
         ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
@@ -277,10 +288,12 @@ class ReplicationManager {
       co_return;
     }
 
-    // Read the generated RDB file
-    std::ifstream rdb_file("./data/dump_sync.rdb", std::ios::binary);
+    // Read the generated RDB file (use same path as writer)
+    std::string rdb_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
+                           "_conn_" + std::to_string(connection_id) + ".rdb";
+    std::ifstream rdb_file(rdb_path, std::ios::binary);
     if (!rdb_file.is_open()) {
-      ASTRADB_LOG_ERROR("Failed to open RDB file for reading");
+      ASTRADB_LOG_ERROR("Failed to open RDB file for reading: {}", rdb_path);
       co_return;
     }
 
@@ -426,6 +439,7 @@ class ReplicationManager {
   std::atomic<uint64_t> next_slave_id_{1};
   commands::Database* database_{nullptr};
   asio::io_context* io_context_{nullptr};
+  size_t worker_id_{0};  // Worker ID for NO SHADING compliance
 
   absl::flat_hash_map<uint64_t, std::unique_ptr<SlaveInfo>> slaves_;
   mutable absl::Mutex slaves_mutex_;
@@ -581,13 +595,15 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master");
+    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master (worker={})",
+                     worker_id_);
 
-    // Create temporary file for RDB data
-    std::string rdb_path = "./data/dump_sync_received.rdb";
+    // Create temporary file for RDB data (use worker_id for NO SHADING compliance)
+    std::string rdb_path = "./data/dump_sync_received_worker_" +
+                           std::to_string(worker_id_) + ".rdb";
     std::ofstream rdb_file(rdb_path, std::ios::binary);
     if (!rdb_file.is_open()) {
-      ASTRADB_LOG_ERROR("Failed to create RDB file for writing");
+      ASTRADB_LOG_ERROR("Failed to create RDB file for writing: {}", rdb_path);
       co_return;
     }
 

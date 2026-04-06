@@ -741,6 +741,9 @@ class Worker {
     repl_config.read_only = replication_config_.read_only;
     repl_config.repl_backlog_size = replication_config_.repl_backlog_size;
 
+    // Set worker ID before initialization (NO SHADING compliance)
+    replication_manager_->SetWorkerId(worker_id_);
+
     if (replication_manager_->Init(repl_config,
                                     &data_shard_.GetDatabase(),
                                     &io_context_)) {
