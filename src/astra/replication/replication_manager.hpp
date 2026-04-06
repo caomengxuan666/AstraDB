@@ -38,15 +38,22 @@ enum class ReplicationRole { kMaster, kSlave, kNone };
 // Slave connection info
 struct SlaveInfo {
   uint64_t id;
+  uint64_t connection_id;      // Connection ID for this slave
+  std::string remote_addr;    // Remote address for logging
   std::string host;
   uint16_t port;
   uint64_t repl_offset;  // Replication offset
   std::atomic<bool> online{true};
   std::unique_ptr<asio::ip::tcp::socket> socket;  // Socket for sending commands
 
+  // Default constructor for RegisterSlave
+  SlaveInfo()
+      : id(0), connection_id(0), remote_addr(""), host(""), port(0), repl_offset(0) {
+  }
+
   SlaveInfo(uint64_t i, const std::string& h, uint16_t p,
             asio::io_context* io_ctx = nullptr)
-      : id(i), host(h), port(p), repl_offset(0) {
+      : id(i), connection_id(0), remote_addr(""), host(h), port(p), repl_offset(0) {
     if (io_ctx) {
       socket = std::make_unique<asio::ip::tcp::socket>(*io_ctx);
     }
@@ -222,6 +229,34 @@ class ReplicationManager {
   // Note: RespValue with kSimpleString will add the + prefix
   static std::string BuildContinueResponse() {
     return "CONTINUE\r\n";
+  }
+
+  // Register slave with replication manager (master only)
+  bool RegisterSlave(asio::ip::tcp::socket* socket, uint64_t connection_id,
+                     const std::string& remote_addr) noexcept {
+    if (!socket || role_ != ReplicationRole::kMaster) {
+      return false;
+    }
+
+    ASTRADB_LOG_DEBUG("Registering slave {} (connection {})", remote_addr, connection_id);
+
+    // Create new slave info
+    auto slave = std::make_unique<SlaveInfo>();
+    slave->id = next_slave_id_.fetch_add(1, std::memory_order_relaxed);
+    slave->connection_id = connection_id;
+    slave->remote_addr = remote_addr;
+    slave->online.store(true, std::memory_order_release);
+    slave->repl_offset = 0;
+
+    // Note: We don't store the raw socket pointer here to avoid NO SHADING violations
+    // Instead, the socket is managed by the connection and accessed when needed
+
+    absl::MutexLock lock(&slaves_mutex_);
+    slaves_[slave->id] = std::move(slave);
+
+    ASTRADB_LOG_DEBUG("Slave {} registered successfully (total slaves: {})", 
+                      slave->id, slaves_.size());
+    return true;
   }
 
   // Handle SYNC command (slave request)

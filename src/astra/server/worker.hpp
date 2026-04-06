@@ -862,6 +862,14 @@ class Worker {
   ServerStats& GetLocalStats() { return local_stats_; }
   const ServerStats& GetLocalStats() const { return local_stats_; }
 
+  // Get replication manager (for cross-worker replication propagation)
+  replication::ReplicationManager* GetReplicationManager() {
+    return replication_manager_.get();
+  }
+  const replication::ReplicationManager* GetReplicationManager() const {
+    return replication_manager_.get();
+  }
+
   // Get data shard (for RDB loading)
   DataShard& GetDataShard() { return data_shard_; }
   const DataShard& GetDataShard() const { return data_shard_; }
@@ -993,6 +1001,7 @@ class Worker {
   void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
     ASTRADB_LOG_DEBUG("Worker {}: SetWorkerScheduler called with ptr={}",
                       worker_id_, static_cast<const void*>(worker_scheduler));
+    worker_scheduler_ = worker_scheduler;
     data_shard_.GetCommandContext()->SetWorkerScheduler(worker_scheduler);
   }
 
@@ -1038,6 +1047,9 @@ class Worker {
     batch_resp_queue_.enqueue(resp);
     NotifyExecutorLoop();
   }
+
+  // Propagate command to all slaves via WorkerScheduler (NO SHADING architecture)
+  void PropagateCommandToAllSlaves(const astra::protocol::Command& cmd);
 
   // Enqueue batch request (called by other workers)
   void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
@@ -1377,6 +1389,18 @@ class Worker {
           // Execute directly and send response back to source worker
           LocalCommandTimer timer(cmd.command.name, &local_stats_);
           std::string response = data_shard_.Execute(cmd.command);
+          
+          // Propagate command to slaves if this is a master (NO SHADING architecture)
+          // Even forwarded commands need to be propagated to slaves
+          if (replication_manager_ && 
+              replication_manager_->GetRole() == replication::ReplicationRole::kMaster) {
+            auto* registry = data_shard_.GetCommandRegistry();
+            auto* info = registry ? registry->GetInfo(cmd.command.name) : nullptr;
+            if (info && info->is_write) {
+              PropagateCommandToAllSlaves(cmd.command);
+            }
+          }
+          
           CrossWorkerResponse cross_resp{cmd.conn_id, response};
           all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
               cross_resp);
@@ -1424,6 +1448,17 @@ class Worker {
             }
 
             std::string response = data_shard_.Execute(cmd.command);
+            
+            // Propagate command to slaves if this is a master (NO SHADING architecture)
+            if (replication_manager_ && 
+                replication_manager_->GetRole() == replication::ReplicationRole::kMaster) {
+              auto* registry = data_shard_.GetCommandRegistry();
+              auto* info = registry ? registry->GetInfo(cmd.command.name) : nullptr;
+              if (info && info->is_write) {
+                PropagateCommandToAllSlaves(cmd.command);
+              }
+            }
+            
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
 
@@ -1653,8 +1688,11 @@ class Worker {
   // PubSub manager for publish/subscribe commands (NO SHARING architecture)
   std::unique_ptr<PubSubManager> pubsub_manager_;
 
-  // Replication manager for master-slave replication (NO SHARING architecture)
+// Replication manager for master-slave replication (NO SHADING architecture)
   std::unique_ptr<replication::ReplicationManager> replication_manager_;
+
+  // Worker scheduler for cross-worker task dispatch (NO SHADING architecture)
+  class WorkerScheduler* worker_scheduler_ = nullptr;
 
   // Replication config (NO SHARING architecture - each worker has its own config)
   struct ReplicationConfig {
@@ -2042,6 +2080,8 @@ inline bool Worker::ProcessBatchResponses() {
   }
   return has_work;
 }
+
+
 
 // Enqueue a client info response
 inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
