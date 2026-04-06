@@ -180,6 +180,8 @@ class ReplicationManager {
       return;
     }
 
+    ASTRADB_LOG_DEBUG("Worker {}: Propagating command '{}' to slaves", worker_id_, cmd.name);
+
     // Increment replication offset
     repl_offset_.fetch_add(1, std::memory_order_relaxed);
 
@@ -193,8 +195,11 @@ class ReplicationManager {
     // Send to all slaves asynchronously using coroutines
     if (io_context_) {
       absl::MutexLock slaves_lock(&slaves_mutex_);
+      size_t slave_count = slaves_.size();
+      ASTRADB_LOG_DEBUG("Worker {}: Found {} slaves to send command to", worker_id_, slave_count);
       for (auto& [id, slave] : slaves_) {
         if (slave->online.load(std::memory_order_acquire)) {
+          ASTRADB_LOG_DEBUG("Worker {}: Spawning coroutine to send command to slave {}", worker_id_, id);
           // Spawn coroutine to send command to slave
           asio::co_spawn(
               *io_context_,
@@ -238,7 +243,7 @@ class ReplicationManager {
       return false;
     }
 
-    ASTRADB_LOG_DEBUG("Registering slave {} (connection {})", remote_addr, connection_id);
+    ASTRADB_LOG_DEBUG("Registering slave {} (connection {})", remote_addr, static_cast<uint64_t>(connection_id));
 
     // Create new slave info
     auto slave = std::make_unique<SlaveInfo>();
@@ -251,11 +256,14 @@ class ReplicationManager {
     // Note: We don't store the raw socket pointer here to avoid NO SHADING violations
     // Instead, the socket is managed by the connection and accessed when needed
 
+    // Save slave ID before moving (for logging)
+    uint64_t slave_id = slave->id;
+
     absl::MutexLock lock(&slaves_mutex_);
-    slaves_[slave->id] = std::move(slave);
+    slaves_[slave_id] = std::move(slave);
 
     ASTRADB_LOG_DEBUG("Slave {} registered successfully (total slaves: {})", 
-                      slave->id, slaves_.size());
+                      slave_id, static_cast<uint64_t>(slaves_.size()));
     return true;
   }
 
