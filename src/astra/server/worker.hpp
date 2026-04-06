@@ -1382,11 +1382,26 @@ class Worker {
           // Determine if this command should be forwarded to another worker
           // Check if command has a key argument
           size_t target_worker = worker_id_;
-          if (!cmd.command.args.empty() &&
+          auto routing_strategy =
+              data_shard_.GetCommandRegistry()->GetRoutingStrategy(
+                  cmd.command.name);
+
+          ASTRADB_LOG_DEBUG(
+              "Worker {}: Command '{}' has routing strategy={}, args_count={}",
+              worker_id_, cmd.command.name,
+              static_cast<int>(routing_strategy), cmd.command.args.size());
+
+          // Only route if command supports routing and has key argument
+          if (routing_strategy != commands::RoutingStrategy::kNone &&
+              !cmd.command.args.empty() &&
               (cmd.command.args[0].IsBulkString() ||
                cmd.command.args[0].IsSimpleString())) {
             std::string key = cmd.command.args[0].AsString();
             target_worker = RouteToWorker(key);
+            ASTRADB_LOG_DEBUG(
+                "Worker {}: Command '{}' has key='{}, routing to worker {} "
+                "(current worker={})",
+                worker_id_, cmd.command.name, key, target_worker, worker_id_);
           }
 
           if (target_worker == worker_id_) {

@@ -87,7 +87,7 @@ class ReplicationManager {
     io_context_ = io_context;
 
     if (role_ == ReplicationRole::kSlave) {
-      ASTRADB_LOG_INFO("Replication initialized as slave, master: {}:{}",
+      ASTRADB_LOG_DEBUG("Replication initialized as slave, master: {}:{}",
                        config_.master_host, config_.master_port);
       // Connect to master asynchronously
       if (io_context_) {
@@ -97,7 +97,7 @@ class ReplicationManager {
             asio::detached);
       }
     } else if (role_ == ReplicationRole::kMaster) {
-      ASTRADB_LOG_INFO("Replication initialized as master");
+      ASTRADB_LOG_DEBUG("Replication initialized as master");
       // Generate master replication ID
       GenerateMasterReplId();
     }
@@ -127,7 +127,7 @@ class ReplicationManager {
     running_.store(false, std::memory_order_release);
     absl::MutexLock lock(&slaves_mutex_);
     slaves_.clear();
-    ASTRADB_LOG_INFO("Replication stopped");
+    ASTRADB_LOG_DEBUG("Replication stopped");
   }
 
   // Get current role
@@ -143,7 +143,7 @@ class ReplicationManager {
     uint64_t id = next_slave_id_.fetch_add(1, std::memory_order_relaxed);
     slaves_[id] = std::make_unique<SlaveInfo>(id, host, port, io_context_);
 
-    ASTRADB_LOG_INFO("Slave registered: {}:{} (id={})", host, port, id);
+    ASTRADB_LOG_DEBUG("Slave registered: {}:{} (id={})", host, port, id);
     return true;
   }
 
@@ -153,7 +153,7 @@ class ReplicationManager {
     auto it = slaves_.find(slave_id);
     if (it != slaves_.end()) {
       slaves_.erase(it);
-      ASTRADB_LOG_INFO("Slave removed: id={}", slave_id);
+      ASTRADB_LOG_DEBUG("Slave removed: id={}", slave_id);
       return true;
     }
     return false;
@@ -203,13 +203,24 @@ class ReplicationManager {
     command_callback_ = std::move(callback);
   }
 
+  // Build FULLRESYNC response: "FULLRESYNC <replid> <offset>\r\n"
+  // Note: RespValue with kSimpleString will add the + prefix
+  static std::string BuildFullResyncResponse(const std::string& replid,
+                                               uint64_t offset) {
+    return "FULLRESYNC " + replid + " " + absl::StrCat(offset) + "\r\n";
+  }
+
+  // Build CONTINUE response: "CONTINUE\r\n"
+  // Note: RespValue with kSimpleString will add the + prefix
+  static std::string BuildContinueResponse() {
+    return "CONTINUE\r\n";
+  }
+
   // Handle SYNC command (slave request)
   std::string HandleSync(const std::string& replication_id) noexcept {
     ASTRADB_LOG_DEBUG("SYNC requested by slave: {}", replication_id);
-    // Return full sync response header
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
-    return "+FULLRESYNC " + master_replid_ + " " + absl::StrCat(current_offset) +
-           "\r\n";
+    return BuildFullResyncResponse(master_replid_, current_offset);
   }
 
   // Send RDB snapshot to slave (coroutine)
@@ -309,6 +320,12 @@ class ReplicationManager {
 
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
 
+    // If slave doesn't know master's replication ID, require full sync
+    if (replication_id == "?" || replication_id.empty()) {
+      ASTRADB_LOG_DEBUG("Full sync required: slave doesn't know master ID");
+      return BuildFullResyncResponse(master_replid_, current_offset);
+    }
+
     // Check if partial sync is possible
     // We support partial sync if the offset is within backlog range
     absl::MutexLock lock(&backlog_mutex_);
@@ -321,13 +338,12 @@ class ReplicationManager {
       // Partial sync possible
       ASTRADB_LOG_DEBUG("Partial sync accepted: offset={}, current_offset={}",
                        offset, current_offset);
-      return "+CONTINUE\r\n";
+      return BuildContinueResponse();
     } else {
       // Full sync required
       ASTRADB_LOG_DEBUG("Full sync required: offset={}, current_offset={}",
                        offset, current_offset);
-      return "+FULLRESYNC " + master_replid_ + " " + absl::StrCat(current_offset) +
-             "\r\n";
+      return BuildFullResyncResponse(master_replid_, current_offset);
     }
   }
 
@@ -432,12 +448,12 @@ class ReplicationManager {
     for (int i = 0; i < 40; ++i) {
       master_replid_[i] = hex_chars[absl::Uniform(bit_gen_, 0, 16)];
     }
-    ASTRADB_LOG_INFO("Generated master replication ID: {}", master_replid_);
+    ASTRADB_LOG_DEBUG("Generated master replication ID: {}", master_replid_);
   }
 
   // Connect to master (slave only) - coroutine-based
   asio::awaitable<void> ConnectToMaster() noexcept {
-    ASTRADB_LOG_INFO("Connecting to master at {}:{}...", config_.master_host,
+    ASTRADB_LOG_DEBUG("Connecting to master at {}:{}...", config_.master_host,
                      config_.master_port);
 
     if (!io_context_) {
@@ -473,16 +489,16 @@ class ReplicationManager {
     }
 
     master_connected_.store(true, std::memory_order_release);
-    ASTRADB_LOG_INFO("Successfully connected to master at {}:{}",
+    ASTRADB_LOG_DEBUG("Successfully connected to master at {}:{}",
                      config_.master_host, config_.master_port);
 
     // Send AUTH command if authentication is configured
     if (!config_.master_auth.empty()) {
-      ASTRADB_LOG_INFO("Sending AUTH command to master");
+      ASTRADB_LOG_DEBUG("Sending AUTH command to master");
       std::string auth_cmd = "*2\r\n$4\r\nAUTH\r\n$" +
                              std::to_string(config_.master_auth.size()) + "\r\n" +
                              config_.master_auth + "\r\n";
-      size_t auth_bytes = co_await asio::async_write(
+      [[maybe_unused]]size_t auth_bytes = co_await asio::async_write(
           *master_socket_, asio::buffer(auth_cmd),
           asio::redirect_error(asio::use_awaitable, ec));
 
@@ -511,7 +527,7 @@ class ReplicationManager {
         co_return;
       }
 
-      ASTRADB_LOG_INFO("Authentication successful");
+      ASTRADB_LOG_DEBUG("Authentication successful");
     }
 
     // Send PSYNC command
@@ -526,7 +542,7 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_INFO("PSYNC command sent ({} bytes)", bytes_sent);
+    ASTRADB_LOG_DEBUG("PSYNC command sent ({} bytes)", bytes_sent);
 
     // Receive master response
     std::array<char, 256> response_buf;
@@ -540,16 +556,16 @@ class ReplicationManager {
     }
 
     std::string response(response_buf.data(), bytes_received);
-    ASTRADB_LOG_INFO("Received master response: {}", response);
+    ASTRADB_LOG_DEBUG("Received master response: {}", response);
 
     // Parse response
-    if (response.find("+FULLRESYNC") == 0) {
+    if (response.find("FULLRESYNC") != std::string::npos) {
       // Full sync required - receive RDB snapshot
-      ASTRADB_LOG_INFO("Full sync required, receiving RDB snapshot");
+      ASTRADB_LOG_DEBUG("Full sync required, receiving RDB snapshot");
       co_await ReceiveRdbSnapshot();
-    } else if (response.find("+CONTINUE") == 0) {
+    } else if (response.find("CONTINUE") != std::string::npos) {
       // Partial sync - skip RDB and receive commands directly
-      ASTRADB_LOG_INFO("Partial sync, skipping RDB");
+      ASTRADB_LOG_DEBUG("Partial sync, skipping RDB");
     } else {
       ASTRADB_LOG_ERROR("Unexpected response from master: {}", response);
       co_return;
@@ -565,7 +581,7 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_INFO("Starting to receive RDB snapshot from master");
+    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master");
 
     // Create temporary file for RDB data
     std::string rdb_path = "./data/dump_sync_received.rdb";
@@ -580,17 +596,26 @@ class ReplicationManager {
     std::array<char, 65536> buf;
     size_t total_bytes = 0;
 
+    ASTRADB_LOG_DEBUG("Starting RDB receive loop, running={}, socket_open={}",
+                     running_.load(std::memory_order_acquire),
+                     master_socket_ && master_socket_->is_open());
+
     // Read until we have enough data or EOF
     // For simplicity, we read a fixed amount for now
     // In production, we would read until RDB EOF marker
     while (running_.load(std::memory_order_acquire)) {
+      ASTRADB_LOG_DEBUG("Waiting for RDB data, total_bytes={}", total_bytes);
+
       size_t bytes_received = co_await master_socket_->async_read_some(
           asio::buffer(buf),
           asio::redirect_error(asio::use_awaitable, ec));
 
+      ASTRADB_LOG_DEBUG("RDB read returned: bytes_received={}, ec={}", bytes_received,
+                       ec.message());
+
       if (ec) {
         if (ec == asio::error::eof) {
-          ASTRADB_LOG_INFO("Master closed RDB transfer (EOF)");
+          ASTRADB_LOG_DEBUG("Master closed RDB transfer (EOF)");
         } else {
           ASTRADB_LOG_ERROR("Error receiving RDB data: {}", ec.message());
         }
@@ -601,27 +626,38 @@ class ReplicationManager {
       rdb_file.write(buf.data(), bytes_received);
       total_bytes += bytes_received;
 
-      // Check for RDB EOF marker (0xFF)
+      ASTRADB_LOG_DEBUG("Received {} bytes (total: {})", bytes_received, total_bytes);
+
+      // Check for RDB EOF marker (0xFF) in received data
       // This is a simplified check - in production, we would parse the RDB properly
-      if (bytes_received > 0 && static_cast<uint8_t>(buf[bytes_received - 1]) == 0xFF) {
-        ASTRADB_LOG_INFO("RDB EOF marker received");
+      bool eof_found = false;
+      for (size_t i = 0; i < bytes_received; ++i) {
+        if (static_cast<uint8_t>(buf[i]) == 0xFF) {
+          eof_found = true;
+          ASTRADB_LOG_DEBUG("RDB EOF marker found at offset {} in this chunk", i);
+          break;
+        }
+      }
+
+      if (eof_found) {
+        ASTRADB_LOG_DEBUG("RDB EOF marker received, stopping");
         break;
       }
 
       // Stop if we've received a reasonable amount of data (for testing)
       if (total_bytes > 1024 * 1024) {  // 1MB limit for testing
-        ASTRADB_LOG_INFO("RDB data limit reached, stopping");
+        ASTRADB_LOG_DEBUG("RDB data limit reached, stopping");
         break;
       }
     }
 
     rdb_file.close();
 
-    ASTRADB_LOG_INFO("RDB snapshot received ({} bytes)", total_bytes);
+    ASTRADB_LOG_DEBUG("RDB snapshot received ({} bytes)", total_bytes);
 
     // Load RDB data into database using RdbReader
     if (database_) {
-      ASTRADB_LOG_INFO("Loading RDB snapshot into database");
+      ASTRADB_LOG_DEBUG("Loading RDB snapshot into database");
 
       persistence::RdbReader reader;
       if (reader.Init(rdb_path, true)) {
@@ -657,7 +693,7 @@ class ReplicationManager {
         });
 
         if (loaded) {
-          ASTRADB_LOG_INFO("RDB snapshot loaded successfully");
+          ASTRADB_LOG_DEBUG("RDB snapshot loaded successfully");
         } else {
           ASTRADB_LOG_ERROR("Failed to load RDB snapshot");
         }
@@ -710,7 +746,7 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_INFO("Starting to receive replication data from master");
+    ASTRADB_LOG_DEBUG("Starting to receive replication data from master");
 
     std::array<char, 65536> buf;
     asio::error_code ec;
@@ -755,7 +791,7 @@ class ReplicationManager {
     }
 
     master_connected_.store(false, std::memory_order_release);
-    ASTRADB_LOG_INFO("Stopped receiving replication data");
+    ASTRADB_LOG_DEBUG("Stopped receiving replication data");
   }
 
   // Find the end of a RESP command (simplified)
@@ -856,7 +892,7 @@ class ReplicationManager {
   }
 
   std::string GenerateRdbSnapshot() noexcept {
-    ASTRADB_LOG_INFO("Generating RDB snapshot...");
+    ASTRADB_LOG_DEBUG("Generating RDB snapshot...");
 
     if (!database_) {
       ASTRADB_LOG_ERROR("Database not set, cannot generate RDB snapshot");
@@ -904,7 +940,7 @@ class ReplicationManager {
       return "+FULLRESYNC " + master_replid_ + " 0\r\n";
     }
 
-    ASTRADB_LOG_INFO("RDB snapshot generated successfully");
+    ASTRADB_LOG_DEBUG("RDB snapshot generated successfully");
     return "+FULLRESYNC " + master_replid_ + " " +
            absl::StrCat(repl_offset_.load(std::memory_order_relaxed)) + "\r\n";
   }

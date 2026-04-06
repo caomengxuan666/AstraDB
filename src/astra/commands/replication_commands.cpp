@@ -104,11 +104,49 @@ CommandResult HandlePsync(const protocol::Command& command,
     return CommandResult(false, "ERR PSYNC only valid on master");
   }
 
-  std::string response = repl_manager->HandlePsync(replication_id, offset);
+  auto* socket = context->GetRawSocket();
+  if (!socket) {
+    return CommandResult(false, "ERR no connection");
+  }
 
-  protocol::RespValue resp;
-  resp.SetString(response, protocol::RespType::kBulkString);
-  return CommandResult(resp);
+  // PSYNC is similar to SYNC - requires direct socket access
+  // We need to:
+  // 1. Write the PSYNC response header directly to the socket
+  // 2. If FULLRESYNC, spawn a coroutine to send the RDB snapshot
+  // 3. Then continue sending command stream
+
+  std::string response_header = repl_manager->HandlePsync(replication_id, offset);
+
+  ASTRADB_LOG_DEBUG("PSYNC: socket pointer={}", static_cast<void*>(socket));
+
+  // Write response header directly to socket (blocking for now)
+  asio::error_code ec;
+  size_t bytes_sent = asio::write(
+      *socket, asio::buffer(response_header),
+      ec);
+
+  if (ec) {
+    ASTRADB_LOG_ERROR("Failed to write PSYNC response: {}", ec.message());
+    return CommandResult(false, "ERR failed to write PSYNC response");
+  }
+
+  ASTRADB_LOG_DEBUG("PSYNC response header sent ({} bytes)", bytes_sent);
+
+  // Check if FULLRESYNC is required (response contains "FULLRESYNC")
+  if (response_header.find("FULLRESYNC") != std::string::npos) {
+    // Spawn coroutine to send RDB snapshot
+    // We need to keep the socket alive during the async operation
+    asio::co_spawn(
+        socket->get_executor(),
+        [repl_manager, socket]() -> asio::awaitable<void> {
+          co_await repl_manager->SendRdbSnapshot(socket);
+        },
+        asio::detached);
+  }
+
+  // Return blocking result to prevent framework from sending any response
+  // The response has already been sent directly to the socket
+  return CommandResult::Blocking();
 }
 
 // REPLCONF - Configure replication
@@ -190,7 +228,7 @@ CommandResult HandleReplicaof(const protocol::Command& command,
   // Check for NO ONE (stop replication)
   if (host == "NO" && port_str == "ONE") {
     if (repl_manager->GetRole() == replication::ReplicationRole::kSlave) {
-      ASTRADB_LOG_INFO("Stopping replication, promoting to master");
+      ASTRADB_LOG_DEBUG("Stopping replication, promoting to master");
       // Note: Actual promotion would require stopping the slave connection
       // and reinitializing as master
     }
@@ -214,7 +252,7 @@ CommandResult HandleReplicaof(const protocol::Command& command,
         false, "ERR Cannot change role from master to slave");
   }
 
-  ASTRADB_LOG_INFO("Setting up replication to {}:{}", host, port);
+  ASTRADB_LOG_DEBUG("Setting up replication to {}:{}", host, port);
 
   // Note: Actual connection would be implemented here
   // This would initialize the ReplicationManager as slave and connect to master
