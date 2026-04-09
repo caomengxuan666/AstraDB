@@ -211,9 +211,6 @@ int main(int argc, char** argv) {
 #if defined(ASTRADB_ENABLE_TLS)
   ASTRADB_LOG_INFO("  [+] TLS Encryption");
 #endif
-#if defined(ASTRADB_ENABLE_ACL)
-  ASTRADB_LOG_INFO("  [+] Access Control List (ACL)");
-#endif
 #if defined(ASTRADB_ENABLE_SIMD)
   ASTRADB_LOG_INFO("  [+] SIMD Optimizations");
 #endif

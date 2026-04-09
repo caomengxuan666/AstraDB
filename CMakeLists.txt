@@ -23,7 +23,6 @@ project(
 # ==============================================================================
 
 option(ASTRADB_ENABLE_TLS "Enable TLS encryption support" OFF)
-option(ASTRADB_ENABLE_ACL "Enable ACL (Access Control List)" ON)
 option(ASTRADB_ENABLE_SIMD "Enable SIMD optimizations" ON)
 option(ASTRADB_ENABLE_IO_URING "Enable io_uring backend (Linux only, experimental)" OFF)
 option(ASTRADB_STRIP_SYMBOLS "Strip debug symbols from release builds" ON)
@@ -346,11 +345,6 @@ endif()
 if(ASTRADB_ENABLE_TLS AND OPENSSL_FOUND)
   target_link_libraries(astradb PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   target_compile_definitions(astradb PRIVATE ASTRADB_ENABLE_TLS)
-endif()
-
-# Enable ACL if enabled
-if(ASTRADB_ENABLE_ACL)
-  target_compile_definitions(astradb PRIVATE ASTRADB_ENABLE_ACL)
 endif()
 
 # Enable SIMD if enabled
