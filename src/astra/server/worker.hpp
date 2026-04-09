@@ -102,6 +102,16 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     pubsub_manager_ = pubsub_manager;
   }
 
+  // Get ACL manager (for ACL commands)
+  class security::AclManager* GetAclManager() const override {
+    return acl_manager_;
+  }
+
+  // Set ACL manager (called by Worker after ACL manager is initialized)
+  void SetAclManager(class security::AclManager* acl_manager) {
+    acl_manager_ = acl_manager;
+  }
+
   // Get command registry (for COMMAND command - NO SHARING architecture)
   class commands::CommandRegistry* GetCommandRegistry() override {
     return command_registry_;
@@ -254,6 +264,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   class Worker* worker_ = nullptr;
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
+  class security::AclManager* acl_manager_ = nullptr;
   void* connection_ = nullptr;
   asio::ip::tcp::socket* socket_ptr_ = nullptr;
   uint64_t connection_id_ = 0;

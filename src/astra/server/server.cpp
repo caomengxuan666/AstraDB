@@ -128,6 +128,13 @@ void Server::Start() {
   if (config_.acl_enabled) {
     if (!InitACL()) {
       ASTRADB_LOG_WARN("ACL initialization failed, running without ACL");
+    } else {
+      // Set ACL manager for all workers
+      for (auto& worker : workers_) {
+        worker->GetDataShard().GetCommandContext()->SetAclManager(
+            acl_manager_.get());
+      }
+      ASTRADB_LOG_INFO("ACL manager set for all workers");
     }
   }
 
@@ -658,13 +665,21 @@ bool Server::InitACL() noexcept {
     // Create ACL manager
     acl_manager_ = std::make_unique<::astra::security::AclManager>();
 
-    // Add default user
-    if (!config_.acl_default_user.empty()) {
+    // Initialize ACL with default user
+    if (!acl_manager_->Init()) {
+      ASTRADB_LOG_ERROR("ACL initialization failed");
+      acl_manager_.reset();
+      return false;
+    }
+
+    // Add additional default user from config if specified
+    if (!config_.acl_default_user.empty() && 
+        config_.acl_default_user != "default") {
       acl_manager_->CreateUser(
           config_.acl_default_user, config_.acl_default_password,
           static_cast<uint32_t>(::astra::security::AclPermission::kAdmin),
           true);
-      ASTRADB_LOG_INFO("ACL initialized with default user: {}",
+      ASTRADB_LOG_INFO("ACL initialized with additional default user: {}",
                        config_.acl_default_user);
     }
 

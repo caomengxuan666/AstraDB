@@ -45,9 +45,17 @@ CommandResult HandleAclList(const protocol::Command& command,
 CommandResult HandleAclUsers(const protocol::Command& command,
                              CommandContext* context);
 
-// ACL CAT - Get user ACL rules
+// ACL CAT - Get command categories
 CommandResult HandleAclCat(const protocol::Command& command,
                            CommandContext* context);
+
+// ACL GENPASS - Generate password
+CommandResult HandleAclGenpass(const protocol::Command& command,
+                               CommandContext* context);
+
+// ACL WHOAMI - Get current user
+CommandResult HandleAclWhoami(const protocol::Command& command,
+                              CommandContext* context);
 
 // ACL SETUSER - Set user password
 CommandResult HandleAclSetpass(const protocol::Command& command,
