@@ -13,7 +13,47 @@
 
 namespace astra::base {
 
-// Persistence configuration
+// Storage mode configuration
+enum class StorageMode {
+  kRedis,     // Traditional Redis mode (RDB + AOF + RocksDB for cold data)
+  kRocksDB    // RocksDB all-in mode (RocksDB for all data + AOF for WAL)
+};
+
+struct StorageConfig {
+  StorageMode mode = StorageMode::kRedis;  // Default to Redis-compatible mode
+  
+  // Common settings for both modes
+  bool enable_rocksdb_cold_data = true;    // Redis mode: use RocksDB for evicted data
+  bool enable_compression = true;           // Enable data compression
+  std::string compression_type = "zlib";   // zlib, zstd, none
+  
+  // Redis mode specific settings
+  struct RedisModeConfig {
+    bool rdb_enabled = true;
+    std::string rdb_path = "./data/dump.rdb";
+    bool rdb_auto_save = false;
+    int rdb_save_interval = 300;  // seconds
+    
+    bool aof_enabled = false;
+    std::string aof_path = "./data/aof/appendonly.aof";
+    bool aof_sync_everysec = true;
+  };
+  RedisModeConfig redis_mode;
+  
+  // RocksDB mode specific settings
+  struct RocksDBModeConfig {
+    std::string data_dir = "./data/rocksdb";
+    size_t cache_size = 256 * 1024 * 1024;  // 256MB
+    size_t write_buffer_size = 64 * 1024 * 1024;  // 64MB
+    bool enable_wal = true;
+    bool create_if_missing = true;
+    int max_open_files = -1;  // -1 = unlimited
+    size_t max_total_wal_size = 100 * 1024 * 1024;  // 100MB
+  };
+  RocksDBModeConfig rocksdb_mode;
+};
+
+// Legacy persistence configuration (for backward compatibility)
 struct PersistenceConfig {
   bool enabled = false;
   std::string data_dir = "./data/astradb";
@@ -93,13 +133,16 @@ struct ServerConfig {
   bool use_so_reuseport =
       true;  // Enable SO_REUSEPORT for kernel load balancing
 
-  // Persistence (ROCKSDB)
+  // Storage configuration (NEW: unified storage mode)
+  StorageConfig storage;
+
+  // Legacy persistence configuration (for backward compatibility)
   PersistenceConfig persistence;
 
-  // RocksDB for cold data storage
+  // Legacy RocksDB for cold data storage (for backward compatibility)
   RocksDBConfig rocksdb;
 
-  // AOF (NO SHARING architecture)
+  // Legacy AOF configuration (for backward compatibility)
   struct AofConfig {
     bool enabled = false;
     std::string path = "./data/aof/appendonly.aof";
@@ -107,7 +150,7 @@ struct ServerConfig {
   };
   AofConfig aof;
 
-  // RDB (NO SHARING architecture)
+  // Legacy RDB configuration (for backward compatibility)
   struct RdbConfig {
     bool enabled = true;
     std::string path = "./data/dump.rdb";
