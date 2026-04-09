@@ -46,24 +46,28 @@ target_sources(
   PRIVATE command_handler.cpp
           data_type_registry.cpp
           command_auto_register.cpp
-          string_commands.cpp
-          hash_commands.cpp
-          set_commands.cpp
-          zset_commands.cpp
-          list_commands.cpp
-          admin_commands.cpp
-          ttl_commands.cpp
-          script_commands.cpp
-          transaction_commands.cpp
-          pubsub_commands.cpp
-          stream_commands.cpp
-          replication_commands.cpp
-          acl_commands.cpp
-          cluster_commands.cpp
-          bitmap_commands.cpp
-          hyperloglog_commands.cpp
-          geospatial_commands.cpp
-          client_commands.cpp
+          # Redis-compatible commands
+          redis/string_commands.cpp
+          redis/hash_commands.cpp
+          redis/set_commands.cpp
+          redis/zset_commands.cpp
+          redis/list_commands.cpp
+          redis/admin_commands.cpp
+          redis/ttl_commands.cpp
+          redis/script_commands.cpp
+          redis/transaction_commands.cpp
+          redis/pubsub_commands.cpp
+          redis/stream_commands.cpp
+          redis/replication_commands.cpp
+          redis/acl_commands.cpp
+          redis/cluster_commands.cpp
+          redis/bitmap_commands.cpp
+          redis/hyperloglog_commands.cpp
+          redis/geospatial_commands.cpp
+          redis/client_commands.cpp
+          # Astra-specific commands
+          astra/astra_commands.cpp
+          # Common utilities
           blocking_manager.cpp)
 
 target_link_libraries(
