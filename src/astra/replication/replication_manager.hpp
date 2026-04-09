@@ -35,21 +35,27 @@ namespace astra::replication {
 // Replication role
 enum class ReplicationRole { kMaster, kSlave, kNone };
 
-// Slave connection info
+// Slave information (NO SHADING architecture - each worker has its own slave list)
 struct SlaveInfo {
   uint64_t id;
+  uint64_t connection_id;      // Connection ID for this slave (used to get socket from Worker)
+  std::string remote_addr;    // Remote address for logging
   std::string host;
   uint16_t port;
   uint64_t repl_offset;  // Replication offset
   std::atomic<bool> online{true};
-  std::unique_ptr<asio::ip::tcp::socket> socket;  // Socket for sending commands
+  // Note: We don't store socket here to avoid NO SHADING violations
+  // Instead, we use connection_id to get the socket from Worker's connections_ map
 
-  SlaveInfo(uint64_t i, const std::string& h, uint16_t p,
-            asio::io_context* io_ctx = nullptr)
-      : id(i), host(h), port(p), repl_offset(0) {
-    if (io_ctx) {
-      socket = std::make_unique<asio::ip::tcp::socket>(*io_ctx);
-    }
+  // Default constructor for RegisterSlave
+  SlaveInfo()
+      : id(0), connection_id(0), remote_addr(""), host(""), port(0), repl_offset(0) {
+  }
+
+  SlaveInfo(uint64_t i, const std::string& h, uint16_t p, asio::io_context* io_ctx = nullptr)
+      : id(i), connection_id(0), remote_addr(""), host(h), port(p), repl_offset(0) {
+    // io_ctx parameter is kept for compatibility but not used
+    (void)io_ctx;
   }
 };
 
@@ -62,6 +68,9 @@ struct ReplicationConfig {
   bool read_only = true;                     // Slaves are read-only by default
   uint64_t repl_backlog_size = 1024 * 1024;  // 1MB
 };
+
+// Callback function to get socket by connection_id (for NO SHADING compliance)
+using GetSocketCallback = std::function<asio::ip::tcp::socket*(uint64_t)>;
 
 // Replication Manager - handles master-slave replication
 class ReplicationManager {
@@ -114,6 +123,14 @@ class ReplicationManager {
   // Get io_context
   asio::io_context* GetIOContext() const noexcept { return io_context_; }
 
+  // Set worker ID (for NO SHADING compliance - each worker has unique RDB files)
+  void SetWorkerId(size_t worker_id) noexcept {
+    worker_id_ = worker_id;
+  }
+
+  // Get worker ID
+  size_t GetWorkerId() const noexcept { return worker_id_; }
+
   // Set database pointer (for late initialization)
   void SetDatabase(commands::Database* database) noexcept {
     database_ = database;
@@ -165,6 +182,8 @@ class ReplicationManager {
       return;
     }
 
+    ASTRADB_LOG_DEBUG("Worker {}: Propagating command '{}' to slaves", worker_id_, cmd.name);
+
     // Increment replication offset
     repl_offset_.fetch_add(1, std::memory_order_relaxed);
 
@@ -178,8 +197,11 @@ class ReplicationManager {
     // Send to all slaves asynchronously using coroutines
     if (io_context_) {
       absl::MutexLock slaves_lock(&slaves_mutex_);
+      size_t slave_count = slaves_.size();
+      ASTRADB_LOG_DEBUG("Worker {}: Found {} slaves to send command to", worker_id_, slave_count);
       for (auto& [id, slave] : slaves_) {
         if (slave->online.load(std::memory_order_acquire)) {
+          ASTRADB_LOG_DEBUG("Worker {}: Spawning coroutine to send command to slave {}", worker_id_, id);
           // Spawn coroutine to send command to slave
           asio::co_spawn(
               *io_context_,
@@ -203,6 +225,10 @@ class ReplicationManager {
     command_callback_ = std::move(callback);
   }
 
+  void SetGetSocketCallback(GetSocketCallback callback) noexcept {
+    get_socket_callback_ = std::move(callback);
+  }
+
   // Build FULLRESYNC response: "FULLRESYNC <replid> <offset>\r\n"
   // Note: RespValue with kSimpleString will add the + prefix
   static std::string BuildFullResyncResponse(const std::string& replid,
@@ -216,6 +242,34 @@ class ReplicationManager {
     return "CONTINUE\r\n";
   }
 
+  // Register slave with replication manager (master only)
+  bool RegisterSlave(asio::ip::tcp::socket* socket, uint64_t connection_id,
+                     const std::string& remote_addr) {
+    if (!socket || role_ != ReplicationRole::kMaster) {
+      return false;
+    }
+
+    // Create new slave info
+    auto slave = std::make_unique<SlaveInfo>();
+    slave->id = next_slave_id_.fetch_add(1, std::memory_order_relaxed);
+    slave->connection_id = connection_id;
+    slave->remote_addr = remote_addr;
+    slave->online.store(true, std::memory_order_release);
+    slave->repl_offset = 0;
+
+    // Note: We don't store the socket here to avoid NO SHADING violations
+    // Instead, we'll use the connection_id to get the socket from Worker's connections_ map
+    // when sending commands
+
+    // Save slave ID before moving (for logging)
+    uint64_t slave_id = slave->id;
+
+    absl::MutexLock lock(&slaves_mutex_);
+    slaves_[slave_id] = std::move(slave);
+
+    return true;
+  }
+
   // Handle SYNC command (slave request)
   std::string HandleSync(const std::string& replication_id) noexcept {
     ASTRADB_LOG_DEBUG("SYNC requested by slave: {}", replication_id);
@@ -225,19 +279,22 @@ class ReplicationManager {
 
   // Send RDB snapshot to slave (coroutine)
   asio::awaitable<void> SendRdbSnapshot(
-      asio::ip::tcp::socket* socket) noexcept {
+      asio::ip::tcp::socket* socket, uint64_t connection_id = 0) noexcept {
     if (!database_) {
       ASTRADB_LOG_ERROR("Database not set, cannot send RDB snapshot");
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave");
+    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave (worker={}, conn={})",
+                     worker_id_, connection_id);
 
     // Initialize RDB writer if not already initialized
     if (!rdb_writer_) {
       rdb_writer_ = std::make_unique<persistence::RdbWriter>();
       persistence::RdbOptions options;
-      options.save_path = "./data/dump_sync.rdb";  // Temporary file for sync
+      // Use worker_id and connection_id to create unique filename (NO SHADING compliance)
+      options.save_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
+                          "_conn_" + std::to_string(connection_id) + ".rdb";
       options.checksum = true;
       if (!rdb_writer_->Init(options)) {
         ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
@@ -277,10 +334,12 @@ class ReplicationManager {
       co_return;
     }
 
-    // Read the generated RDB file
-    std::ifstream rdb_file("./data/dump_sync.rdb", std::ios::binary);
+    // Read the generated RDB file (use same path as writer)
+    std::string rdb_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
+                           "_conn_" + std::to_string(connection_id) + ".rdb";
+    std::ifstream rdb_file(rdb_path, std::ios::binary);
     if (!rdb_file.is_open()) {
-      ASTRADB_LOG_ERROR("Failed to open RDB file for reading");
+      ASTRADB_LOG_ERROR("Failed to open RDB file for reading: {}", rdb_path);
       co_return;
     }
 
@@ -426,6 +485,7 @@ class ReplicationManager {
   std::atomic<uint64_t> next_slave_id_{1};
   commands::Database* database_{nullptr};
   asio::io_context* io_context_{nullptr};
+  size_t worker_id_{0};  // Worker ID for NO SHADING compliance
 
   absl::flat_hash_map<uint64_t, std::unique_ptr<SlaveInfo>> slaves_;
   mutable absl::Mutex slaves_mutex_;
@@ -434,6 +494,7 @@ class ReplicationManager {
   mutable absl::Mutex backlog_mutex_;
 
   CommandCallback command_callback_;
+  GetSocketCallback get_socket_callback_;  // Callback to get socket by connection_id
   std::unique_ptr<persistence::RdbWriter> rdb_writer_;
   absl::BitGen bit_gen_;
 
@@ -581,13 +642,15 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master");
+    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master (worker={})",
+                     worker_id_);
 
-    // Create temporary file for RDB data
-    std::string rdb_path = "./data/dump_sync_received.rdb";
+    // Create temporary file for RDB data (use worker_id for NO SHADING compliance)
+    std::string rdb_path = "./data/dump_sync_received_worker_" +
+                           std::to_string(worker_id_) + ".rdb";
     std::ofstream rdb_file(rdb_path, std::ios::binary);
     if (!rdb_file.is_open()) {
-      ASTRADB_LOG_ERROR("Failed to create RDB file for writing");
+      ASTRADB_LOG_ERROR("Failed to create RDB file for writing: {}", rdb_path);
       co_return;
     }
 
@@ -712,9 +775,16 @@ class ReplicationManager {
       co_return;
     }
 
-    if (!slave->socket || !slave->socket->is_open()) {
-      ASTRADB_LOG_WARN("Slave {}:{} socket not connected", slave->host,
-                       slave->port);
+    // Get socket from Worker using connection_id (NO SHADING compliance)
+    asio::ip::tcp::socket* socket = nullptr;
+    if (get_socket_callback_) {
+      socket = get_socket_callback_(slave->connection_id);
+    }
+    
+    if (!socket || !socket->is_open()) {
+      ASTRADB_LOG_WARN("Slave {} connection {} socket not available", 
+                       slave->remote_addr, slave->connection_id);
+      slave->online.store(false, std::memory_order_release);
       co_return;
     }
 
@@ -723,18 +793,18 @@ class ReplicationManager {
 
     asio::error_code ec;
     size_t bytes_sent = co_await asio::async_write(
-        *slave->socket, asio::buffer(resp_cmd),
+        *socket, asio::buffer(resp_cmd),
         asio::redirect_error(asio::use_awaitable, ec));
 
     if (ec) {
-      ASTRADB_LOG_ERROR("Failed to send command to slave {}:{}: {}",
-                        slave->host, slave->port, ec.message());
+      ASTRADB_LOG_ERROR("Failed to send command to slave {} (connection {}): {}",
+                        slave->remote_addr, slave->connection_id, ec.message());
       slave->online.store(false, std::memory_order_release);
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Sent command to slave {}:{} ({} bytes)", slave->host,
-                      slave->port, bytes_sent);
+    ASTRADB_LOG_DEBUG("Sent command to slave {} (connection {}) ({} bytes)", 
+                      slave->remote_addr, slave->connection_id, bytes_sent);
 
     // Update slave's replication offset
     slave->repl_offset = repl_offset_.load(std::memory_order_relaxed);

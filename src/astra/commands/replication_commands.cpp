@@ -67,8 +67,8 @@ CommandResult HandleSync(const protocol::Command& command,
   // We need to keep the socket alive during the async operation
   asio::co_spawn(
       socket->get_executor(),
-      [repl_manager, socket]() -> asio::awaitable<void> {
-        co_await repl_manager->SendRdbSnapshot(socket);
+      [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+        co_await repl_manager->SendRdbSnapshot(socket, conn_id);
       },
       asio::detached);
 
@@ -134,12 +134,17 @@ CommandResult HandlePsync(const protocol::Command& command,
 
   // Check if FULLRESYNC is required (response contains "FULLRESYNC")
   if (response_header.find("FULLRESYNC") != std::string::npos) {
+    // Register slave with replication manager
+    std::string remote_addr = socket->remote_endpoint().address().to_string() + ":" + 
+                             std::to_string(socket->remote_endpoint().port());
+    repl_manager->RegisterSlave(socket, context->GetConnectionId(), remote_addr);
+    
     // Spawn coroutine to send RDB snapshot
     // We need to keep the socket alive during the async operation
     asio::co_spawn(
         socket->get_executor(),
-        [repl_manager, socket]() -> asio::awaitable<void> {
-          co_await repl_manager->SendRdbSnapshot(socket);
+        [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+          co_await repl_manager->SendRdbSnapshot(socket, conn_id);
         },
         asio::detached);
   }
