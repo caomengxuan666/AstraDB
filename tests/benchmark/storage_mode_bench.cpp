@@ -88,5 +88,3 @@ BENCHMARK(BM_RedisStorage_Put)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_RocksDBStorage_Put)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_RedisStorage_Get)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_RocksDBStorage_Get)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_MAIN();

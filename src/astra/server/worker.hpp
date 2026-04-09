@@ -22,7 +22,7 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/pubsub_commands.hpp"
+#include "astra/commands/redis/pubsub_commands.hpp"
 #include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
 #include "astra/core/server_stats.hpp"
