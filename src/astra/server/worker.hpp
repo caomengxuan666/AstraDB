@@ -66,8 +66,16 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   astra::commands::Database* GetDatabase() const override { return db_; }
   int GetDBIndex() const override { return 0; }
   void SetDBIndex(int index) override { (void)index; }
-  bool IsAuthenticated() const override { return true; }
-  void SetAuthenticated(bool auth) override { (void)auth; }
+  bool IsAuthenticated() const override { return authenticated_; }
+  void SetAuthenticated(bool auth) override { authenticated_ = auth; }
+  
+  // Authenticated user
+  const std::string& GetAuthenticatedUser() const override {
+    return authenticated_user_;
+  }
+  void SetAuthenticatedUser(const std::string& user) override {
+    authenticated_user_ = user;
+  }
 
   // Get blocking manager (for blocking commands)
   class commands::BlockingManager* GetBlockingManager() override {
@@ -277,6 +285,10 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   cluster::GossipManager* gossip_manager_ = nullptr;
   cluster::ShardManager* shard_manager_ = nullptr;
   size_t worker_id_ = 0;
+
+  // Authentication state
+  bool authenticated_ = false;
+  std::string authenticated_user_;
 
   // Callback to update cluster state for all workers (set by Server)
   // Uses WorkerScheduler::DispatchOnAll to avoid deadlock

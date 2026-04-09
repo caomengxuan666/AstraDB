@@ -10,6 +10,7 @@
 #include <absl/container/flat_hash_set.h>
 #include <absl/container/inlined_vector.h>
 #include <absl/functional/any_invocable.h>
+#include <absl/strings/ascii.h>
 #include <absl/strings/string_view.h>
 #include <absl/types/span.h>
 
@@ -21,6 +22,7 @@
 #include "astra/network/connection.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/replication/replication_manager.hpp"
+#include "astra/security/acl_manager.hpp"
 #include "command_cache_flatbuffers.hpp"
 #include "database.hpp"
 
@@ -39,9 +41,6 @@ class ShardManager;
 struct AstraNodeView;
 }  // namespace astra::cluster
 
-namespace astra::security {
-class AclManager;
-}
 
 namespace astra::server {
 class WorkerScheduler;
@@ -113,6 +112,53 @@ class CommandContext {
 
   // ACL operations (optional - return nullptr if not available)
   virtual security::AclManager* GetAclManager() const { return nullptr; }
+
+  // Check command permission
+  virtual bool CheckCommandPermission(const std::string& command) const {
+    auto* acl_manager = GetAclManager();
+    if (!acl_manager) {
+      return true;  // No ACL manager, allow all commands
+    }
+    
+    // Allow privileged commands for all users (including unauthenticated)
+    std::string upper_cmd = absl::AsciiStrToUpper(command);
+    static const absl::flat_hash_set<std::string> privileged_commands = {
+      "AUTH", "PING", "QUIT", "HELLO", "CLIENT", "INFO"
+    };
+    
+    if (privileged_commands.find(upper_cmd) != privileged_commands.end()) {
+      return true;
+    }
+    
+    // Allow ACL commands for authenticated users
+    if (upper_cmd == "ACL" && IsAuthenticated()) {
+      return true;
+    }
+    
+    const std::string& username = GetAuthenticatedUser();
+    if (username.empty() || !IsAuthenticated()) {
+      // Unauthenticated users cannot execute commands except privileged ones
+      return false;
+    }
+    
+    return acl_manager->CheckCommandPermission(username, command);
+  }
+
+  // Check key permission
+  virtual bool CheckKeyPermission(const std::string& key) const {
+    auto* acl_manager = GetAclManager();
+    if (!acl_manager) {
+      return true;  // No ACL manager, allow all keys
+    }
+    
+    const std::string& username = GetAuthenticatedUser();
+    if (username.empty() || !IsAuthenticated()) {
+      // Unauthenticated users cannot access keys
+      return false;
+    }
+    
+    return acl_manager->CheckKeyPermission(username, key);
+  }
 
   // Authenticated user
   virtual const std::string& GetAuthenticatedUser() const {

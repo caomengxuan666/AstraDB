@@ -326,6 +326,110 @@ class AclManager {
     return users;
   }
 
+  // Check if user has permission to execute a command
+  bool CheckCommandPermission(const std::string& username,
+                               const std::string& command) const noexcept {
+    absl::MutexLock lock(&mutex_);
+    auto it = users_.find(username);
+    if (it == users_.end()) {
+      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' doesn't exist", username);
+      return false;  // User doesn't exist
+    }
+    
+    const AclUser& user = it->second;
+    if (!user.enabled) {
+      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' is disabled", username);
+      return false;  // User is disabled
+    }
+    
+    // Check if user has -@all (no commands)
+    for (const auto& cmd : user.commands) {
+      if (cmd == "-@all") {
+        ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' has -@all", username);
+        return false;
+      }
+    }
+    
+    // Check if user has +@all (all commands)
+    for (const auto& cmd : user.commands) {
+      if (cmd == "+@all" || cmd == "allcommands") {
+        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has +@all, allowing command '{}'", username, command);
+        return true;
+      }
+    }
+    
+    // Check if user has specific command permission
+    std::string cmd_plus = "+" + command;
+    for (const auto& cmd : user.commands) {
+      if (cmd == cmd_plus) {
+        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has +{}, allowing", username, command);
+        return true;
+      }
+    }
+    
+    // Check if user has category permission
+    // For now, we assume all commands belong to @all category
+    // In production, this should check actual command categories
+    for (const auto& cat : user.categories) {
+      if (cat == "+@all" || cat == "allcommands") {
+        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has category +@all, allowing command '{}'", username, command);
+        return true;
+      }
+    }
+    
+    // Default: deny
+    ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' doesn't have permission for command '{}'", username, command);
+    return false;
+  }
+
+  // Check if user has permission to access a key
+  bool CheckKeyPermission(const std::string& username,
+                           const std::string& key) const noexcept {
+    absl::MutexLock lock(&mutex_);
+    auto it = users_.find(username);
+    if (it == users_.end()) {
+      return false;  // User doesn't exist
+    }
+    
+    const AclUser& user = it->second;
+    if (!user.enabled) {
+      return false;  // User is disabled
+    }
+    
+    // If user has allkeys permission, allow access
+    if (user.all_keys) {
+      return true;
+    }
+    
+    // Check if key matches any pattern
+    for (const auto& pattern : user.key_patterns) {
+      if (pattern.size() > 1 && pattern[0] == '~') {
+        std::string pattern_str = pattern.substr(1);
+        // Simple glob matching (supports * only)
+        if (pattern_str == "*") {
+          return true;
+        } else if (pattern_str.find('*') != std::string::npos) {
+          // Pattern contains wildcard
+          size_t pos = pattern_str.find('*');
+          std::string prefix = pattern_str.substr(0, pos);
+          std::string suffix = pattern_str.substr(pos + 1);
+          if (key.size() >= prefix.size() + suffix.size() &&
+              key.substr(0, prefix.size()) == prefix &&
+              key.substr(key.size() - suffix.size()) == suffix) {
+            return true;
+          }
+        } else {
+          // Exact match
+          if (key == pattern_str) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  }
+
  private:
   mutable absl::Mutex mutex_;
   absl::flat_hash_map<std::string, AclUser> users_;

@@ -89,6 +89,33 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
   }
   // arity == 0 means unlimited, no check needed
 
+  // ========== Permission Checking ==========
+  // Check command permission
+  if (!context->CheckCommandPermission(command.name)) {
+    return CommandResult(false, "NOPERM No permissions to execute command '" + command.name + "'");
+  }
+
+  // Check key permission for commands that access keys
+  // Skip key permission check for commands that don't access keys
+  static const absl::flat_hash_set<std::string> non_key_commands = {
+    "AUTH", "PING", "ECHO", "QUIT", "SELECT", "HELLO", "CLIENT", "INFO",
+    "TIME", "MONITOR", "DEBUG", "SHUTDOWN", "SAVE", "BGSAVE", "LASTSAVE",
+    "DBSIZE", "KEYS", "RANDOMKEY", "SCAN", "TYPE", "EXISTS", "TTL", "PTTL",
+    "EXPIRE", "PEXPIRE", "EXPIREAT", "PEXPIREAT", "PERSIST", "SORT",
+    "ACL", "SUBSCRIBE", "UNSUBSCRIBE", "PSUBSCRIBE", "PUNSUBSCRIBE",
+    "PUBLISH", "PUBSUB", "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"
+  };
+
+  // Only check key permission if command is not in the non-key command list
+  if (non_key_commands.find(upper_name) == non_key_commands.end() &&
+      command.ArgCount() > 0 &&
+      (command[0].IsBulkString() || command[0].IsSimpleString())) {
+    const std::string& key = command[0].AsString();
+    if (!context->CheckKeyPermission(key)) {
+      return CommandResult(false, "NOPERM No permissions to access key '" + key + "'");
+    }
+  }
+
   // ========== Command Parameter Caching ==========
   // Generate cache key from command name and arguments
   if (caching_enabled_ && !entry.info.is_write) {
