@@ -1,0 +1,68 @@
+# AstraDB RocksDB Mode Configuration
+# High-performance mode using RocksDB for all data storage
+# This mode provides better performance and storage efficiency for large datasets
+
+[server]
+host = "0.0.0.0"
+port = 6379
+max_connections = 10000
+thread_count = 12
+use_per_worker_io = true
+use_so_reuseport = true
+
+[database]
+num_databases = 16
+num_shards = 16
+
+[logging]
+level = "debug"
+file = "astradb.log"
+async = true
+queue_size = 8192
+
+[performance]
+enable_pipeline = true
+enable_compression = false
+
+[async]
+use_async_commands = true
+
+# Storage Configuration - RocksDB Mode
+[storage]
+mode = "rocksdb"
+enable_rocksdb_cold_data = true
+enable_compression = true
+compression_type = "zlib"
+
+[storage.rocksdb_mode]
+# RocksDB Configuration
+data_dir = "./data/rocksdb"
+cache_size = 268435456           # 256MB
+write_buffer_size = 67108864      # 64MB
+enable_wal = true
+create_if_missing = true
+max_open_files = -1               # Unlimited
+max_total_wal_size = 104857600    # 100MB
+
+[metrics]
+enabled = true
+bind_addr = "0.0.0.0"
+port = 9100
+endpoint = "/metrics"
+stats_frequency_seconds = 10
+
+[cluster]
+enabled = false
+
+[memory]
+max_memory = 0
+eviction_policy = "noeviction"
+eviction_threshold = 0.9
+eviction_samples = 5
+enable_tracking = true
+
+[replication]
+enabled = false
+
+[acl]
+enabled = false
