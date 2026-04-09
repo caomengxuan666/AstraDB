@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
   }
 
   // Load config from file
-  auto config = astra::base::ServerConfig::LoadFromFile(config_file);
+  auto config = astra::server::ServerConfig::LoadFromFile(config_file);
 
   // Override config with command line arguments
   if (result.count("host")) {
@@ -265,6 +265,12 @@ int main(int argc, char** argv) {
   server_config.cluster_gossip_port = config.cluster.gossip_port;
   server_config.cluster_shard_count = config.cluster.shard_count;
   server_config.cluster_seeds = config.cluster.seeds;
+
+  // Copy ACL config
+  server_config.acl_enabled = config.acl_enabled;
+  server_config.acl_default_user = config.acl_default_user;
+  server_config.acl_default_password = config.acl_default_password;
+
 
   // Copy metrics config
   server_config.metrics.enabled = config.metrics.enabled;

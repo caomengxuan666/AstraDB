@@ -1,5 +1,6 @@
 // Copyright 2026 AstraDB Project
 // Licensed under the Apache License, Version 2.0
+// B+ Tree implementation of Sorted Set based on Dragonfly's design
 
 #pragma once
 
@@ -13,49 +14,67 @@
 #include <vector>
 
 #include "astra/base/macros.hpp"
+#include "astra/container/zset/bplustree.hpp"
 
 namespace astra::container {
 
-// ScoredMember - Sorted Set element with score and member
-struct ScoredMember {
+// ScoredMember for B+ Tree - optimized structure with reverse lookup
+struct ScoredMemberCompact {
   double score;
-  std::string member;
+  uint64_t member_hash;  // Hash of the member string
 
-  ScoredMember() : score(0.0) {}
-  ScoredMember(double s, std::string m) : score(s), member(std::move(m)) {}
+  ScoredMemberCompact() : score(0.0), member_hash(0) {}
 
-  // Comparison for ordering by score
-  bool operator<(const ScoredMember& other) const {
+  ScoredMemberCompact(double s, uint64_t h) : score(s), member_hash(h) {}
+
+  // Comparison for ordering by score, then by hash
+  bool operator<(const ScoredMemberCompact& other) const {
     if (score != other.score) {
       return score < other.score;
     }
-    return member < other.member;
+    return member_hash < other.member_hash;
   }
 
-  bool operator==(const ScoredMember& other) const {
-    return score == other.score && member == other.member;
+  bool operator==(const ScoredMemberCompact& other) const {
+    return score == other.score && member_hash == other.member_hash;
   }
+
+  bool operator!=(const ScoredMemberCompact& other) const { return !(*this == other); }
 };
 
-// ZSet - Sorted Set implementation (interface-compatible replacement)
+// Comparator for ScoredMemberCompact with custom policy
+struct ScoredMemberPolicy {
+  using KeyT = ScoredMemberCompact;
+
+  struct KeyCompareTo {
+    int operator()(const ScoredMemberCompact& a, const ScoredMemberCompact& b) const {
+      std::less<ScoredMemberCompact> cmp;
+      return cmp(a, b) ? -1 : (cmp(b, a) ? 1 : 0);
+    }
+  };
+};
+
+// ZSet - Sorted Set implementation using B+ Tree
+// Based on Dragonfly's design with significant memory efficiency improvements
 template <typename Key = std::string, typename Score = double>
-class ZSet {
+class ZSetBPlus {
  public:
   using MemberType = Key;
   using ScoreType = Score;
-  using ElementType = ScoredMember;
+  using ElementType = ScoredMemberCompact;
+  using BPlusTreeSet = BPTree<ElementType, ScoredMemberPolicy>;
+  using MemberMap = absl::flat_hash_map<MemberType, ScoreType>;
 
-  explicit ZSet(size_t expected_size = 1024);
-  ~ZSet();
+  explicit ZSetBPlus(size_t expected_size = 1024) {
+    (void)expected_size;
+  }
+  ~ZSetBPlus() = default;
 
-  // Non-copyable, non-movable (same as original)
-  ZSet(const ZSet&) = delete;
-
-  ZSet& operator=(const ZSet&) = delete;
-
-  ZSet(ZSet&&) = delete;
-
-  ZSet& operator=(ZSet&&) = delete;
+  // Non-copyable, non-movable
+  ZSetBPlus(const ZSetBPlus&) = delete;
+  ZSetBPlus& operator=(const ZSetBPlus&) = delete;
+  ZSetBPlus(ZSetBPlus&&) = delete;
+  ZSetBPlus& operator=(ZSetBPlus&&) = delete;
 
   // Add or update a member with a score
   // Returns true if a new member was added, false if updated
@@ -118,12 +137,28 @@ class ZSet {
   std::vector<std::pair<MemberType, ScoreType>> GetAll() const;
 
  private:
-  // Internal implementation details (replaced B+ tree with TBB + Abseil)
-  struct Impl;  // Forward declare internal implementation
-  Impl* impl_;  // Opaque pointer to hide implementation
+  BPlusTreeSet ordered_set_;       // B+ Tree ordered by (score, hash)
+  MemberMap member_to_score_;      // Fast member -> score lookup
+  absl::flat_hash_map<uint64_t, MemberType> hash_to_member_;  // Reverse mapping: hash -> member
+  mutable absl::Mutex mutex_;
+
+  // Helper function to create ElementType from member and score
+  ElementType MakeElement(const MemberType& member, ScoreType score) const {
+    uint64_t hash = absl::Hash<MemberType>{}(member);
+    return ElementType(score, hash);
+  }
+
+  // Helper function to find member by hash
+  std::optional<MemberType> FindMemberByHash(uint64_t hash) const {
+    auto it = hash_to_member_.find(hash);
+    if (it != hash_to_member_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
 };
 
-// StringZSet - Specialized ZSet for string members (same as original)
-using StringZSet = ZSet<std::string, double>;
+// StringZSetBPlus - Specialized ZSet for string members
+using StringZSetBPlus = ZSetBPlus<std::string, double>;
 
 }  // namespace astra::container

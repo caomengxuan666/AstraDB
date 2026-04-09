@@ -22,7 +22,7 @@
 #include "astra/container/dash_map.hpp"
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
-#include "astra/container/zset/btree_zset.hpp"
+#include "astra/container/zset/bplustree_zset.hpp"
 #include "astra/core/memory/eviction_manager.hpp"
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/core/memory/object_size_estimator.hpp"
@@ -68,7 +68,7 @@ class Database {
   using StringMap = astra::container::DashMap<std::string, StringValue>;
   using SetType = astra::container::DashSet<std::string>;
   using HashType = astra::container::DashMap<std::string, std::string>;
-  using ZSetType = astra::container::ZSet<std::string, double>;
+  using ZSetType = astra::container::ZSetBPlus<std::string, double>;
   using ListType = astra::container::StringList;
 
   Database() : string_pool_(std::make_unique<core::memory::StringPool>()) {}

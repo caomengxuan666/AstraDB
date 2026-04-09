@@ -21,6 +21,7 @@ endif()
 # Create object library for zset implementation
 add_library(astra_zset OBJECT
   zset/btree_zset.cpp
+  zset/bplustree_zset.cpp
 )
 
 target_include_directories(astra_zset PRIVATE

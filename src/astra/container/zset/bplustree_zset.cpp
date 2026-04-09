@@ -3,298 +3,294 @@
 
 #include "astra/container/zset/bplustree_zset.hpp"
 
-#include <absl/container/btree_set.h>
-#include <absl/synchronization/mutex.h>
-#include <tbb/concurrent_hash_map.h>
-
 #include <algorithm>
-#include <stdexcept>
 
 namespace astra::container {
 
-// Internal implementation (hidden from interface)
 template <typename Key, typename Score>
-struct ZSet<Key, Score>::Impl {
-  using MemberScoreMap = tbb::concurrent_hash_map<Key, Score>;
-  using SortedSet = absl::btree_set<ScoredMember>;
+bool ZSetBPlus<Key, Score>::Add(const MemberType& member, ScoreType score) {
+  absl::MutexLock lock(&mutex_);
 
-  MemberScoreMap member_to_score_;
-  SortedSet sorted_set_;
-  mutable absl::Mutex mutex_;  // Protects sorted_set_
+  auto it = member_to_score_.find(member);
+  if (it != member_to_score_.end()) {
+    // Update existing member
+    ScoreType old_score = it->second;
+    if (old_score != score) {
+      // Remove old element and insert new one
+      ElementType old_elem = MakeElement(member, old_score);
+      ordered_set_.Delete(old_elem);
 
-  explicit Impl(size_t expected_size) {
-    member_to_score_.reserve(expected_size);
-  }
-};
+      ElementType new_elem = MakeElement(member, score);
+      ordered_set_.Insert(new_elem);
 
-// Constructor/Destructor
-template <typename Key, typename Score>
-ZSet<Key, Score>::ZSet(size_t expected_size) : impl_(new Impl(expected_size)) {}
-
-template <typename Key, typename Score>
-ZSet<Key, Score>::~ZSet() {
-  Clear();
-  delete impl_;
-}
-
-// Add (same signature as original)
-template <typename Key, typename Score>
-bool ZSet<Key, Score>::Add(const MemberType& member, ScoreType score) {
-  typename Impl::MemberScoreMap::accessor acc;
-  bool is_new = !impl_->member_to_score_.find(acc, member);
-
-  absl::MutexLock lock(&impl_->mutex_);
-
-  if (!is_new) {
-    ScoreType old_score = acc->second;
-    ElementType old_element(old_score, member);
-    impl_->sorted_set_.erase(old_element);
-    acc->second = score;
+      it->second = score;
+      // Update reverse mapping
+      uint64_t hash = absl::Hash<MemberType>{}(member);
+      hash_to_member_[hash] = member;
+    }
+    return false;  // Updated, not added
   } else {
-    impl_->member_to_score_.insert(acc, std::make_pair(member, score));
+    // Add new member
+    ElementType elem = MakeElement(member, score);
+    ordered_set_.Insert(elem);
+    member_to_score_[member] = score;
+    // Add to reverse mapping
+    uint64_t hash = absl::Hash<MemberType>{}(member);
+    hash_to_member_[hash] = member;
+    return true;  // Added
   }
-
-  ElementType new_element(score, member);
-  impl_->sorted_set_.insert(new_element);
-
-  return is_new;
 }
 
-// Remove (same signature as original)
 template <typename Key, typename Score>
-bool ZSet<Key, Score>::Remove(const MemberType& member) {
-  typename Impl::MemberScoreMap::accessor acc;
-  if (!impl_->member_to_score_.find(acc, member)) {
-    return false;
+bool ZSetBPlus<Key, Score>::Remove(const MemberType& member) {
+  absl::MutexLock lock(&mutex_);
+
+  auto it = member_to_score_.find(member);
+  if (it != member_to_score_.end()) {
+    ScoreType score = it->second;
+    ElementType elem = MakeElement(member, score);
+    ordered_set_.Delete(elem);
+    member_to_score_.erase(it);
+    // Remove from reverse mapping
+    uint64_t hash = absl::Hash<MemberType>{}(member);
+    hash_to_member_.erase(hash);
+    return true;  // Removed
   }
-
-  absl::MutexLock lock(&impl_->mutex_);
-
-  ScoreType score = acc->second;
-  ElementType element(score, member);
-  impl_->sorted_set_.erase(element);
-  impl_->member_to_score_.erase(acc);
-
-  return true;
+  return false;  // Not found
 }
 
-// GetScore (same signature as original)
 template <typename Key, typename Score>
-std::optional<typename ZSet<Key, Score>::ScoreType> ZSet<Key, Score>::GetScore(
-    const MemberType& member) const {
-  typename Impl::MemberScoreMap::const_accessor acc;
-  if (!impl_->member_to_score_.find(acc, member)) {
-    return std::nullopt;
+std::optional<typename ZSetBPlus<Key, Score>::ScoreType>
+ZSetBPlus<Key, Score>::GetScore(const MemberType& member) const {
+  absl::MutexLock lock(&mutex_);
+
+  auto it = member_to_score_.find(member);
+  if (it != member_to_score_.end()) {
+    return it->second;
   }
-  return acc->second;
+  return std::nullopt;
 }
 
-// GetRank (same signature as original)
 template <typename Key, typename Score>
-std::optional<uint64_t> ZSet<Key, Score>::GetRank(const MemberType& member,
-                                                  bool reverse) const {
-  typename Impl::MemberScoreMap::const_accessor acc;
-  if (!impl_->member_to_score_.find(acc, member)) {
-    return std::nullopt;
-  }
+std::optional<uint64_t> ZSetBPlus<Key, Score>::GetRank(const MemberType& member,
+                                                         bool reverse) const {
+  absl::MutexLock lock(&mutex_);
 
-  ScoreType score = acc->second;
-  ElementType element(score, member);
-
-  absl::ReaderMutexLock lock(&impl_->mutex_);
-
-  auto it = impl_->sorted_set_.find(element);
-  if (it == impl_->sorted_set_.end()) {
+  auto it = member_to_score_.find(member);
+  if (it == member_to_score_.end()) {
     return std::nullopt;
   }
 
-  uint64_t rank = std::distance(impl_->sorted_set_.begin(), it);
-  if (reverse) {
-    return impl_->sorted_set_.size() - 1 - rank;
-  }
-  return rank;
-}
+  ElementType elem = MakeElement(member, it->second);
+  std::optional<uint32_t> rank_opt = ordered_set_.GetRank(elem, reverse);
 
-// GetByRank (same signature as original)
-template <typename Key, typename Score>
-std::optional<typename ZSet<Key, Score>::MemberType>
-ZSet<Key, Score>::GetByRank(uint64_t rank, bool reverse) const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
-
-  if (rank >= impl_->sorted_set_.size()) {
+  if (!rank_opt.has_value()) {
     return std::nullopt;
   }
 
-  if (reverse) {
-    rank = impl_->sorted_set_.size() - 1 - rank;
-  }
-
-  auto it = impl_->sorted_set_.begin();
-  std::advance(it, rank);
-  return it->member;
+  return static_cast<uint64_t>(rank_opt.value());
 }
 
-// GetScoreByRank (same signature as original)
 template <typename Key, typename Score>
-std::optional<typename ZSet<Key, Score>::ScoreType>
-ZSet<Key, Score>::GetScoreByRank(uint64_t rank, bool reverse) const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
+std::optional<typename ZSetBPlus<Key, Score>::MemberType>
+ZSetBPlus<Key, Score>::GetByRank(uint64_t rank, bool reverse) const {
+  absl::MutexLock lock(&mutex_);
 
-  if (rank >= impl_->sorted_set_.size()) {
+  if (rank >= ordered_set_.Size()) {
     return std::nullopt;
   }
 
-  if (reverse) {
-    rank = impl_->sorted_set_.size() - 1 - rank;
+  auto path = ordered_set_.FromRank(static_cast<uint32_t>(rank));
+  if (path.Depth() == 0) {
+    return std::nullopt;
   }
 
-  auto it = impl_->sorted_set_.begin();
-  std::advance(it, rank);
-  return it->score;
+  // Use reverse mapping to quickly find the member
+  auto [node, pos] = path.Last();
+  ElementType elem = node->Key(pos);
+  return FindMemberByHash(elem.member_hash);
 }
 
-// GetRangeByScore (same signature as original)
 template <typename Key, typename Score>
-std::vector<std::pair<typename ZSet<Key, Score>::MemberType,
-                      typename ZSet<Key, Score>::ScoreType>>
-ZSet<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max,
-                                  bool with_scores) const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
+std::optional<typename ZSetBPlus<Key, Score>::ScoreType>
+ZSetBPlus<Key, Score>::GetScoreByRank(uint64_t rank, bool reverse) const {
+  absl::MutexLock lock(&mutex_);
+
+  if (rank >= ordered_set_.Size()) {
+    return std::nullopt;
+  }
+
+  auto path = ordered_set_.FromRank(static_cast<uint32_t>(rank));
+  if (path.Depth() == 0) {
+    return std::nullopt;
+  }
+
+  auto [node, pos] = path.Last();
+  ElementType elem = node->Key(pos);
+  return elem.score;
+}
+
+template <typename Key, typename Score>
+std::vector<std::pair<typename ZSetBPlus<Key, Score>::MemberType,
+                      typename ZSetBPlus<Key, Score>::ScoreType>>
+ZSetBPlus<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max,
+                                        bool with_scores) const {
+  absl::MutexLock lock(&mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;
-  ElementType min_element(min, "");
-  ElementType max_element(max, "");
 
-  auto lower = impl_->sorted_set_.lower_bound(min_element);
-  auto upper = impl_->sorted_set_.upper_bound(max_element);
+  // Iterate through all elements and filter by score range
+  for (uint32_t i = 0; i < ordered_set_.Size(); ++i) {
+    auto path = ordered_set_.FromRank(i);
+    if (path.Depth() == 0) continue;
 
-  for (auto it = lower; it != upper; ++it) {
-    if (with_scores) {
-      result.emplace_back(it->member, it->score);
-    } else {
-      result.emplace_back(it->member, 0.0);
+    auto [node, pos] = path.Last();
+    ElementType elem = node->Key(pos);
+    double score = elem.score;
+
+    if (score >= min && score <= max) {
+      // Use reverse mapping to quickly find the member
+      auto member_opt = FindMemberByHash(elem.member_hash);
+      if (member_opt.has_value()) {
+        if (with_scores) {
+          result.push_back({member_opt.value(), score});
+        } else {
+          result.push_back({member_opt.value(), 0.0});
+        }
+      }
     }
   }
 
   return result;
 }
 
-// GetRangeByRank (same signature as original)
 template <typename Key, typename Score>
-std::vector<std::pair<typename ZSet<Key, Score>::MemberType,
-                      typename ZSet<Key, Score>::ScoreType>>
-ZSet<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop, bool reverse,
-                                 bool with_scores) const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
+std::vector<std::pair<typename ZSetBPlus<Key, Score>::MemberType,
+                      typename ZSetBPlus<Key, Score>::ScoreType>>
+ZSetBPlus<Key, Score>::GetRangeByRank(uint64_t start, uint64_t stop,
+                                      bool reverse, bool with_scores) const {
+  absl::MutexLock lock(&mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;
-  uint64_t size = impl_->sorted_set_.size();
 
-  if (start >= size) {
+  if (start >= ordered_set_.Size()) {
     return result;
   }
-  if (stop >= size) {
-    stop = size - 1;
-  }
 
-  if (reverse) {
-    uint64_t temp = start;
-    start = size - 1 - stop;
-    stop = size - 1 - temp;
-  }
+  stop = std::min(stop, ordered_set_.Size() - 1);
 
-  auto it = impl_->sorted_set_.begin();
-  std::advance(it, start);
-  for (uint64_t i = start; i <= stop; ++i, ++it) {
-    if (with_scores) {
-      result.emplace_back(it->member, it->score);
-    } else {
-      result.emplace_back(it->member, 0.0);
+  for (uint64_t i = start; i <= stop; ++i) {
+    uint32_t rank = reverse ? (ordered_set_.Size() - 1 - i) : i;
+    auto path = ordered_set_.FromRank(rank);
+    if (path.Depth() == 0) continue;
+
+    auto [node, pos] = path.Last();
+    ElementType elem = node->Key(pos);
+    double score = elem.score;
+
+    // Use reverse mapping to quickly find the member
+    auto member_opt = FindMemberByHash(elem.member_hash);
+    if (member_opt.has_value()) {
+      if (with_scores) {
+        result.push_back({member_opt.value(), score});
+      } else {
+        result.push_back({member_opt.value(), 0.0});
+      }
     }
-  }
-
-  if (reverse) {
-    std::reverse(result.begin(), result.end());
   }
 
   return result;
 }
 
-// CountRange (same signature as original)
 template <typename Key, typename Score>
-uint64_t ZSet<Key, Score>::CountRange(ScoreType min, ScoreType max) const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
+uint64_t ZSetBPlus<Key, Score>::CountRange(ScoreType min, ScoreType max) const {
+  absl::MutexLock lock(&mutex_);
 
-  ElementType min_element(min, "");
-  ElementType max_element(max, "");
-
-  auto lower = impl_->sorted_set_.lower_bound(min_element);
-  auto upper = impl_->sorted_set_.upper_bound(max_element);
-  return std::distance(lower, upper);
-}
-
-// Size (same signature as original)
-template <typename Key, typename Score>
-size_t ZSet<Key, Score>::Size() const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
-  return impl_->member_to_score_.size();
-}
-
-// Empty (same signature as original)
-template <typename Key, typename Score>
-bool ZSet<Key, Score>::Empty() const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
-  return impl_->member_to_score_.empty();
-}
-
-// Contains (same signature as original)
-template <typename Key, typename Score>
-bool ZSet<Key, Score>::Contains(const MemberType& member) const {
-  typename Impl::MemberScoreMap::const_accessor acc;
-  return impl_->member_to_score_.find(acc, member);
-}
-
-// RemoveRangeByScore (same signature as original)
-template <typename Key, typename Score>
-uint64_t ZSet<Key, Score>::RemoveRangeByScore(ScoreType min, ScoreType max) {
-  auto range = GetRangeByScore(min, max, false);
   uint64_t count = 0;
 
-  for (const auto& [member, _] : range) {
-    if (Remove(member)) {
-      ++count;
+  for (uint32_t i = 0; i < ordered_set_.Size(); ++i) {
+    auto path = ordered_set_.FromRank(i);
+    if (path.Depth() == 0) continue;
+
+    auto [node, pos] = path.Last();
+    ElementType elem = node->Key(pos);
+    double score = elem.score;
+
+    if (score >= min && score <= max) {
+      count++;
     }
   }
 
   return count;
 }
 
-// Clear (same signature as original)
 template <typename Key, typename Score>
-void ZSet<Key, Score>::Clear() {
-  absl::MutexLock lock(&impl_->mutex_);
-  impl_->member_to_score_.clear();
-  impl_->sorted_set_.clear();
+size_t ZSetBPlus<Key, Score>::Size() const {
+  absl::MutexLock lock(&mutex_);
+  return ordered_set_.Size();
 }
 
-// GetAll (same signature as original)
 template <typename Key, typename Score>
-std::vector<std::pair<typename ZSet<Key, Score>::MemberType,
-                      typename ZSet<Key, Score>::ScoreType>>
-ZSet<Key, Score>::GetAll() const {
-  absl::ReaderMutexLock lock(&impl_->mutex_);
+bool ZSetBPlus<Key, Score>::Empty() const {
+  absl::MutexLock lock(&mutex_);
+  return ordered_set_.Empty();
+}
+
+template <typename Key, typename Score>
+bool ZSetBPlus<Key, Score>::Contains(const MemberType& member) const {
+  absl::MutexLock lock(&mutex_);
+  return member_to_score_.find(member) != member_to_score_.end();
+}
+
+template <typename Key, typename Score>
+uint64_t ZSetBPlus<Key, Score>::RemoveRangeByScore(ScoreType min, ScoreType max) {
+  absl::MutexLock lock(&mutex_);
+
+  uint64_t removed = 0;
+  std::vector<MemberType> to_remove;
+
+  // Find all members in the score range
+  for (const auto& [member, score] : member_to_score_) {
+    if (score >= min && score <= max) {
+      to_remove.push_back(member);
+    }
+  }
+
+  // Remove them
+  for (const auto& member : to_remove) {
+    if (Remove(member)) {
+      removed++;
+    }
+  }
+
+  return removed;
+}
+
+template <typename Key, typename Score>
+void ZSetBPlus<Key, Score>::Clear() {
+  absl::MutexLock lock(&mutex_);
+  ordered_set_.Clear();
+  member_to_score_.clear();
+  hash_to_member_.clear();
+}
+
+template <typename Key, typename Score>
+std::vector<std::pair<typename ZSetBPlus<Key, Score>::MemberType,
+                      typename ZSetBPlus<Key, Score>::ScoreType>>
+ZSetBPlus<Key, Score>::GetAll() const {
+  absl::MutexLock lock(&mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;
-  result.reserve(impl_->member_to_score_.size());
+  result.reserve(member_to_score_.size());
 
-  for (const auto& [member, score] : impl_->member_to_score_) {
-    result.emplace_back(member, score);
+  for (const auto& [member, score] : member_to_score_) {
+    result.push_back({member, score});
   }
 
   return result;
 }
 
-// Explicit template instantiation (same as original)
-template class ZSet<std::string, double>;
+// Explicit template instantiations
+template class ZSetBPlus<std::string, double>;
 
 }  // namespace astra::container
