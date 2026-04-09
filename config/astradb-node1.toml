@@ -4,8 +4,8 @@ host = "0.0.0.0"
 port = 7001
 max_connections = 10000
 thread_count = 4
-use_per_worker_io = true
-use_so_reuseport = true
+use_per_worker_io = false
+use_so_reuseport = false
 
 [database]
 num_databases = 16
