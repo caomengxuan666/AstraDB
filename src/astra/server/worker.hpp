@@ -15,6 +15,7 @@
 #include "absl/container/inlined_vector.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "astra/base/config.hpp"
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/commands/blocking_manager.hpp"
@@ -29,6 +30,7 @@
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
+#include "astra/replication/replication_manager.hpp"
 #include "managers.hpp"
 
 // Cluster support
@@ -135,6 +137,13 @@ class WorkerCommandContext : public astra::commands::CommandContext {
 
   // Set connection (called when processing a command)
   void SetConnection(void* connection) { connection_ = connection; }
+
+  // Get raw socket (for special operations like replication)
+  // Returns nullptr if not set
+  asio::ip::tcp::socket* GetRawSocket() const override { return socket_ptr_; }
+
+  // Set raw socket (called when processing a command)
+  void SetRawSocket(asio::ip::tcp::socket* socket) { socket_ptr_ = socket; }
 
   // Get connection ID (for blocking manager)
   uint64_t GetConnectionId() const override { return connection_id_; }
@@ -246,6 +255,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   class replication::ReplicationManager* replication_manager_ = nullptr;
   commands::PubSubManager* pubsub_manager_ = nullptr;
   void* connection_ = nullptr;
+  asio::ip::tcp::socket* socket_ptr_ = nullptr;
   uint64_t connection_id_ = 0;
   std::function<void(const std::string&)> aof_callback_;
   std::function<std::string(bool)>
@@ -399,12 +409,14 @@ class DataShard {
     for (const auto& node : all_nodes) {
       std::string node_id = cluster::GossipManager::NodeIdToString(node.id);
       if (node_id == slot_owner.value()) {
+        // Convert gossip port to data port (data_port = gossip_port - 10000)
+        uint16_t data_port = static_cast<uint16_t>(node.port - 10000);
         // Return MOVED error with target node information
         auto moved_response =
-            astra::protocol::RespBuilder::BuildMoved(slot, node.ip, node.port);
+            astra::protocol::RespBuilder::BuildMoved(slot, node.ip, data_port);
         ASTRADB_LOG_DEBUG(
             "Shard {}: Returning MOVED error - slot={}, target={}:{}",
-            shard_id_, slot, node.ip, node.port);
+            shard_id_, slot, node.ip, data_port);
         return moved_response;
       }
     }
@@ -617,13 +629,23 @@ class Worker {
   friend class PubSubManager;
 
   explicit Worker(size_t worker_id, const std::string& host, uint16_t port,
-                  std::vector<Worker*> all_workers)
+                  std::vector<Worker*> all_workers,
+                  const ::astra::base::ReplicationConfig& replication_config)
       : worker_id_(worker_id),
         io_context_(),
         acceptor_(io_context_),
         data_shard_(worker_id),
         all_workers_(std::move(all_workers)),
         running_(false) {
+    // Copy replication config
+    replication_config_.role = replication_config.role;
+    replication_config_.enabled = replication_config.enabled;
+    replication_config_.master_host = replication_config.master_host;
+    replication_config_.master_port = replication_config.master_port;
+    replication_config_.master_auth = replication_config.master_auth;
+    replication_config_.read_only = replication_config.read_only;
+    replication_config_.repl_backlog_size = replication_config.repl_backlog_size;
+    replication_config_.repl_timeout = replication_config.repl_timeout;
     ASTRADB_LOG_INFO("Worker {}: Creating", worker_id_);
 
     // Setup acceptor
@@ -699,8 +721,48 @@ class Worker {
     // Initialize pubsub manager
     pubsub_manager_ = std::make_unique<PubSubManager>(this, worker_id_);
 
+    // Initialize replication manager
+    replication_manager_ = std::make_unique<replication::ReplicationManager>();
+    replication::ReplicationConfig repl_config;
+    // Convert base config to replication config
+    std::string role_lower = replication_config_.role;
+    std::transform(role_lower.begin(), role_lower.end(), role_lower.begin(),
+                   ::tolower);
+    if (role_lower == "master") {
+      repl_config.role = replication::ReplicationRole::kMaster;
+    } else if (role_lower == "slave") {
+      repl_config.role = replication::ReplicationRole::kSlave;
+    } else {
+      repl_config.role = replication::ReplicationRole::kNone;
+    }
+    repl_config.master_host = replication_config_.master_host;
+    repl_config.master_port = replication_config_.master_port;
+    repl_config.master_auth = replication_config_.master_auth;
+    repl_config.read_only = replication_config_.read_only;
+    repl_config.repl_backlog_size = replication_config_.repl_backlog_size;
+
+    // Set worker ID before initialization (NO SHADING compliance)
+    replication_manager_->SetWorkerId(worker_id_);
+
+    if (replication_manager_->Init(repl_config,
+                                    &data_shard_.GetDatabase(),
+                                    &io_context_)) {
+      ASTRADB_LOG_INFO("Worker {}: Replication manager initialized as {}",
+                       worker_id_,
+                       repl_config.role == replication::ReplicationRole::kMaster
+                           ? "master"
+                           : "slave");
+    } else {
+      ASTRADB_LOG_ERROR("Worker {}: Failed to initialize replication manager",
+                        worker_id_);
+    }
+
     // Set pubsub manager in command context (required for PUBSUB commands)
     data_shard_.GetCommandContext()->SetPubSubManager(pubsub_manager_.get());
+
+    // Set replication manager in command context (required for replication commands)
+    data_shard_.GetCommandContext()->SetReplicationManager(
+        replication_manager_.get());
 
     // Set command registry in command context (required for COMMAND command)
     data_shard_.GetCommandContext()->SetCommandRegistry(
@@ -799,6 +861,14 @@ class Worker {
   // Get local stats (NO SHARING architecture - each worker has its own stats)
   ServerStats& GetLocalStats() { return local_stats_; }
   const ServerStats& GetLocalStats() const { return local_stats_; }
+
+  // Get replication manager (for cross-worker replication propagation)
+  replication::ReplicationManager* GetReplicationManager() {
+    return replication_manager_.get();
+  }
+  const replication::ReplicationManager* GetReplicationManager() const {
+    return replication_manager_.get();
+  }
 
   // Get data shard (for RDB loading)
   DataShard& GetDataShard() { return data_shard_; }
@@ -931,6 +1001,7 @@ class Worker {
   void SetWorkerScheduler(class WorkerScheduler* worker_scheduler) {
     ASTRADB_LOG_DEBUG("Worker {}: SetWorkerScheduler called with ptr={}",
                       worker_id_, static_cast<const void*>(worker_scheduler));
+    worker_scheduler_ = worker_scheduler;
     data_shard_.GetCommandContext()->SetWorkerScheduler(worker_scheduler);
   }
 
@@ -976,6 +1047,9 @@ class Worker {
     batch_resp_queue_.enqueue(resp);
     NotifyExecutorLoop();
   }
+
+  // Propagate command to all slaves via WorkerScheduler (NO SHADING architecture)
+  void PropagateCommandToAllSlaves(const astra::protocol::Command& cmd);
 
   // Enqueue batch request (called by other workers)
   void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
@@ -1045,7 +1119,8 @@ class Worker {
                   ASTRADB_LOG_DEBUG(
                       "Worker {}: Connection {} removed, total connections: {}",
                       worker_id_, conn_id, connections_.size());
-                });
+                },
+                io_context_);
 
             connections_[conn_id] = conn;
             conn->Start();
@@ -1070,14 +1145,16 @@ class Worker {
                moodycamel::ConcurrentQueue<CommandWithConnId>* cmd_queue,
                moodycamel::ConcurrentQueue<ResponseWithConnId>* resp_queue,
                std::function<void()> notify_callback,
-               std::function<void(uint64_t)> on_close_callback)
+               std::function<void(uint64_t)> on_close_callback,
+               asio::io_context& io_context)
         : worker_id_(worker_id),
           conn_id_(conn_id),
           socket_(std::move(socket)),
           cmd_queue_(cmd_queue),
           resp_queue_(resp_queue),
           notify_callback_(std::move(notify_callback)),
-          on_close_callback_(std::move(on_close_callback)) {
+          on_close_callback_(std::move(on_close_callback)),
+          io_context_(io_context) {
       // Enable TCP_NODELAY to disable Nagle's algorithm (like Redis)
       asio::ip::tcp::no_delay option(true);
       socket_.set_option(option);
@@ -1156,6 +1233,21 @@ class Worker {
 
     int GetProtocolVersion() const {
       return 3;  // Default to RESP3
+    }
+
+    // TODO: Consider refactoring to use a common interface instead of void* casting
+    // The Worker::Connection and astra::network::Connection classes are separate
+    // but have compatible methods (duck typing). This works but could be improved
+    // with a proper interface in the future.
+    
+    void SetProtocolVersion(int version) {
+      // For now, this is a no-op as Worker::Connection defaults to RESP3
+      // In the future, we may want to support RESP2/RESP3 switching
+      (void)version;
+    }
+    
+    asio::io_context& GetIOContext() {
+      return io_context_;
     }
 
    private:
@@ -1266,6 +1358,7 @@ class Worker {
     std::array<char, 1024> buffer_;
     std::string receive_buffer_;
     std::string client_name_;
+    asio::io_context& io_context_;
   };
 
   // Calculate which worker should handle this key (consistent hashing)
@@ -1296,6 +1389,18 @@ class Worker {
           // Execute directly and send response back to source worker
           LocalCommandTimer timer(cmd.command.name, &local_stats_);
           std::string response = data_shard_.Execute(cmd.command);
+          
+          // Propagate command to slaves if this is a master (NO SHADING architecture)
+          // Even forwarded commands need to be propagated to slaves
+          if (replication_manager_ && 
+              replication_manager_->GetRole() == replication::ReplicationRole::kMaster) {
+            auto* registry = data_shard_.GetCommandRegistry();
+            auto* info = registry ? registry->GetInfo(cmd.command.name) : nullptr;
+            if (info && info->is_write) {
+              PropagateCommandToAllSlaves(cmd.command);
+            }
+          }
+          
           CrossWorkerResponse cross_resp{cmd.conn_id, response};
           all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
               cross_resp);
@@ -1304,11 +1409,26 @@ class Worker {
           // Determine if this command should be forwarded to another worker
           // Check if command has a key argument
           size_t target_worker = worker_id_;
-          if (!cmd.command.args.empty() &&
+          auto routing_strategy =
+              data_shard_.GetCommandRegistry()->GetRoutingStrategy(
+                  cmd.command.name);
+
+          ASTRADB_LOG_DEBUG(
+              "Worker {}: Command '{}' has routing strategy={}, args_count={}",
+              worker_id_, cmd.command.name,
+              static_cast<int>(routing_strategy), cmd.command.args.size());
+
+          // Only route if command supports routing and has key argument
+          if (routing_strategy != commands::RoutingStrategy::kNone &&
+              !cmd.command.args.empty() &&
               (cmd.command.args[0].IsBulkString() ||
                cmd.command.args[0].IsSimpleString())) {
             std::string key = cmd.command.args[0].AsString();
             target_worker = RouteToWorker(key);
+            ASTRADB_LOG_DEBUG(
+                "Worker {}: Command '{}' has key='{}, routing to worker {} "
+                "(current worker={})",
+                worker_id_, cmd.command.name, key, target_worker, worker_id_);
           }
 
           if (target_worker == worker_id_) {
@@ -1322,9 +1442,23 @@ class Worker {
               data_shard_.GetCommandContext()->SetConnection(
                   conn_it->second.get());
               data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
+              // Also set raw socket pointer for direct access (e.g., replication)
+              data_shard_.GetCommandContext()->SetRawSocket(
+                  &conn_it->second->GetSocket());
             }
 
             std::string response = data_shard_.Execute(cmd.command);
+            
+            // Propagate command to slaves if this is a master (NO SHADING architecture)
+            if (replication_manager_ && 
+                replication_manager_->GetRole() == replication::ReplicationRole::kMaster) {
+              auto* registry = data_shard_.GetCommandRegistry();
+              auto* info = registry ? registry->GetInfo(cmd.command.name) : nullptr;
+              if (info && info->is_write) {
+                PropagateCommandToAllSlaves(cmd.command);
+              }
+            }
+            
             ResponseWithConnId resp{cmd.conn_id, response};
             resp_queue_.enqueue(resp);
 
@@ -1553,6 +1687,24 @@ class Worker {
 
   // PubSub manager for publish/subscribe commands (NO SHARING architecture)
   std::unique_ptr<PubSubManager> pubsub_manager_;
+
+// Replication manager for master-slave replication (NO SHADING architecture)
+  std::unique_ptr<replication::ReplicationManager> replication_manager_;
+
+  // Worker scheduler for cross-worker task dispatch (NO SHADING architecture)
+  class WorkerScheduler* worker_scheduler_ = nullptr;
+
+  // Replication config (NO SHARING architecture - each worker has its own config)
+  struct ReplicationConfig {
+    bool enabled = false;
+    std::string role = "master";
+    std::string master_host = "127.0.0.1";
+    uint16_t master_port = 6379;
+    std::string master_auth = "";
+    bool read_only = false;
+    uint64_t repl_backlog_size = 1 * 1024 * 1024;
+    uint32_t repl_timeout = 60;
+  } replication_config_;
 
   // PubSub message queue for receiving PUBLISH messages from other workers
   moodycamel::ConcurrentQueue<PubSubMessage> pubsub_msg_queue_;
@@ -1928,6 +2080,8 @@ inline bool Worker::ProcessBatchResponses() {
   }
   return has_work;
 }
+
+
 
 // Enqueue a client info response
 inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {

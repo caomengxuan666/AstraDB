@@ -178,6 +178,10 @@ class CommandContext {
   // Get connection pointer (optional - return nullptr if not available)
   virtual astra::network::Connection* GetConnection() const { return nullptr; }
 
+  // Get raw socket pointer for special operations like replication
+  // Returns nullptr if not available or not supported
+  virtual asio::ip::tcp::socket* GetRawSocket() const { return nullptr; }
+
   // ============== RESP Protocol Version Support ==============
   // Get current RESP protocol version (default to 2)
   virtual int GetProtocolVersion() const {

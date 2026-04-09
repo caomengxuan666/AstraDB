@@ -23,10 +23,6 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
 CommandResult HandleDebug(const astra::protocol::Command& command,
                           CommandContext* context);
 
-// CLUSTER - Cluster management commands
-CommandResult HandleCluster(const astra::protocol::Command& command,
-                            CommandContext* context);
-
 // MIGRATE - Migrate key to another node
 CommandResult HandleMigrate(const astra::protocol::Command& command,
                             CommandContext* context);

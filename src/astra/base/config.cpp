@@ -187,6 +187,43 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       }
     }
 
+    // Replication
+    if (data["replication"]) {
+      auto replication = *data["replication"].as_table();
+      if (replication["enabled"]) {
+        config.replication.enabled =
+            replication["enabled"].value_or<bool>(false);
+      }
+      if (replication["role"]) {
+        config.replication.role =
+            replication["role"].value_or<std::string>("master");
+      }
+      if (replication["master_host"]) {
+        config.replication.master_host =
+            replication["master_host"].value_or<std::string>("127.0.0.1");
+      }
+      if (replication["master_port"]) {
+        config.replication.master_port =
+            replication["master_port"].value_or<uint16_t>(6379);
+      }
+      if (replication["master_auth"]) {
+        config.replication.master_auth =
+            replication["master_auth"].value_or<std::string>("");
+      }
+      if (replication["read_only"]) {
+        config.replication.read_only =
+            replication["read_only"].value_or<bool>(false);
+      }
+      if (replication["repl_backlog_size"]) {
+        config.replication.repl_backlog_size =
+            replication["repl_backlog_size"].value_or<uint64_t>(1 * 1024 * 1024);
+      }
+      if (replication["repl_timeout"]) {
+        config.replication.repl_timeout =
+            replication["repl_timeout"].value_or<uint32_t>(60);
+      }
+    }
+
     // Metrics
     if (data["metrics"]) {
       auto metrics = *data["metrics"].as_table();

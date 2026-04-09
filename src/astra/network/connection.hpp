@@ -75,6 +75,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // Check if connected
   bool IsConnected() const { return socket_.is_open(); }
 
+  // Get socket (for special operations like replication)
+  Socket& GetSocket() { return socket_; }
+
+  // Get io_context (for spawning coroutines)
+  Executor& GetIOContext() { return io_context_; }
+
   // Send data to client
   void Send(const std::string& data);
 

@@ -51,6 +51,18 @@ struct MemoryConfig {
   bool enable_tracking = true;
 };
 
+// Replication configuration
+struct ReplicationConfig {
+  bool enabled = false;
+  std::string role = "master";  // master or slave
+  std::string master_host = "127.0.0.1";
+  uint16_t master_port = 6379;
+  std::string master_auth = "";
+  bool read_only = false;
+  uint64_t repl_backlog_size = 1 * 1024 * 1024;  // 1MB
+  uint32_t repl_timeout = 60;  // seconds
+};
+
 struct ServerConfig {
   // Network
   std::string host = "0.0.0.0";
@@ -109,6 +121,9 @@ struct ServerConfig {
 
   // Memory
   MemoryConfig memory;
+
+  // Replication
+  ReplicationConfig replication;
 
   // Metrics
   struct MetricsConfig {

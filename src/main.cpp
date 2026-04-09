@@ -281,6 +281,16 @@ int main(int argc, char** argv) {
   server_config.memory.eviction_samples = config.memory.eviction_samples;
   server_config.memory.enable_tracking = config.memory.enable_tracking;
 
+  // Copy replication config
+  server_config.replication.enabled = config.replication.enabled;
+  server_config.replication.role = config.replication.role;
+  server_config.replication.master_host = config.replication.master_host;
+  server_config.replication.master_port = config.replication.master_port;
+  server_config.replication.master_auth = config.replication.master_auth;
+  server_config.replication.read_only = config.replication.read_only;
+  server_config.replication.repl_backlog_size = config.replication.repl_backlog_size;
+  server_config.replication.repl_timeout = config.replication.repl_timeout;
+
   // Copy RocksDB config
   server_config.rocksdb.enabled = config.rocksdb.enabled;
   server_config.rocksdb.data_dir = config.rocksdb.data_dir;
