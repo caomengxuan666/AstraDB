@@ -10,8 +10,8 @@
 #include <thread>
 #include <vector>
 
-#include "astra/commands/redis/admin_commands.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/commands/redis/admin_commands.hpp"
 #include "astra/commands/redis/string_commands.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 

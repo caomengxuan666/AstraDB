@@ -10,8 +10,8 @@
 #include "astra/cluster/cluster_config.hpp"
 #include "astra/cluster/gossip_manager.hpp"
 #include "astra/cluster/shard_manager.hpp"
-#include "astra/server/server.hpp"
 #include "astra/commands/command_auto_register.hpp"
+#include "astra/server/server.hpp"
 #include "core/gossip_core.hpp"  // For libgossip types
 
 namespace astra::commands {
@@ -248,26 +248,27 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
       // Get all nodes and their slot assignments from gossip metadata
       auto nodes = gossip->GetNodes();
-      
+
       // Add self to the list (GetNodes() only returns other nodes)
       std::vector<cluster::AstraNodeView> all_nodes;
       all_nodes.push_back(self);  // Add self first
-      all_nodes.insert(all_nodes.end(), nodes.begin(), nodes.end());  // Add other nodes
-      
+      all_nodes.insert(all_nodes.end(), nodes.begin(),
+                       nodes.end());  // Add other nodes
+
       for (const auto& node : all_nodes) {
         std::string node_id_str = FormatNodeId(node.id);
-        
+
         // Get slot assignments from node metadata
         std::string slots_str;
         if (node.metadata.contains("slots")) {
           slots_str = node.metadata.at("slots");
         }
-        
+
         // Skip nodes without slots
         if (slots_str.empty()) {
           continue;
         }
-        
+
         // Parse slot ranges from metadata (format: "0-1000 2000-3000")
         std::vector<std::pair<uint16_t, uint16_t>> slot_ranges;
         std::istringstream iss(slots_str);
@@ -285,7 +286,7 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
             slot_ranges.emplace_back(slot, slot);
           }
         }
-        
+
         // Create slot info for this node
         for (const auto& [start, end] : slot_ranges) {
           std::vector<RespValue> slot_info;
@@ -297,7 +298,8 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
           slot_info.push_back(end_slot);
 
           // Add node info: ip, port, node_id
-          // FIX: Convert gossip port to data port (data_port = gossip_port - 10000)
+          // FIX: Convert gossip port to data port (data_port = gossip_port -
+          // 10000)
           RespValue ip_val, port_val, node_id_val;
           ip_val.SetString(node.ip, protocol::RespType::kBulkString);
           port_val.SetInteger(node.port - 10000);  // FIX: Convert to data port
@@ -600,7 +602,8 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
 
     // Check if this node is a replica
     if (self.role != "replica") {
-      return CommandResult(false, "ERR You can send FAILOVER only when the node is a replica");
+      return CommandResult(
+          false, "ERR You can send FAILOVER only when the node is a replica");
     }
 
     bool force = false;
@@ -615,7 +618,8 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
       } else if (upper_option == "TAKEOVER") {
         takeover = true;
       } else {
-        return CommandResult(false, "ERR FAILOVER option must be FORCE or TAKEOVER");
+        return CommandResult(false,
+                             "ERR FAILOVER option must be FORCE or TAKEOVER");
       }
     }
 
@@ -630,7 +634,8 @@ CommandResult HandleCluster(const astra::protocol::Command& command,
     // For now, we'll just return OK
     // TODO: Implement actual failover logic
 
-    ASTRADB_LOG_INFO("CLUSTER FAILOVER called: force={}, takeover={}", force, takeover);
+    ASTRADB_LOG_INFO("CLUSTER FAILOVER called: force={}, takeover={}", force,
+                     takeover);
 
     RespValue response;
     response.SetString("OK", protocol::RespType::kSimpleString);

@@ -45,16 +45,15 @@ CommandResult HandleSync(const protocol::Command& command,
 
   ASTRADB_LOG_DEBUG("SYNC: socket pointer={}", static_cast<void*>(socket));
 
-  // TODO: The current implementation uses a blocking write for the SYNC response header
-  // This works for testing but should be made non-blocking in production
+  // TODO: The current implementation uses a blocking write for the SYNC
+  // response header This works for testing but should be made non-blocking in
+  // production
 
   ASTRADB_LOG_DEBUG("SYNC: Writing response header to socket");
 
   // Write response header directly to socket (blocking for now)
   asio::error_code ec;
-  size_t bytes_sent = asio::write(
-      *socket, asio::buffer(response_header),
-      ec);
+  size_t bytes_sent = asio::write(*socket, asio::buffer(response_header), ec);
 
   if (ec) {
     ASTRADB_LOG_ERROR("Failed to write SYNC response: {}", ec.message());
@@ -67,7 +66,8 @@ CommandResult HandleSync(const protocol::Command& command,
   // We need to keep the socket alive during the async operation
   asio::co_spawn(
       socket->get_executor(),
-      [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+      [repl_manager, socket,
+       conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
         co_await repl_manager->SendRdbSnapshot(socket, conn_id);
       },
       asio::detached);
@@ -115,15 +115,14 @@ CommandResult HandlePsync(const protocol::Command& command,
   // 2. If FULLRESYNC, spawn a coroutine to send the RDB snapshot
   // 3. Then continue sending command stream
 
-  std::string response_header = repl_manager->HandlePsync(replication_id, offset);
+  std::string response_header =
+      repl_manager->HandlePsync(replication_id, offset);
 
   ASTRADB_LOG_DEBUG("PSYNC: socket pointer={}", static_cast<void*>(socket));
 
   // Write response header directly to socket (blocking for now)
   asio::error_code ec;
-  size_t bytes_sent = asio::write(
-      *socket, asio::buffer(response_header),
-      ec);
+  size_t bytes_sent = asio::write(*socket, asio::buffer(response_header), ec);
 
   if (ec) {
     ASTRADB_LOG_ERROR("Failed to write PSYNC response: {}", ec.message());
@@ -135,15 +134,18 @@ CommandResult HandlePsync(const protocol::Command& command,
   // Check if FULLRESYNC is required (response contains "FULLRESYNC")
   if (response_header.find("FULLRESYNC") != std::string::npos) {
     // Register slave with replication manager
-    std::string remote_addr = socket->remote_endpoint().address().to_string() + ":" + 
-                             std::to_string(socket->remote_endpoint().port());
-    repl_manager->RegisterSlave(socket, context->GetConnectionId(), remote_addr);
-    
+    std::string remote_addr = socket->remote_endpoint().address().to_string() +
+                              ":" +
+                              std::to_string(socket->remote_endpoint().port());
+    repl_manager->RegisterSlave(socket, context->GetConnectionId(),
+                                remote_addr);
+
     // Spawn coroutine to send RDB snapshot
     // We need to keep the socket alive during the async operation
     asio::co_spawn(
         socket->get_executor(),
-        [repl_manager, socket, conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
+        [repl_manager, socket,
+         conn_id = context->GetConnectionId()]() -> asio::awaitable<void> {
           co_await repl_manager->SendRdbSnapshot(socket, conn_id);
         },
         asio::detached);
@@ -253,8 +255,7 @@ CommandResult HandleReplicaof(const protocol::Command& command,
 
   if (repl_manager->GetRole() == replication::ReplicationRole::kMaster) {
     // Cannot change from master to slave while being a master
-    return CommandResult(
-        false, "ERR Cannot change role from master to slave");
+    return CommandResult(false, "ERR Cannot change role from master to slave");
   }
 
   ASTRADB_LOG_DEBUG("Setting up replication to {}:{}", host, port);

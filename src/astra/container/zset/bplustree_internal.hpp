@@ -11,86 +11,105 @@
 
 namespace astra::container {
 
-template <typename T, typename Policy> class BPTree;
+template <typename T, typename Policy>
+class BPTree;
 
 namespace detail {
 
-// Internal classes related to B+tree implementation. The design is largely based on the
-// implementation of absl::bPtree_map/set.
-// The motivation for replacing zskiplist - significant size reduction:
-//   we reduce the metadata overhead per record from 45 bytes in zskiplist to just a
-//   few bytes with b-tree. The trick is using significantly large nodes (256 bytes) so that
-//   their overhead is negligible compared to the items they store.
-//   Why not use absl::bPtree_set? We must support Rank tree functionality that
-//   absl does not supply.
-//   Hacking into absl is not a simple task, implementing our own tree is easier.
+// Internal classes related to B+tree implementation. The design is largely
+// based on the implementation of absl::bPtree_map/set. The motivation for
+// replacing zskiplist - significant size reduction:
+//   we reduce the metadata overhead per record from 45 bytes in zskiplist to
+//   just a few bytes with b-tree. The trick is using significantly large nodes
+//   (256 bytes) so that their overhead is negligible compared to the items they
+//   store. Why not use absl::bPtree_set? We must support Rank tree
+//   functionality that absl does not supply. Hacking into absl is not a simple
+//   task, implementing our own tree is easier.
 // Below some design decisions:
-// 1. We use predefined node size of 256 bytes and derive number of items in each node from it.
-//    Inner nodes have less items than leaf nodes because they also need to store child pointers.
-// 2. BPTreeNode does not predeclare fields besides the 8 bytes metadata - everything else is
-//    calculated at run-time and has dedicated accessors (similarly to absl). This allows
-//    dense and efficient representation of tree nodes.
-// 3. We assume that we store small items (8, 16 bytes) which will have a large branching
-//    factor (248/16), meaning the tree will stay shallow even for sizes reaching billion nodes.
-// 4. We do not store parent pointer like in absl tree. Instead we use BPTreePath to store
-//    hierarchy of parent nodes. That should reduce our overhead even further by few bits per item.
+// 1. We use predefined node size of 256 bytes and derive number of items in
+// each node from it.
+//    Inner nodes have less items than leaf nodes because they also need to
+//    store child pointers.
+// 2. BPTreeNode does not predeclare fields besides the 8 bytes metadata -
+// everything else is
+//    calculated at run-time and has dedicated accessors (similarly to absl).
+//    This allows dense and efficient representation of tree nodes.
+// 3. We assume that we store small items (8, 16 bytes) which will have a large
+// branching
+//    factor (248/16), meaning the tree will stay shallow even for sizes
+//    reaching billion nodes.
+// 4. We do not store parent pointer like in absl tree. Instead we use
+// BPTreePath to store
+//    hierarchy of parent nodes. That should reduce our overhead even further by
+//    few bits per item.
 // 5. We assume we store trivially copyable types - this reduces the
 //    complexity of the generics in the code.
 // 6. We support pmr memory resource. This allows us to use pluggable heaps.
 //
 // TODO: (all the ideas taken from absl implementation)
-//       1. to introduce slices when removing items from the tree (avoid shifts).
-//       2. to avoid merging/rebalancing when removing max/min items from the tree.
-//       3. Small tree optimization: when the tree is small with a single root node, we can
-//          allocate less then 256 bytes (special case) to avoid relative blowups in memory for
-//          small trees.
+//       1. to introduce slices when removing items from the tree (avoid
+//       shifts).
+//       2. to avoid merging/rebalancing when removing max/min items from the
+//       tree.
+//       3. Small tree optimization: when the tree is small with a single root
+//       node, we can
+//          allocate less then 256 bytes (special case) to avoid relative
+//          blowups in memory for small trees.
 
 constexpr uint16_t kBPNodeSize = 256;
 
 /**
- * @brief The BPNodeLayout class is a helper class that defines the layout of the B+tree node.
- *        The inner node looks like this:
- *        | 4 bytes metadata | keys ... | 4 bytes tree-count | children nodes |
- *        The leaf node looks like this:
- *        | 4 bytes metadata | keys ... |
+ * @brief The BPNodeLayout class is a helper class that defines the layout of
+ * the B+tree node. The inner node looks like this: | 4 bytes metadata | keys
+ * ... | 4 bytes tree-count | children nodes | The leaf node looks like this: |
+ * 4 bytes metadata | keys ... |
  *
  * @tparam T
  */
-template <typename T> class BPNodeLayout {
-  static_assert(std::is_trivially_copyable<T>::value, "KeyT must be triviall copyable");
+template <typename T>
+class BPNodeLayout {
+  static_assert(std::is_trivially_copyable<T>::value,
+                "KeyT must be triviall copyable");
 
-  static constexpr uint16_t kKeyOffset = 4;                  // 4 bytes for metadata
-  static constexpr uint16_t kSubTreeLen = sizeof(uint32_t);  // 4 bytes for count.
+  static constexpr uint16_t kKeyOffset = 4;  // 4 bytes for metadata
+  static constexpr uint16_t kSubTreeLen =
+      sizeof(uint32_t);  // 4 bytes for count.
  public:
   static constexpr uint16_t kKeySize = sizeof(T);
-  static constexpr uint16_t kMaxLeafKeys = (kBPNodeSize - kKeyOffset) / kKeySize;
+  static constexpr uint16_t kMaxLeafKeys =
+      (kBPNodeSize - kKeyOffset) / kKeySize;
   static constexpr uint16_t kMinLeafKeys = kMaxLeafKeys / 2;
 
   // internal node:
-  // x slots, (x+1) children: x * kKeySize + (x+1) * sizeof(BPTreeNode*) = x * (kKeySize + 8) + 8
-  // x = (kBPNodeSize - kInnerKeyOffset - 8) / (kKeySize + 8)
+  // x slots, (x+1) children: x * kKeySize + (x+1) * sizeof(BPTreeNode*) = x *
+  // (kKeySize + 8) + 8 x = (kBPNodeSize - kInnerKeyOffset - 8) / (kKeySize + 8)
   static constexpr uint16_t kMaxInnerKeys =
-      (kBPNodeSize - sizeof(void*) - kKeyOffset - kSubTreeLen) / (kKeySize + sizeof(void*));
+      (kBPNodeSize - sizeof(void*) - kKeyOffset - kSubTreeLen) /
+      (kKeySize + sizeof(void*));
   static constexpr uint16_t kMinInnerKeys = kMaxInnerKeys / 2;
 
   using KeyT = T;
 
   // The class is constructed inside a block of memory of size kBPNodeSize.
-  // Only BPTree can create it, hence it can access the memory outside its fields.
+  // Only BPTree can create it, hence it can access the memory outside its
+  // fields.
   static uint8_t* KeyPtr(unsigned index, void* node) {
     return reinterpret_cast<uint8_t*>(node) + kKeyOffset + kKeySize * index;
   }
 
   static const uint8_t* KeyPtr(unsigned index, const void* node) {
-    return reinterpret_cast<const uint8_t*>(node) + kKeyOffset + kKeySize * index;
+    return reinterpret_cast<const uint8_t*>(node) + kKeyOffset +
+           kKeySize * index;
   }
 
   static uint8_t* TreeCountPtr(void* node) {
-    return reinterpret_cast<uint8_t*>(node) + kKeyOffset + kKeySize * kMaxInnerKeys;
+    return reinterpret_cast<uint8_t*>(node) + kKeyOffset +
+           kKeySize * kMaxInnerKeys;
   }
 
   static const uint8_t* TreeCountPtr(const void* node) {
-    return reinterpret_cast<const uint8_t*>(node) + kKeyOffset + kKeySize * kMaxInnerKeys;
+    return reinterpret_cast<const uint8_t*>(node) + kKeyOffset +
+           kKeySize * kMaxInnerKeys;
   }
 
   static uint8_t* ChildrenStart(void* node) {
@@ -104,14 +123,15 @@ template <typename T> class BPNodeLayout {
   static_assert(kMaxLeafKeys < 128);
 };
 
-template <typename T> class BPTreeNode {
-  template <typename K, typename Policy> friend class ::astra::container::BPTree;
+template <typename T>
+class BPTreeNode {
+  template <typename K, typename Policy>
+  friend class ::astra::container::BPTree;
 
   BPTreeNode(const BPTreeNode&) = delete;
   BPTreeNode& operator=(const BPTreeNode&) = delete;
 
-  BPTreeNode(bool leaf) : num_items_(0), leaf_(leaf) {
-  }
+  BPTreeNode(bool leaf) : num_items_(0), leaf_(leaf) {}
 
   using Layout = BPNodeLayout<T>;
 
@@ -134,9 +154,7 @@ template <typename T> class BPTreeNode {
     memcpy(slot, &item, sizeof(KeyT));
   }
 
-  bool IsLeaf() const {
-    return leaf_;
-  }
+  bool IsLeaf() const { return leaf_; }
 
   struct SearchResult {
     uint16_t index;
@@ -144,19 +162,16 @@ template <typename T> class BPTreeNode {
   };
 
   // Searches for key in the node using binary search.
-  // Returns SearchResult with index of the smallest key for which comp(key) >=0.
-  // comp: is a three way comparator.
-  template <typename Comp> SearchResult BSearch(Comp&& comp) const;
+  // Returns SearchResult with index of the smallest key for which comp(key)
+  // >=0. comp: is a three way comparator.
+  template <typename Comp>
+  SearchResult BSearch(Comp&& comp) const;
 
   void Split(BPTreeNode* right, KeyT* median);
 
-  unsigned NumItems() const {
-    return num_items_;
-  }
+  unsigned NumItems() const { return num_items_; }
 
-  unsigned AvailableSlotCount() const {
-    return MaxItems() - num_items_;
-  }
+  unsigned AvailableSlotCount() const { return MaxItems() - num_items_; }
 
   unsigned MaxItems() const {
     return IsLeaf() ? Layout::kMaxLeafKeys : Layout::kMaxInnerKeys;
@@ -167,7 +182,8 @@ template <typename T> class BPTreeNode {
   }
 
   // Returns the overall number of iterms for a subtree rooted at this node.
-  // Equals to NumItems() for leaf nodes and GetInnerTreeCount() for inner nodes.
+  // Equals to NumItems() for leaf nodes and GetInnerTreeCount() for inner
+  // nodes.
   uint32_t TreeCount() const {
     return IsLeaf() ? NumItems() : GetInnerTreeCount();
   }
@@ -195,26 +211,28 @@ template <typename T> class BPTreeNode {
 
   BPTreeNode* Child(unsigned i) {
     BPTreeNode* res;
-    memcpy(&res, Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i, sizeof(BPTreeNode*));
+    memcpy(&res, Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i,
+           sizeof(BPTreeNode*));
     return res;
   }
 
   const BPTreeNode* Child(unsigned i) const {
     BPTreeNode* res;
-    memcpy(&res, Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i, sizeof(BPTreeNode*));
+    memcpy(&res, Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i,
+           sizeof(BPTreeNode*));
     return res;
   }
 
   void SetChild(unsigned i, BPTreeNode* child) {
-    memcpy(Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i, &child, sizeof(BPTreeNode*));
+    memcpy(Layout::ChildrenStart(this) + sizeof(BPTreeNode*) * i, &child,
+           sizeof(BPTreeNode*));
   }
 
   // TODO: instead of storing counts at nodes we could keep at parent level
-  //       along the children array. Unfortunately, this complicates implementation of the tree,
-  //       so we will do it after the whole functionality is completed.
-  uint32_t GetChildTreeCount(unsigned i) {
-    return Child(i)->TreeCount();
-  }
+  //       along the children array. Unfortunately, this complicates
+  //       implementation of the tree, so we will do it after the whole
+  //       functionality is completed.
+  uint32_t GetChildTreeCount(unsigned i) { return Child(i)->TreeCount(); }
 
   void SetChildTreeCount(unsigned i, uint32_t cnt) {
     Child(i)->SetTreeCount(cnt);
@@ -226,13 +244,15 @@ template <typename T> class BPTreeNode {
     memcpy(Layout::TreeCountPtr(this), &cnt, sizeof(uint32_t));
   }
 
-  // Rebalance a full child at position pos, at which we tried to insert at insert_pos.
-  // Returns the node and the position to insert into if rebalancing succeeded.
-  // Returns nullptr if rebalancing did not succeed.
-  std::pair<BPTreeNode*, unsigned> RebalanceChild(unsigned pos, unsigned insert_pos);
+  // Rebalance a full child at position pos, at which we tried to insert at
+  // insert_pos. Returns the node and the position to insert into if rebalancing
+  // succeeded. Returns nullptr if rebalancing did not succeed.
+  std::pair<BPTreeNode*, unsigned> RebalanceChild(unsigned pos,
+                                                  unsigned insert_pos);
 
   // We do not update tree count and it is done on the caller side.
-  // Inserts item into a inner node at position pos and adds `child` at position pos+1.
+  // Inserts item into a inner node at position pos and adds `child` at position
+  // pos+1.
   void InnerInsert(unsigned index, KeyT item, BPTreeNode* child) {
     InsertItem(index, item);
     SetChild(index + 1, child);
@@ -240,8 +260,8 @@ template <typename T> class BPTreeNode {
 
   // Tries to merge the child at position pos with its sibling.
   // If we did not succeed to merge, we try to rebalance.
-  // Returns retired BPTreeNode* if children got merged and this parent node's children
-  // count decreased, otherwise, we return nullptr (rebalanced).
+  // Returns retired BPTreeNode* if children got merged and this parent node's
+  // children count decreased, otherwise, we return nullptr (rebalanced).
   BPTreeNode* MergeOrRebalanceChild(unsigned pos);
 
   uint32_t DEBUG_TreeCount() const {
@@ -287,7 +307,8 @@ template <typename T> class BPTreeNode {
 };
 
 // Contains parent/index pairs. Meaning that node0->Child(index0) == node1.
-template <typename T> class BPTreePath {
+template <typename T>
+class BPTreePath {
   static constexpr unsigned kMaxDepth = 16;
 
  public:
@@ -299,17 +320,11 @@ template <typename T> class BPTreePath {
     depth_++;
   }
 
-  unsigned Depth() const {
-    return depth_;
-  }
+  unsigned Depth() const { return depth_; }
 
-  void Clear() {
-    depth_ = 0;
-  }
+  void Clear() { depth_ = 0; }
 
-  bool Empty() const {
-    return depth_ == 0;
-  }
+  bool Empty() const { return depth_ == 0; }
 
   std::pair<BPTreeNode<T>*, unsigned> Last() const {
     assert(depth_ > 0u);
@@ -365,8 +380,8 @@ template <typename T> class BPTreePath {
   unsigned depth_ = 0;
 };
 
-// Returns the position of the first item whose key is greater or equal than key.
-// if all items are smaller than key, returns num_items_.
+// Returns the position of the first item whose key is greater or equal than
+// key. if all items are smaller than key, returns num_items_.
 template <typename T>
 template <typename Comp>
 auto BPTreeNode<T>::BSearch(Comp&& cmp_op) const -> SearchResult {
@@ -398,7 +413,8 @@ auto BPTreeNode<T>::BSearch(Comp&& cmp_op) const -> SearchResult {
     if (cmp_res < 0) {
       hi = mid;
     } else {
-      lo = mid + 1;  // we never return indices upto mid because they are strictly less than key.
+      lo = mid + 1;  // we never return indices upto mid because they are
+                     // strictly less than key.
     }
   }
   assert(lo == hi);
@@ -406,7 +422,8 @@ auto BPTreeNode<T>::BSearch(Comp&& cmp_op) const -> SearchResult {
   return {.index = hi, .found = false};
 }
 
-template <typename T> void BPTreeNode<T>::ShiftRight(unsigned index) {
+template <typename T>
+void BPTreeNode<T>::ShiftRight(unsigned index) {
   unsigned num_items_to_shift = num_items_ - index;
   if (num_items_to_shift > 0) {
     uint8_t* ptr = Layout::KeyPtr(index, this);
@@ -421,7 +438,8 @@ template <typename T> void BPTreeNode<T>::ShiftRight(unsigned index) {
   num_items_++;
 }
 
-template <typename T> void BPTreeNode<T>::ShiftLeft(unsigned index, bool child_step_right) {
+template <typename T>
+void BPTreeNode<T>::ShiftLeft(unsigned index, bool child_step_right) {
   assert(index < num_items_);
 
   unsigned num_items_to_shift = num_items_ - index - 1;
@@ -432,7 +450,8 @@ template <typename T> void BPTreeNode<T>::ShiftLeft(unsigned index, bool child_s
       index += unsigned(child_step_right);
       num_items_to_shift = num_items_ - index;
       if (num_items_to_shift > 0) {
-        uint8_t* dest = Layout::ChildrenStart(this) + index * sizeof(BPTreeNode*);
+        uint8_t* dest =
+            Layout::ChildrenStart(this) + index * sizeof(BPTreeNode*);
         uint8_t* src = dest + sizeof(BPTreeNode*);
         memmove(dest, src, num_items_to_shift * sizeof(BPTreeNode*));
       }
@@ -442,16 +461,17 @@ template <typename T> void BPTreeNode<T>::ShiftLeft(unsigned index, bool child_s
 }
 
 /***
- *  Rebalances the (full) child at position pos with its sibling. `this` node is an inner node.
- *  It first tried to rebalance (move items) from the full child to its left sibling. If the left
- *  sibling does not have enough space, it tries to rebalance to the right sibling. The caller
- *  passes the original position of the item it tried to insert into the full child. In case the
- *  rebalance succeeds the function returns the new node and the position to insert into. Otherwise,
- *  it returns result.first == nullptr.
+ *  Rebalances the (full) child at position pos with its sibling. `this` node is
+ * an inner node. It first tried to rebalance (move items) from the full child
+ * to its left sibling. If the left sibling does not have enough space, it tries
+ * to rebalance to the right sibling. The caller passes the original position of
+ * the item it tried to insert into the full child. In case the rebalance
+ * succeeds the function returns the new node and the position to insert into.
+ * Otherwise, it returns result.first == nullptr.
  */
 template <typename T>
-std::pair<BPTreeNode<T>*, unsigned> BPTreeNode<T>::RebalanceChild(unsigned pos,
-                                                                  unsigned insert_pos) {
+std::pair<BPTreeNode<T>*, unsigned> BPTreeNode<T>::RebalanceChild(
+    unsigned pos, unsigned insert_pos) {
   unsigned to_move = 0;
   BPTreeNode* node = Child(pos);
 
@@ -466,7 +486,8 @@ std::pair<BPTreeNode<T>*, unsigned> BPTreeNode<T>::RebalanceChild(unsigned pos,
         to_move = dest_free;
         assert(to_move < node->NumItems());
       } else if (dest_free > 1) {
-        // we move less than left free capacity which leaves as some space in the node.
+        // we move less than left free capacity which leaves as some space in
+        // the node.
         to_move = dest_free / 2;
       }
 
@@ -475,8 +496,10 @@ std::pair<BPTreeNode<T>*, unsigned> BPTreeNode<T>::RebalanceChild(unsigned pos,
         RebalanceChildToLeft(pos, to_move);
         assert(node->AvailableSlotCount() == to_move);
         if (insert_pos < to_move) {
-          assert(left->AvailableSlotCount() > 0u);       // we did not fill up the left node.
-          insert_pos = dest_old_count + insert_pos + 1;  // +1 because we moved the separator.
+          assert(left->AvailableSlotCount() >
+                 0u);  // we did not fill up the left node.
+          insert_pos = dest_old_count + insert_pos +
+                       1;  // +1 because we moved the separator.
           node = left;
         } else {
           insert_pos -= to_move;
@@ -511,7 +534,8 @@ std::pair<BPTreeNode<T>*, unsigned> BPTreeNode<T>::RebalanceChild(unsigned pos,
   return {nullptr, 0};
 }
 
-template <typename T> void BPTreeNode<T>::RebalanceChildToLeft(unsigned child_pos, unsigned count) {
+template <typename T>
+void BPTreeNode<T>::RebalanceChildToLeft(unsigned child_pos, unsigned count) {
   assert(child_pos > 0u);
   BPTreeNode* src = Child(child_pos);
   BPTreeNode* dest = Child(child_pos - 1);
@@ -616,7 +640,8 @@ void BPTreeNode<T>::RebalanceChildToRight(unsigned child_pos, unsigned count) {
   src->num_items_ -= count;
 }
 
-template <typename T> BPTreeNode<T>* BPTreeNode<T>::MergeOrRebalanceChild(unsigned pos) {
+template <typename T>
+BPTreeNode<T>* BPTreeNode<T>::MergeOrRebalanceChild(unsigned pos) {
   BPTreeNode* node = Child(pos);
   BPTreeNode* left = nullptr;
 
@@ -658,9 +683,9 @@ template <typename T> BPTreeNode<T>* BPTreeNode<T>::MergeOrRebalanceChild(unsign
 
   if (left) {
     // Try rebalancing with our left sibling.
-    // TODO: don't perform rebalancing if we deleted the last element from node and the
-    // node is not empty. This is a small optimization for the common pattern of deleting
-    // from the back of the tree.
+    // TODO: don't perform rebalancing if we deleted the last element from node
+    // and the node is not empty. This is a small optimization for the common
+    // pattern of deleting from the back of the tree.
     if (true) {
       unsigned to_move = (left->NumItems() - node->NumItems()) / 2;
       assert(to_move < left->NumItems());
@@ -671,9 +696,11 @@ template <typename T> BPTreeNode<T>* BPTreeNode<T>::MergeOrRebalanceChild(unsign
   return nullptr;
 }
 
-// splits the node into two nodes. The left node is the current node and the right node is
-// is filled with the right half of the items. The median key is returned in *median.
-template <typename T> void BPTreeNode<T>::Split(BPTreeNode<T>* right, T* median) {
+// splits the node into two nodes. The left node is the current node and the
+// right node is is filled with the right half of the items. The median key is
+// returned in *median.
+template <typename T>
+void BPTreeNode<T>::Split(BPTreeNode<T>* right, T* median) {
   unsigned mid = num_items_ / 2;
   *median = Key(mid);
   right->leaf_ = leaf_;
@@ -693,7 +720,8 @@ template <typename T> void BPTreeNode<T>::Split(BPTreeNode<T>* right, T* median)
   num_items_ = mid;
 }
 
-template <typename T> void BPTreeNode<T>::MergeFromRight(KeyT key, BPTreeNode<T>* right) {
+template <typename T>
+void BPTreeNode<T>::MergeFromRight(KeyT key, BPTreeNode<T>* right) {
   assert(NumItems() + 1 + right->NumItems() <= MaxItems());
 
   unsigned dest_items = NumItems();
@@ -712,7 +740,8 @@ template <typename T> void BPTreeNode<T>::MergeFromRight(KeyT key, BPTreeNode<T>
   right->num_items_ = 0;
 }
 
-template <typename T> uint32_t BPTreePath<T>::Rank() const {
+template <typename T>
+uint32_t BPTreePath<T>::Rank() const {
   uint32_t rank = 0;
   unsigned bound = Depth();
 
@@ -731,7 +760,8 @@ template <typename T> uint32_t BPTreePath<T>::Rank() const {
   return rank;
 }
 
-template <typename T> bool BPTreePath<T>::Next() {
+template <typename T>
+bool BPTreePath<T>::Next() {
   assert(depth_ > 0);
   BPTreeNode<T>* node = Last().first;
 
@@ -742,19 +772,21 @@ template <typename T> bool BPTreePath<T>::Next() {
       return true;
     }
 
-    // Advance to the next item, which is Key(i) in some ascendent of the subtree with
-    // root Child(i). i in that case must be less than NumItems().
+    // Advance to the next item, which is Key(i) in some ascendent of the
+    // subtree with root Child(i). i in that case must be less than NumItems().
     // Note, that subtree Child(i) in a inner node is located before Key(i).
     do {
       Pop();
-    } while (depth_ > 0 && Position(depth_ - 1) == Node(depth_ - 1)->NumItems());
+    } while (depth_ > 0 &&
+             Position(depth_ - 1) == Node(depth_ - 1)->NumItems());
 
-    // we either point now on separator Key(i) in the parent node or we finished the tree.
+    // we either point now on separator Key(i) in the parent node or we finished
+    // the tree.
     return depth_ > 0;
   }
 
-  // We are in the inner node after the ascent from the leaf node. We need to advance to the next
-  // Child and dig left.
+  // We are in the inner node after the ascent from the leaf node. We need to
+  // advance to the next Child and dig left.
   assert(!node->IsLeaf());
   assert(record_[depth_ - 1].pos < node->NumItems());
 
@@ -769,7 +801,8 @@ template <typename T> bool BPTreePath<T>::Next() {
   return true;
 }
 
-template <typename T> bool BPTreePath<T>::Prev() {
+template <typename T>
+bool BPTreePath<T>::Prev() {
   assert(depth_ > 0);
 
   auto* node = record_[depth_ - 1].node;
@@ -779,8 +812,8 @@ template <typename T> bool BPTreePath<T>::Prev() {
         / \
        l   r
 
-       We must go left (decrement pos), and if there is no left, we must go up until we can
-       go left.
+       We must go left (decrement pos), and if there is no left, we must go up
+       until we can go left.
     */
     while (record_[depth_ - 1].pos == 0) {
       Pop();
@@ -800,15 +833,16 @@ template <typename T> bool BPTreePath<T>::Prev() {
   return true;
 }
 
-template <typename T> void BPTreePath<T>::DigRight() {
+template <typename T>
+void BPTreePath<T>::DigRight() {
   assert(depth_ > 0);
   BPTreeNode<T>* node = Last().first;
 
   assert(!node->IsLeaf());
 
   // we are in the inner node pointing to the separator.
-  // we now must explore the left subtree which is located under the same index as the separator.
-  // we go far-right in the left subtree.
+  // we now must explore the left subtree which is located under the same index
+  // as the separator. we go far-right in the left subtree.
   do {
     node = node->Child(record_[depth_ - 1].pos);
     Push(node, node->NumItems());
@@ -819,5 +853,5 @@ template <typename T> void BPTreePath<T>::DigRight() {
   --record_[depth_ - 1].pos;
 }
 
-}
-}
+}  // namespace detail
+}  // namespace astra::container

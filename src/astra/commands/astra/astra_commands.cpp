@@ -1,32 +1,35 @@
 #include "astra_commands.hpp"
 
+#include <sstream>
+
 #include "astra/base/logging.hpp"
 #include "astra/protocol/resp/resp_builder.hpp"
 #include "astra/server/worker.hpp"
-
-#include <sstream>
 
 namespace astra::commands {
 
 /**
  * @brief Get current storage mode and configuration
- * 
+ *
  * Usage: ASTRADB STORAGE MODE
  * Returns: "redis" or "rocksdb"
  */
-CommandResult HandleAstraStorageMode(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraStorageMode(const protocol::Command& command,
+                                     CommandContext* context) {
   if (command.ArgCount() != 2) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB STORAGE MODE'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB STORAGE MODE'");
   }
 
-  auto* worker = dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
+  auto* worker =
+      dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
   if (!worker) {
     return CommandResult(false, "ERR internal error: worker not available");
   }
 
   // Get storage mode from worker configuration
-  std::string mode = "redis"; // Default mode
-  
+  std::string mode = "redis";  // Default mode
+
   // TODO: Get actual storage mode from worker configuration
   // mode = worker->GetStorageMode();
 
@@ -41,22 +44,25 @@ CommandResult HandleAstraStorageMode(const protocol::Command& command, CommandCo
 
 /**
  * @brief Get RocksDB information and statistics
- * 
+ *
  * Usage: ASTRADB ROCKSDB INFO
  */
-CommandResult HandleAstraRocksdbInfo(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraRocksdbInfo(const protocol::Command& command,
+                                     CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB INFO'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB INFO'");
   }
 
-  auto* worker = dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
+  auto* worker =
+      dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
   if (!worker) {
     return CommandResult(false, "ERR internal error: worker not available");
   }
 
   std::ostringstream oss;
   oss << "# RocksDB\n";
-  oss << "enabled:0\n"; // TODO: Get actual RocksDB status
+  oss << "enabled:0\n";  // TODO: Get actual RocksDB status
   oss << "db_path:./data/rocksdb\n";
   oss << "cache_size:268435456\n";
   oss << "compression:zlib\n";
@@ -67,12 +73,14 @@ CommandResult HandleAstraRocksdbInfo(const protocol::Command& command, CommandCo
 
 /**
  * @brief Compact RocksDB database
- * 
+ *
  * Usage: ASTRADB ROCKSDB COMPACT
  */
-CommandResult HandleAstraRocksdbCompact(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraRocksdbCompact(const protocol::Command& command,
+                                        CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB COMPACT'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB COMPACT'");
   }
 
   // TODO: Implement RocksDB compaction
@@ -83,12 +91,14 @@ CommandResult HandleAstraRocksdbCompact(const protocol::Command& command, Comman
 
 /**
  * @brief Get detailed RocksDB statistics
- * 
+ *
  * Usage: ASTRADB ROCKSDB STATS
  */
-CommandResult HandleAstraRocksdbStats(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraRocksdbStats(const protocol::Command& command,
+                                      CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB STATS'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB ROCKSDB STATS'");
   }
 
   // TODO: Get actual RocksDB statistics
@@ -104,15 +114,18 @@ CommandResult HandleAstraRocksdbStats(const protocol::Command& command, CommandC
 
 /**
  * @brief Get performance statistics
- * 
+ *
  * Usage: ASTRADB PERF STATS
  */
-CommandResult HandleAstraPerfStats(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraPerfStats(const protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB PERF STATS'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB PERF STATS'");
   }
 
-  auto* worker = dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
+  auto* worker =
+      dynamic_cast<server::WorkerCommandContext*>(context)->GetWorker();
   if (!worker) {
     return CommandResult(false, "ERR internal error: worker not available");
   }
@@ -130,12 +143,14 @@ CommandResult HandleAstraPerfStats(const protocol::Command& command, CommandCont
 
 /**
  * @brief Get memory map and distribution
- * 
+ *
  * Usage: ASTRADB MEMORY MAP
  */
-CommandResult HandleAstraMemoryMap(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraMemoryMap(const protocol::Command& command,
+                                   CommandContext* context) {
   if (command.ArgCount() != 3) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB MEMORY MAP'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB MEMORY MAP'");
   }
 
   // TODO: Get actual memory distribution
@@ -153,12 +168,15 @@ CommandResult HandleAstraMemoryMap(const protocol::Command& command, CommandCont
 
 /**
  * @brief Migrate from Redis mode to RocksDB mode
- * 
+ *
  * Usage: ASTRADB MIGRATE TO ROCKSDB
  */
-CommandResult HandleAstraMigrateToRocksdb(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraMigrateToRocksdb(const protocol::Command& command,
+                                          CommandContext* context) {
   if (command.ArgCount() != 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB MIGRATE TO ROCKSDB'");
+    return CommandResult(
+        false,
+        "ERR wrong number of arguments for 'ASTRADB MIGRATE TO ROCKSDB'");
   }
 
   // TODO: Implement migration from Redis to RocksDB
@@ -169,12 +187,14 @@ CommandResult HandleAstraMigrateToRocksdb(const protocol::Command& command, Comm
 
 /**
  * @brief Migrate from RocksDB mode to Redis mode
- * 
+ *
  * Usage: ASTRADB MIGRATE TO REDIS
  */
-CommandResult HandleAstraMigrateToRedis(const protocol::Command& command, CommandContext* context) {
+CommandResult HandleAstraMigrateToRedis(const protocol::Command& command,
+                                        CommandContext* context) {
   if (command.ArgCount() != 4) {
-    return CommandResult(false, "ERR wrong number of arguments for 'ASTRADB MIGRATE TO REDIS'");
+    return CommandResult(
+        false, "ERR wrong number of arguments for 'ASTRADB MIGRATE TO REDIS'");
   }
 
   // TODO: Implement migration from RocksDB to Redis

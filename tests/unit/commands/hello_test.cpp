@@ -6,10 +6,10 @@
 
 #include <gtest/gtest.h>
 
-#include "astra/commands/redis/admin_commands.hpp"
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/commands/redis/admin_commands.hpp"
 #include "astra/protocol/resp/resp_parser.hpp"
 
 namespace astra::commands {

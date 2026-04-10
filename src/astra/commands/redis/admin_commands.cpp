@@ -27,7 +27,7 @@ namespace astra::commands {
 
 // Helper function to build command documentation array
 static void BuildCommandDocsArray(std::vector<RespValue>& docs_array,
-                                   const CommandInfo& info) {
+                                  const CommandInfo& info) {
   // 1. Command name
   RespValue name_val;
   name_val.SetString(info.name, protocol::RespType::kBulkString);
@@ -256,7 +256,7 @@ CommandResult HandleInfo(const astra::protocol::Command& command,
     } else if (role == replication::ReplicationRole::kSlave) {
       oss << "role:slave\r\n";
       oss << "master_host:127.0.0.1\r\n";  // TODO: Get from config
-      oss << "master_port:6379\r\n";      // TODO: Get from config
+      oss << "master_port:6379\r\n";       // TODO: Get from config
       oss << "master_link_status:up\r\n";
       oss << "master_last_io_seconds_ago:0\r\n";
       oss << "master_sync_in_progress:0\r\n";
@@ -774,11 +774,11 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     // 2. With arguments: return specific command documentation
     if (command.ArgCount() < 2) {
       ASTRADB_LOG_TRACE("HandleCommand: DOCS for all commands");
-      
+
       // Get all command names
       auto cmd_names = registry->GetCommandNames();
       std::vector<RespValue> all_docs_array;
-      
+
       // Build documentation for each command
       for (const auto& cmd_name : cmd_names) {
         const auto* info = registry->GetInfo(cmd_name);
@@ -789,7 +789,7 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
           all_docs_array.push_back(RespValue(std::move(docs_array)));
         }
       }
-      
+
       return CommandResult(RespValue(std::move(all_docs_array)));
     }
 
