@@ -10,7 +10,7 @@
 #include <thread>
 
 #include "astra/commands/database.hpp"
-#include "astra/commands/ttl_commands.hpp"
+#include "astra/commands/redis/ttl_commands.hpp"
 
 namespace astra::commands {
 

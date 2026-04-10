@@ -101,3 +101,9 @@ include/astra/base/version.hpp
 
 # Development configuration (not tracked in version control)
 astradb-dev.toml
+
+# Generated FlatBuffer headers
+generated/
+
+# Auto-generated FlatBuffer headers (generated in source tree)
+src/astra/*/generated/
