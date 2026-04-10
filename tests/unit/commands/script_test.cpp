@@ -9,7 +9,7 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/script_commands.hpp"
+#include "astra/commands/redis/script_commands.hpp"
 
 namespace astra::commands {
 

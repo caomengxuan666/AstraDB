@@ -8,10 +8,13 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     executor_bench.cpp
     memory_bench.cpp
     zset_bench.cpp
+    zset_btree_bench.cpp
+    zset_btree_vs_bplustree_bench.cpp
     simd_bench.cpp
     cluster_bench.cpp
     multi_database_bench.cpp
     rocksdb_bench.cpp
+    storage_mode_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE

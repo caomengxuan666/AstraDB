@@ -116,6 +116,24 @@ inline astra::KeyType RdbTypeToKeyType(uint8_t rdb_type) {
   }
 }
 
+// Convert RDB type to astra::storage::KeyType (for compatibility)
+inline astra::storage::KeyType RdbTypeToStorageKeyType(uint8_t rdb_type) {
+  switch (rdb_type) {
+    case RDB_TYPE_STRING:
+      return static_cast<astra::storage::KeyType>(1);  // kString
+    case RDB_TYPE_HASH:
+      return static_cast<astra::storage::KeyType>(2);  // kHash
+    case RDB_TYPE_LIST:
+      return static_cast<astra::storage::KeyType>(5);  // kList
+    case RDB_TYPE_SET:
+      return static_cast<astra::storage::KeyType>(3);  // kSet
+    case RDB_TYPE_ZSET:
+      return static_cast<astra::storage::KeyType>(4);  // kZSet
+    default:
+      return static_cast<astra::storage::KeyType>(1);  // Default to string
+  }
+}
+
 // RDB key-value pair
 struct RdbKeyValue {
   uint8_t type;

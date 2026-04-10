@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include "astra/commands/admin_commands.hpp"
+#include "astra/commands/redis/admin_commands.hpp"
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"

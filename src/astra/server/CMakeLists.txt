@@ -19,6 +19,7 @@ endif()
 target_sources(astra_server PRIVATE
   server.cpp
   server.hpp
+  worker.cpp
   worker.hpp
   worker_scheduler.hpp
   worker_scheduler.cpp

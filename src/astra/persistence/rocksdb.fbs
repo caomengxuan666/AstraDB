@@ -1,0 +1,84 @@
+// ==============================================================================
+// AstraDB RocksDB FlatBuffers Schema
+// ==============================================================================
+// FlatBuffers-based serialization for RocksDB key-value storage
+// Zero-copy, efficient, schema-based, compatible with RDB/AOF design
+// ==============================================================================
+
+namespace AstraDB.RocksDB;
+
+// Data type enumeration (same as RDB for consistency)
+enum ValueType : uint8 {
+  String = 0,
+  Hash = 1,
+  List = 2,
+  Set = 3,
+  SortedSet = 4,
+  Bitmap = 5,
+  HyperLogLog = 6,
+  Stream = 7
+}
+
+// String value
+table StringValue {
+  data: [ubyte];
+}
+
+// Hash field-value pair
+table HashField {
+  field: string;
+  value: string;
+}
+
+// Hash value
+table HashValue {
+  fields: [HashField];
+}
+
+// List element
+table ListElement {
+  value: string;
+  index: int32;
+}
+
+// List value
+table ListValue {
+  elements: [ListElement];
+}
+
+// Set member
+table SetMember {
+  value: string;
+}
+
+// Set value
+table SetValue {
+  members: [SetMember];
+}
+
+// Sorted set member with score
+table SortedSetMember {
+  member: string;
+  score: double;
+}
+
+// Sorted set value
+table SortedSetValue {
+  members: [SortedSetMember];
+}
+
+// Key-value entry for RocksDB
+table KeyValue {
+  value_type: ValueType;
+  timestamp: int64;
+  ttl_ms: int64 = 0;  // 0 means no expiration
+  
+  // Value data (only one is set based on value_type)
+  string_value: StringValue;
+  hash_value: HashValue;
+  list_value: ListValue;
+  set_value: SetValue;
+  sortedset_value: SortedSetValue;
+}
+
+root_type KeyValue;

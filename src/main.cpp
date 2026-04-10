@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
   }
 
   // Load config from file
-  auto config = astra::base::ServerConfig::LoadFromFile(config_file);
+  auto config = astra::server::ServerConfig::LoadFromFile(config_file);
 
   // Override config with command line arguments
   if (result.count("host")) {
@@ -211,9 +211,6 @@ int main(int argc, char** argv) {
 #if defined(ASTRADB_ENABLE_TLS)
   ASTRADB_LOG_INFO("  [+] TLS Encryption");
 #endif
-#if defined(ASTRADB_ENABLE_ACL)
-  ASTRADB_LOG_INFO("  [+] Access Control List (ACL)");
-#endif
 #if defined(ASTRADB_ENABLE_SIMD)
   ASTRADB_LOG_INFO("  [+] SIMD Optimizations");
 #endif
@@ -266,6 +263,12 @@ int main(int argc, char** argv) {
   server_config.cluster_shard_count = config.cluster.shard_count;
   server_config.cluster_seeds = config.cluster.seeds;
 
+  // Copy ACL config
+  server_config.acl_enabled = config.acl_enabled;
+  server_config.acl_default_user = config.acl_default_user;
+  server_config.acl_default_password = config.acl_default_password;
+
+
   // Copy metrics config
   server_config.metrics.enabled = config.metrics.enabled;
   server_config.metrics.bind_addr = config.metrics.bind_addr;
@@ -280,6 +283,16 @@ int main(int argc, char** argv) {
   server_config.memory.eviction_threshold = config.memory.eviction_threshold;
   server_config.memory.eviction_samples = config.memory.eviction_samples;
   server_config.memory.enable_tracking = config.memory.enable_tracking;
+
+  // Copy replication config
+  server_config.replication.enabled = config.replication.enabled;
+  server_config.replication.role = config.replication.role;
+  server_config.replication.master_host = config.replication.master_host;
+  server_config.replication.master_port = config.replication.master_port;
+  server_config.replication.master_auth = config.replication.master_auth;
+  server_config.replication.read_only = config.replication.read_only;
+  server_config.replication.repl_backlog_size = config.replication.repl_backlog_size;
+  server_config.replication.repl_timeout = config.replication.repl_timeout;
 
   // Copy RocksDB config
   server_config.rocksdb.enabled = config.rocksdb.enabled;

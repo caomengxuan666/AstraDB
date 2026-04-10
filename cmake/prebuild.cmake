@@ -40,41 +40,47 @@ endfunction()
 add_flatbuffers_generation(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/core/metrics.fbs
   metrics_generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/core/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/core/generated
 )
 
 add_flatbuffers_generation(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/rdb.fbs
   rdb_generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/persistence/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/generated
 )
 
 add_flatbuffers_generation(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/aof.fbs
   aof_generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/persistence/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/generated
+)
+
+add_flatbuffers_generation(
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/rocksdb.fbs
+  rocksdb_generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/generated
 )
 
 add_flatbuffers_generation(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/cluster/cluster_message.fbs
   cluster_message_generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/cluster/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/cluster/generated
 )
 
 add_flatbuffers_generation(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/commands/command_cache.fbs
   command_cache_generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/commands/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/commands/generated
 )
 
 # Create an INTERFACE library that contains all generated headers
 add_library(flatbuffers_generated INTERFACE)
 
 target_include_directories(flatbuffers_generated INTERFACE
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/core/generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/persistence/generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/cluster/generated
-  ${CMAKE_CURRENT_BINARY_DIR}/src/astra/commands/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/core/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/persistence/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/cluster/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/astra/commands/generated
   ${CMAKE_CURRENT_SOURCE_DIR}/.cpm-cache/flatbuffers/2c40/include
 )
 
@@ -82,4 +88,4 @@ target_include_directories(flatbuffers_generated INTERFACE
 add_dependencies(flatbuffers_generated flatbuffers_prebuild)
 
 message(STATUS "✅ PREBUILD: FlatBuffers generation targets created")
-message(STATUS "   Headers will be generated during build, before any compilation")
+message(STATUS "   Headers will be generated in source tree, better for lint tools")

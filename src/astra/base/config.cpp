@@ -92,7 +92,68 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       }
     }
 
-    // Persistence
+    // Storage configuration (NEW: unified storage mode)
+    if (data["storage"]) {
+      auto storage = *data["storage"].as_table();
+      
+      // Parse storage mode
+      if (storage["mode"]) {
+        std::string mode_str = storage["mode"].value_or<std::string>("redis");
+        if (mode_str == "redis" || mode_str == "Redis") {
+          config.storage.mode = StorageMode::kRedis;
+        } else if (mode_str == "rocksdb" || mode_str == "RocksDB") {
+          config.storage.mode = StorageMode::kRocksDB;
+        }
+      }
+      
+      // Common settings
+      config.storage.enable_rocksdb_cold_data = 
+        storage["enable_rocksdb_cold_data"].value_or<bool>(true);
+      config.storage.enable_compression = 
+        storage["enable_compression"].value_or<bool>(true);
+      config.storage.compression_type = 
+        storage["compression_type"].value_or<std::string>("zlib");
+      
+      // Redis mode settings
+      if (storage["redis_mode"]) {
+        auto redis_mode = *storage["redis_mode"].as_table();
+        config.storage.redis_mode.rdb_enabled = 
+          redis_mode["rdb_enabled"].value_or<bool>(true);
+        config.storage.redis_mode.rdb_path = 
+          redis_mode["rdb_path"].value_or<std::string>("./data/dump.rdb");
+        config.storage.redis_mode.rdb_auto_save = 
+          redis_mode["rdb_auto_save"].value_or<bool>(false);
+        config.storage.redis_mode.rdb_save_interval = 
+          redis_mode["rdb_save_interval"].value_or<int>(300);
+        config.storage.redis_mode.aof_enabled = 
+          redis_mode["aof_enabled"].value_or<bool>(false);
+        config.storage.redis_mode.aof_path = 
+          redis_mode["aof_path"].value_or<std::string>("./data/aof/appendonly.aof");
+        config.storage.redis_mode.aof_sync_everysec = 
+          redis_mode["aof_sync_everysec"].value_or<bool>(true);
+      }
+      
+      // RocksDB mode settings
+      if (storage["rocksdb_mode"]) {
+        auto rocksdb_mode = *storage["rocksdb_mode"].as_table();
+        config.storage.rocksdb_mode.data_dir = 
+          rocksdb_mode["data_dir"].value_or<std::string>("./data/rocksdb");
+        config.storage.rocksdb_mode.cache_size = 
+          rocksdb_mode["cache_size"].value_or<size_t>(256 * 1024 * 1024);
+        config.storage.rocksdb_mode.write_buffer_size = 
+          rocksdb_mode["write_buffer_size"].value_or<size_t>(64 * 1024 * 1024);
+        config.storage.rocksdb_mode.enable_wal = 
+          rocksdb_mode["enable_wal"].value_or<bool>(true);
+        config.storage.rocksdb_mode.create_if_missing = 
+          rocksdb_mode["create_if_missing"].value_or<bool>(true);
+        config.storage.rocksdb_mode.max_open_files = 
+          rocksdb_mode["max_open_files"].value_or<int>(-1);
+        config.storage.rocksdb_mode.max_total_wal_size = 
+          rocksdb_mode["max_total_wal_size"].value_or<size_t>(100 * 1024 * 1024);
+      }
+    }
+
+    // Persistence (Legacy configuration - for backward compatibility)
     if (data["persistence"]) {
       auto persistence = *data["persistence"].as_table();
       config.persistence.enabled = persistence["enabled"].value_or<bool>(false);
@@ -184,6 +245,43 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       if (memory["enable_tracking"]) {
         config.memory.enable_tracking =
             memory["enable_tracking"].value_or<bool>(true);
+      }
+    }
+
+    // Replication
+    if (data["replication"]) {
+      auto replication = *data["replication"].as_table();
+      if (replication["enabled"]) {
+        config.replication.enabled =
+            replication["enabled"].value_or<bool>(false);
+      }
+      if (replication["role"]) {
+        config.replication.role =
+            replication["role"].value_or<std::string>("master");
+      }
+      if (replication["master_host"]) {
+        config.replication.master_host =
+            replication["master_host"].value_or<std::string>("127.0.0.1");
+      }
+      if (replication["master_port"]) {
+        config.replication.master_port =
+            replication["master_port"].value_or<uint16_t>(6379);
+      }
+      if (replication["master_auth"]) {
+        config.replication.master_auth =
+            replication["master_auth"].value_or<std::string>("");
+      }
+      if (replication["read_only"]) {
+        config.replication.read_only =
+            replication["read_only"].value_or<bool>(false);
+      }
+      if (replication["repl_backlog_size"]) {
+        config.replication.repl_backlog_size =
+            replication["repl_backlog_size"].value_or<uint64_t>(1 * 1024 * 1024);
+      }
+      if (replication["repl_timeout"]) {
+        config.replication.repl_timeout =
+            replication["repl_timeout"].value_or<uint32_t>(60);
       }
     }
 
