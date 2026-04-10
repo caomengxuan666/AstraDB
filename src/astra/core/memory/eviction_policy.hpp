@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include <string>
 #include <cstdint>
+#include <string>
 
 namespace astra::core::memory {
 

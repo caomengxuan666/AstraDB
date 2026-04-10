@@ -23,9 +23,9 @@ Server::Server(const ServerConfig& config) : config_(config), running_(false) {
 
   // Create all workers (without cross-worker references initially)
   for (size_t i = 0; i < config.num_workers; ++i) {
-    workers_.push_back(std::make_unique<Worker>(
-        i, config.host, config.port, std::vector<Worker*>(),
-        config.replication));
+    workers_.push_back(std::make_unique<Worker>(i, config.host, config.port,
+                                                std::vector<Worker*>(),
+                                                config.replication));
   }
 
   // Now, set up cross-worker references
@@ -673,7 +673,7 @@ bool Server::InitACL() noexcept {
     }
 
     // Add additional default user from config if specified
-    if (!config_.acl_default_user.empty() && 
+    if (!config_.acl_default_user.empty() &&
         config_.acl_default_user != "default") {
       acl_manager_->CreateUser(
           config_.acl_default_user, config_.acl_default_password,

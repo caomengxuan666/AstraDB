@@ -73,7 +73,7 @@ ZSetBPlus<Key, Score>::GetScore(const MemberType& member) const {
 
 template <typename Key, typename Score>
 std::optional<uint64_t> ZSetBPlus<Key, Score>::GetRank(const MemberType& member,
-                                                         bool reverse) const {
+                                                       bool reverse) const {
   absl::MutexLock lock(&mutex_);
 
   auto it = member_to_score_.find(member);
@@ -134,7 +134,7 @@ template <typename Key, typename Score>
 std::vector<std::pair<typename ZSetBPlus<Key, Score>::MemberType,
                       typename ZSetBPlus<Key, Score>::ScoreType>>
 ZSetBPlus<Key, Score>::GetRangeByScore(ScoreType min, ScoreType max,
-                                        bool with_scores) const {
+                                       bool with_scores) const {
   absl::MutexLock lock(&mutex_);
 
   std::vector<std::pair<MemberType, ScoreType>> result;
@@ -243,7 +243,8 @@ bool ZSetBPlus<Key, Score>::Contains(const MemberType& member) const {
 }
 
 template <typename Key, typename Score>
-uint64_t ZSetBPlus<Key, Score>::RemoveRangeByScore(ScoreType min, ScoreType max) {
+uint64_t ZSetBPlus<Key, Score>::RemoveRangeByScore(ScoreType min,
+                                                   ScoreType max) {
   absl::MutexLock lock(&mutex_);
 
   uint64_t removed = 0;

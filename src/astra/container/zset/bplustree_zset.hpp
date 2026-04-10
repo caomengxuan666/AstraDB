@@ -39,7 +39,9 @@ struct ScoredMemberCompact {
     return score == other.score && member_hash == other.member_hash;
   }
 
-  bool operator!=(const ScoredMemberCompact& other) const { return !(*this == other); }
+  bool operator!=(const ScoredMemberCompact& other) const {
+    return !(*this == other);
+  }
 };
 
 // Comparator for ScoredMemberCompact with custom policy
@@ -47,7 +49,8 @@ struct ScoredMemberPolicy {
   using KeyT = ScoredMemberCompact;
 
   struct KeyCompareTo {
-    int operator()(const ScoredMemberCompact& a, const ScoredMemberCompact& b) const {
+    int operator()(const ScoredMemberCompact& a,
+                   const ScoredMemberCompact& b) const {
       std::less<ScoredMemberCompact> cmp;
       return cmp(a, b) ? -1 : (cmp(b, a) ? 1 : 0);
     }
@@ -65,9 +68,7 @@ class ZSetBPlus {
   using BPlusTreeSet = BPTree<ElementType, ScoredMemberPolicy>;
   using MemberMap = absl::flat_hash_map<MemberType, ScoreType>;
 
-  explicit ZSetBPlus(size_t expected_size = 1024) {
-    (void)expected_size;
-  }
+  explicit ZSetBPlus(size_t expected_size = 1024) { (void)expected_size; }
   ~ZSetBPlus() = default;
 
   // Non-copyable, non-movable
@@ -137,9 +138,10 @@ class ZSetBPlus {
   std::vector<std::pair<MemberType, ScoreType>> GetAll() const;
 
  private:
-  BPlusTreeSet ordered_set_;       // B+ Tree ordered by (score, hash)
-  MemberMap member_to_score_;      // Fast member -> score lookup
-  absl::flat_hash_map<uint64_t, MemberType> hash_to_member_;  // Reverse mapping: hash -> member
+  BPlusTreeSet ordered_set_;   // B+ Tree ordered by (score, hash)
+  MemberMap member_to_score_;  // Fast member -> score lookup
+  absl::flat_hash_map<uint64_t, MemberType>
+      hash_to_member_;  // Reverse mapping: hash -> member
   mutable absl::Mutex mutex_;
 
   // Helper function to create ElementType from member and score

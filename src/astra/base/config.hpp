@@ -15,39 +15,40 @@ namespace astra::base {
 
 // Storage mode configuration
 enum class StorageMode {
-  kRedis,     // Traditional Redis mode (RDB + AOF + RocksDB for cold data)
-  kRocksDB    // RocksDB all-in mode (RocksDB for all data + AOF for WAL)
+  kRedis,   // Traditional Redis mode (RDB + AOF + RocksDB for cold data)
+  kRocksDB  // RocksDB all-in mode (RocksDB for all data + AOF for WAL)
 };
 
 struct StorageConfig {
   StorageMode mode = StorageMode::kRedis;  // Default to Redis-compatible mode
-  
+
   // Common settings for both modes
-  bool enable_rocksdb_cold_data = true;    // Redis mode: use RocksDB for evicted data
-  bool enable_compression = true;           // Enable data compression
-  std::string compression_type = "zlib";   // zlib, zstd, none
-  
+  bool enable_rocksdb_cold_data =
+      true;                        // Redis mode: use RocksDB for evicted data
+  bool enable_compression = true;  // Enable data compression
+  std::string compression_type = "zlib";  // zlib, zstd, none
+
   // Redis mode specific settings
   struct RedisModeConfig {
     bool rdb_enabled = true;
     std::string rdb_path = "./data/dump.rdb";
     bool rdb_auto_save = false;
     int rdb_save_interval = 300;  // seconds
-    
+
     bool aof_enabled = false;
     std::string aof_path = "./data/aof/appendonly.aof";
     bool aof_sync_everysec = true;
   };
   RedisModeConfig redis_mode;
-  
+
   // RocksDB mode specific settings
   struct RocksDBModeConfig {
     std::string data_dir = "./data/rocksdb";
-    size_t cache_size = 256 * 1024 * 1024;  // 256MB
+    size_t cache_size = 256 * 1024 * 1024;        // 256MB
     size_t write_buffer_size = 64 * 1024 * 1024;  // 64MB
     bool enable_wal = true;
     bool create_if_missing = true;
-    int max_open_files = -1;  // -1 = unlimited
+    int max_open_files = -1;                        // -1 = unlimited
     size_t max_total_wal_size = 100 * 1024 * 1024;  // 100MB
   };
   RocksDBModeConfig rocksdb_mode;
@@ -100,7 +101,7 @@ struct ReplicationConfig {
   std::string master_auth = "";
   bool read_only = false;
   uint64_t repl_backlog_size = 1 * 1024 * 1024;  // 1MB
-  uint32_t repl_timeout = 60;  // seconds
+  uint32_t repl_timeout = 60;                    // seconds
 };
 
 struct ServerConfig {

@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
 
   // Print AstraDB startup banner with ASCII art logo (always visible)
   // Use vibrant gradient colors from cyan to magenta via RGB
-  
+
   // clang-format off
   fmt::print("\n");
   fmt::print(fmt::fg(fmt::rgb(0, 255, 255)) | fmt::emphasis::bold, "               AAA                                       tttt                                             DDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB   \n");
@@ -268,7 +268,6 @@ int main(int argc, char** argv) {
   server_config.acl_default_user = config.acl_default_user;
   server_config.acl_default_password = config.acl_default_password;
 
-
   // Copy metrics config
   server_config.metrics.enabled = config.metrics.enabled;
   server_config.metrics.bind_addr = config.metrics.bind_addr;
@@ -291,7 +290,8 @@ int main(int argc, char** argv) {
   server_config.replication.master_port = config.replication.master_port;
   server_config.replication.master_auth = config.replication.master_auth;
   server_config.replication.read_only = config.replication.read_only;
-  server_config.replication.repl_backlog_size = config.replication.repl_backlog_size;
+  server_config.replication.repl_backlog_size =
+      config.replication.repl_backlog_size;
   server_config.replication.repl_timeout = config.replication.repl_timeout;
 
   // Copy RocksDB config

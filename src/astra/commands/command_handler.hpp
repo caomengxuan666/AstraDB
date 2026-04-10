@@ -41,7 +41,6 @@ class ShardManager;
 struct AstraNodeView;
 }  // namespace astra::cluster
 
-
 namespace astra::server {
 class WorkerScheduler;
 }
@@ -119,28 +118,27 @@ class CommandContext {
     if (!acl_manager) {
       return true;  // No ACL manager, allow all commands
     }
-    
+
     // Allow privileged commands for all users (including unauthenticated)
     std::string upper_cmd = absl::AsciiStrToUpper(command);
     static const absl::flat_hash_set<std::string> privileged_commands = {
-      "AUTH", "PING", "QUIT", "HELLO", "CLIENT", "INFO"
-    };
-    
+        "AUTH", "PING", "QUIT", "HELLO", "CLIENT", "INFO"};
+
     if (privileged_commands.find(upper_cmd) != privileged_commands.end()) {
       return true;
     }
-    
+
     // Allow ACL commands for authenticated users
     if (upper_cmd == "ACL" && IsAuthenticated()) {
       return true;
     }
-    
+
     const std::string& username = GetAuthenticatedUser();
     if (username.empty() || !IsAuthenticated()) {
       // Unauthenticated users cannot execute commands except privileged ones
       return false;
     }
-    
+
     return acl_manager->CheckCommandPermission(username, command);
   }
 
@@ -150,13 +148,13 @@ class CommandContext {
     if (!acl_manager) {
       return true;  // No ACL manager, allow all keys
     }
-    
+
     const std::string& username = GetAuthenticatedUser();
     if (username.empty() || !IsAuthenticated()) {
       // Unauthenticated users cannot access keys
       return false;
     }
-    
+
     return acl_manager->CheckKeyPermission(username, key);
   }
 

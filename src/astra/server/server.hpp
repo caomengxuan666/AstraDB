@@ -132,7 +132,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     // Load ACL configuration from TOML
     try {
       toml::table config_table = toml::parse_file(config_file);
-      
+
       // ACL configuration
       if (config_table.contains("acl")) {
         auto* acl_table = config_table["acl"].as_table();
@@ -143,12 +143,14 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
         }
         if (acl_table && acl_table->contains("default_user")) {
           if (auto* user_val = acl_table->get("default_user")) {
-            config.acl_default_user = user_val->value<std::string>().value_or("default");
+            config.acl_default_user =
+                user_val->value<std::string>().value_or("default");
           }
         }
         if (acl_table && acl_table->contains("default_password")) {
           if (auto* password_val = acl_table->get("default_password")) {
-            config.acl_default_password = password_val->value<std::string>().value_or("");
+            config.acl_default_password =
+                password_val->value<std::string>().value_or("");
           }
         }
       }

@@ -6,10 +6,11 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/functional/any_invocable.h>
 #include <absl/random/random.h>
-#include <absl/strings/str_cat.h>
 #include <absl/strings/escaping.h>
+#include <absl/strings/str_cat.h>
 #include <absl/synchronization/mutex.h>
 
+#include <asio.hpp>
 #include <atomic>
 #include <deque>
 #include <fstream>
@@ -19,8 +20,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#include <asio.hpp>
 
 #include "astra/base/logging.hpp"
 #include "astra/commands/database.hpp"
@@ -35,25 +34,38 @@ namespace astra::replication {
 // Replication role
 enum class ReplicationRole { kMaster, kSlave, kNone };
 
-// Slave information (NO SHADING architecture - each worker has its own slave list)
+// Slave information (NO SHADING architecture - each worker has its own slave
+// list)
 struct SlaveInfo {
   uint64_t id;
-  uint64_t connection_id;      // Connection ID for this slave (used to get socket from Worker)
-  std::string remote_addr;    // Remote address for logging
+  uint64_t connection_id;   // Connection ID for this slave (used to get socket
+                            // from Worker)
+  std::string remote_addr;  // Remote address for logging
   std::string host;
   uint16_t port;
   uint64_t repl_offset;  // Replication offset
   std::atomic<bool> online{true};
   // Note: We don't store socket here to avoid NO SHADING violations
-  // Instead, we use connection_id to get the socket from Worker's connections_ map
+  // Instead, we use connection_id to get the socket from Worker's connections_
+  // map
 
   // Default constructor for RegisterSlave
   SlaveInfo()
-      : id(0), connection_id(0), remote_addr(""), host(""), port(0), repl_offset(0) {
-  }
+      : id(0),
+        connection_id(0),
+        remote_addr(""),
+        host(""),
+        port(0),
+        repl_offset(0) {}
 
-  SlaveInfo(uint64_t i, const std::string& h, uint16_t p, asio::io_context* io_ctx = nullptr)
-      : id(i), connection_id(0), remote_addr(""), host(h), port(p), repl_offset(0) {
+  SlaveInfo(uint64_t i, const std::string& h, uint16_t p,
+            asio::io_context* io_ctx = nullptr)
+      : id(i),
+        connection_id(0),
+        remote_addr(""),
+        host(h),
+        port(p),
+        repl_offset(0) {
     // io_ctx parameter is kept for compatibility but not used
     (void)io_ctx;
   }
@@ -97,7 +109,7 @@ class ReplicationManager {
 
     if (role_ == ReplicationRole::kSlave) {
       ASTRADB_LOG_DEBUG("Replication initialized as slave, master: {}:{}",
-                       config_.master_host, config_.master_port);
+                        config_.master_host, config_.master_port);
       // Connect to master asynchronously
       if (io_context_) {
         asio::co_spawn(
@@ -123,10 +135,9 @@ class ReplicationManager {
   // Get io_context
   asio::io_context* GetIOContext() const noexcept { return io_context_; }
 
-  // Set worker ID (for NO SHADING compliance - each worker has unique RDB files)
-  void SetWorkerId(size_t worker_id) noexcept {
-    worker_id_ = worker_id;
-  }
+  // Set worker ID (for NO SHADING compliance - each worker has unique RDB
+  // files)
+  void SetWorkerId(size_t worker_id) noexcept { worker_id_ = worker_id; }
 
   // Get worker ID
   size_t GetWorkerId() const noexcept { return worker_id_; }
@@ -182,7 +193,8 @@ class ReplicationManager {
       return;
     }
 
-    ASTRADB_LOG_DEBUG("Worker {}: Propagating command '{}' to slaves", worker_id_, cmd.name);
+    ASTRADB_LOG_DEBUG("Worker {}: Propagating command '{}' to slaves",
+                      worker_id_, cmd.name);
 
     // Increment replication offset
     repl_offset_.fetch_add(1, std::memory_order_relaxed);
@@ -198,15 +210,17 @@ class ReplicationManager {
     if (io_context_) {
       absl::MutexLock slaves_lock(&slaves_mutex_);
       size_t slave_count = slaves_.size();
-      ASTRADB_LOG_DEBUG("Worker {}: Found {} slaves to send command to", worker_id_, slave_count);
+      ASTRADB_LOG_DEBUG("Worker {}: Found {} slaves to send command to",
+                        worker_id_, slave_count);
       for (auto& [id, slave] : slaves_) {
         if (slave->online.load(std::memory_order_acquire)) {
-          ASTRADB_LOG_DEBUG("Worker {}: Spawning coroutine to send command to slave {}", worker_id_, id);
+          ASTRADB_LOG_DEBUG(
+              "Worker {}: Spawning coroutine to send command to slave {}",
+              worker_id_, id);
           // Spawn coroutine to send command to slave
           asio::co_spawn(
               *io_context_,
-              [this, slave_ptr = slave.get(),
-               cmd]() -> asio::awaitable<void> {
+              [this, slave_ptr = slave.get(), cmd]() -> asio::awaitable<void> {
                 co_await this->SendCommandToSlave(slave_ptr, cmd);
               },
               asio::detached);
@@ -232,15 +246,13 @@ class ReplicationManager {
   // Build FULLRESYNC response: "FULLRESYNC <replid> <offset>\r\n"
   // Note: RespValue with kSimpleString will add the + prefix
   static std::string BuildFullResyncResponse(const std::string& replid,
-                                               uint64_t offset) {
+                                             uint64_t offset) {
     return "FULLRESYNC " + replid + " " + absl::StrCat(offset) + "\r\n";
   }
 
   // Build CONTINUE response: "CONTINUE\r\n"
   // Note: RespValue with kSimpleString will add the + prefix
-  static std::string BuildContinueResponse() {
-    return "CONTINUE\r\n";
-  }
+  static std::string BuildContinueResponse() { return "CONTINUE\r\n"; }
 
   // Register slave with replication manager (master only)
   bool RegisterSlave(asio::ip::tcp::socket* socket, uint64_t connection_id,
@@ -258,8 +270,8 @@ class ReplicationManager {
     slave->repl_offset = 0;
 
     // Note: We don't store the socket here to avoid NO SHADING violations
-    // Instead, we'll use the connection_id to get the socket from Worker's connections_ map
-    // when sending commands
+    // Instead, we'll use the connection_id to get the socket from Worker's
+    // connections_ map when sending commands
 
     // Save slave ID before moving (for logging)
     uint64_t slave_id = slave->id;
@@ -278,23 +290,26 @@ class ReplicationManager {
   }
 
   // Send RDB snapshot to slave (coroutine)
-  asio::awaitable<void> SendRdbSnapshot(
-      asio::ip::tcp::socket* socket, uint64_t connection_id = 0) noexcept {
+  asio::awaitable<void> SendRdbSnapshot(asio::ip::tcp::socket* socket,
+                                        uint64_t connection_id = 0) noexcept {
     if (!database_) {
       ASTRADB_LOG_ERROR("Database not set, cannot send RDB snapshot");
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to send RDB snapshot to slave (worker={}, conn={})",
-                     worker_id_, connection_id);
+    ASTRADB_LOG_DEBUG(
+        "Starting to send RDB snapshot to slave (worker={}, conn={})",
+        worker_id_, connection_id);
 
     // Initialize RDB writer if not already initialized
     if (!rdb_writer_) {
       rdb_writer_ = std::make_unique<persistence::RdbWriter>();
       persistence::RdbOptions options;
-      // Use worker_id and connection_id to create unique filename (NO SHADING compliance)
-      options.save_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
-                          "_conn_" + std::to_string(connection_id) + ".rdb";
+      // Use worker_id and connection_id to create unique filename (NO SHADING
+      // compliance)
+      options.save_path = "./data/dump_sync_worker_" +
+                          std::to_string(worker_id_) + "_conn_" +
+                          std::to_string(connection_id) + ".rdb";
       options.checksum = true;
       if (!rdb_writer_->Init(options)) {
         ASTRADB_LOG_ERROR("Failed to initialize RDB writer");
@@ -315,18 +330,18 @@ class ReplicationManager {
       writer.ResizeDb(db_size, 0);
 
       // Iterate through all keys and write to RDB
-      database_->ForEachKey([&writer](const std::string& key,
-                                      astra::storage::KeyType type,
-                                      const std::string& value, int64_t ttl_ms) {
-        // Convert storage::KeyType to RDB type using the correct mapping
-        uint8_t rdb_type = persistence::KeyTypeToRdbType(type);
+      database_->ForEachKey(
+          [&writer](const std::string& key, astra::storage::KeyType type,
+                    const std::string& value, int64_t ttl_ms) {
+            // Convert storage::KeyType to RDB type using the correct mapping
+            uint8_t rdb_type = persistence::KeyTypeToRdbType(type);
 
-        // Calculate expire time (ttl_ms is absolute time in milliseconds)
-        int64_t expire_ms = (ttl_ms > 0) ? ttl_ms : -1;
+            // Calculate expire time (ttl_ms is absolute time in milliseconds)
+            int64_t expire_ms = (ttl_ms > 0) ? ttl_ms : -1;
 
-        // Write key-value pair to RDB
-        writer.WriteKv(rdb_type, key, value, expire_ms);
-      });
+            // Write key-value pair to RDB
+            writer.WriteKv(rdb_type, key, value, expire_ms);
+          });
     });
 
     if (!success) {
@@ -335,8 +350,9 @@ class ReplicationManager {
     }
 
     // Read the generated RDB file (use same path as writer)
-    std::string rdb_path = "./data/dump_sync_worker_" + std::to_string(worker_id_) +
-                           "_conn_" + std::to_string(connection_id) + ".rdb";
+    std::string rdb_path = "./data/dump_sync_worker_" +
+                           std::to_string(worker_id_) + "_conn_" +
+                           std::to_string(connection_id) + ".rdb";
     std::ifstream rdb_file(rdb_path, std::ios::binary);
     if (!rdb_file.is_open()) {
       ASTRADB_LOG_ERROR("Failed to open RDB file for reading: {}", rdb_path);
@@ -375,7 +391,7 @@ class ReplicationManager {
   std::string HandlePsync(const std::string& replication_id,
                           uint64_t offset) noexcept {
     ASTRADB_LOG_DEBUG("PSYNC requested: id={}, offset={}", replication_id,
-                     offset);
+                      offset);
 
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
 
@@ -388,35 +404,33 @@ class ReplicationManager {
     // Check if partial sync is possible
     // We support partial sync if the offset is within backlog range
     absl::MutexLock lock(&backlog_mutex_);
-    uint64_t backlog_start_offset =
-        current_offset >= repl_backlog_.size()
-            ? current_offset - repl_backlog_.size()
-            : 0;
+    uint64_t backlog_start_offset = current_offset >= repl_backlog_.size()
+                                        ? current_offset - repl_backlog_.size()
+                                        : 0;
 
     if (offset >= backlog_start_offset && offset <= current_offset) {
       // Partial sync possible
       ASTRADB_LOG_DEBUG("Partial sync accepted: offset={}, current_offset={}",
-                       offset, current_offset);
+                        offset, current_offset);
       return BuildContinueResponse();
     } else {
       // Full sync required
       ASTRADB_LOG_DEBUG("Full sync required: offset={}, current_offset={}",
-                       offset, current_offset);
+                        offset, current_offset);
       return BuildFullResyncResponse(master_replid_, current_offset);
     }
   }
 
   // Get backlog data for partial sync
   std::vector<protocol::Command> GetBacklogData(uint64_t start_offset,
-                                                 uint64_t end_offset) noexcept {
+                                                uint64_t end_offset) noexcept {
     std::vector<protocol::Command> result;
     absl::MutexLock lock(&backlog_mutex_);
 
     uint64_t current_offset = repl_offset_.load(std::memory_order_relaxed);
-    uint64_t backlog_start_offset =
-        current_offset >= repl_backlog_.size()
-            ? current_offset - repl_backlog_.size()
-            : 0;
+    uint64_t backlog_start_offset = current_offset >= repl_backlog_.size()
+                                        ? current_offset - repl_backlog_.size()
+                                        : 0;
 
     // Validate offset range
     if (start_offset < backlog_start_offset || end_offset > current_offset) {
@@ -449,14 +463,12 @@ class ReplicationManager {
     if (it != slaves_.end()) {
       it->second->repl_offset = offset;
       ASTRADB_LOG_DEBUG("Received ACK from slave {} (id={}): offset={}",
-                       it->second->host, slave_id, offset);
+                        it->second->host, slave_id, offset);
     }
   }
 
   // Get master replication ID
-  const std::string& GetMasterReplId() const noexcept {
-    return master_replid_;
-  }
+  const std::string& GetMasterReplId() const noexcept { return master_replid_; }
 
   // Get number of connected slaves
   size_t GetSlaveCount() const noexcept {
@@ -494,12 +506,15 @@ class ReplicationManager {
   mutable absl::Mutex backlog_mutex_;
 
   CommandCallback command_callback_;
-  GetSocketCallback get_socket_callback_;  // Callback to get socket by connection_id
+  GetSocketCallback
+      get_socket_callback_;  // Callback to get socket by connection_id
   std::unique_ptr<persistence::RdbWriter> rdb_writer_;
   absl::BitGen bit_gen_;
 
-  // Network connections (NO SHARING - each ReplicationManager has its own connections)
-  std::unique_ptr<asio::ip::tcp::socket> master_socket_;  // Slave: connection to master
+  // Network connections (NO SHARING - each ReplicationManager has its own
+  // connections)
+  std::unique_ptr<asio::ip::tcp::socket>
+      master_socket_;  // Slave: connection to master
 
   // Private methods
   void GenerateMasterReplId() noexcept {
@@ -515,7 +530,7 @@ class ReplicationManager {
   // Connect to master (slave only) - coroutine-based
   asio::awaitable<void> ConnectToMaster() noexcept {
     ASTRADB_LOG_DEBUG("Connecting to master at {}:{}...", config_.master_host,
-                     config_.master_port);
+                      config_.master_port);
 
     if (!io_context_) {
       ASTRADB_LOG_ERROR("IO context not set, cannot connect to master");
@@ -540,9 +555,8 @@ class ReplicationManager {
     }
 
     // Connect to master
-    co_await asio::async_connect(
-        *master_socket_, endpoints,
-        asio::redirect_error(asio::use_awaitable, ec));
+    co_await asio::async_connect(*master_socket_, endpoints,
+                                 asio::redirect_error(asio::use_awaitable, ec));
 
     if (ec) {
       ASTRADB_LOG_ERROR("Failed to connect to master: {}", ec.message());
@@ -551,15 +565,15 @@ class ReplicationManager {
 
     master_connected_.store(true, std::memory_order_release);
     ASTRADB_LOG_DEBUG("Successfully connected to master at {}:{}",
-                     config_.master_host, config_.master_port);
+                      config_.master_host, config_.master_port);
 
     // Send AUTH command if authentication is configured
     if (!config_.master_auth.empty()) {
       ASTRADB_LOG_DEBUG("Sending AUTH command to master");
       std::string auth_cmd = "*2\r\n$4\r\nAUTH\r\n$" +
-                             std::to_string(config_.master_auth.size()) + "\r\n" +
-                             config_.master_auth + "\r\n";
-      [[maybe_unused]]size_t auth_bytes = co_await asio::async_write(
+                             std::to_string(config_.master_auth.size()) +
+                             "\r\n" + config_.master_auth + "\r\n";
+      [[maybe_unused]] size_t auth_bytes = co_await asio::async_write(
           *master_socket_, asio::buffer(auth_cmd),
           asio::redirect_error(asio::use_awaitable, ec));
 
@@ -642,10 +656,11 @@ class ReplicationManager {
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Starting to receive RDB snapshot from master (worker={})",
-                     worker_id_);
+    ASTRADB_LOG_DEBUG(
+        "Starting to receive RDB snapshot from master (worker={})", worker_id_);
 
-    // Create temporary file for RDB data (use worker_id for NO SHADING compliance)
+    // Create temporary file for RDB data (use worker_id for NO SHADING
+    // compliance)
     std::string rdb_path = "./data/dump_sync_received_worker_" +
                            std::to_string(worker_id_) + ".rdb";
     std::ofstream rdb_file(rdb_path, std::ios::binary);
@@ -660,8 +675,8 @@ class ReplicationManager {
     size_t total_bytes = 0;
 
     ASTRADB_LOG_DEBUG("Starting RDB receive loop, running={}, socket_open={}",
-                     running_.load(std::memory_order_acquire),
-                     master_socket_ && master_socket_->is_open());
+                      running_.load(std::memory_order_acquire),
+                      master_socket_ && master_socket_->is_open());
 
     // Read until we have enough data or EOF
     // For simplicity, we read a fixed amount for now
@@ -670,11 +685,10 @@ class ReplicationManager {
       ASTRADB_LOG_DEBUG("Waiting for RDB data, total_bytes={}", total_bytes);
 
       size_t bytes_received = co_await master_socket_->async_read_some(
-          asio::buffer(buf),
-          asio::redirect_error(asio::use_awaitable, ec));
+          asio::buffer(buf), asio::redirect_error(asio::use_awaitable, ec));
 
-      ASTRADB_LOG_DEBUG("RDB read returned: bytes_received={}, ec={}", bytes_received,
-                       ec.message());
+      ASTRADB_LOG_DEBUG("RDB read returned: bytes_received={}, ec={}",
+                        bytes_received, ec.message());
 
       if (ec) {
         if (ec == asio::error::eof) {
@@ -689,15 +703,18 @@ class ReplicationManager {
       rdb_file.write(buf.data(), bytes_received);
       total_bytes += bytes_received;
 
-      ASTRADB_LOG_DEBUG("Received {} bytes (total: {})", bytes_received, total_bytes);
+      ASTRADB_LOG_DEBUG("Received {} bytes (total: {})", bytes_received,
+                        total_bytes);
 
       // Check for RDB EOF marker (0xFF) in received data
-      // This is a simplified check - in production, we would parse the RDB properly
+      // This is a simplified check - in production, we would parse the RDB
+      // properly
       bool eof_found = false;
       for (size_t i = 0; i < bytes_received; ++i) {
         if (static_cast<uint8_t>(buf[i]) == 0xFF) {
           eof_found = true;
-          ASTRADB_LOG_DEBUG("RDB EOF marker found at offset {} in this chunk", i);
+          ASTRADB_LOG_DEBUG("RDB EOF marker found at offset {} in this chunk",
+                            i);
           break;
         }
       }
@@ -728,32 +745,33 @@ class ReplicationManager {
         database_->Clear();
 
         // Load RDB data
-        bool loaded = reader.Load([this](int db_index, const persistence::RdbKeyValue& kv) {
-          // Insert into database based on type
-          switch (kv.type) {
-            case persistence::RDB_TYPE_STRING:
-              database_->Set(kv.key, commands::StringValue(kv.value));
-              break;
-            // TODO: Handle other types (hash, list, set, zset)
-            case persistence::RDB_TYPE_HASH:
-            case persistence::RDB_TYPE_LIST:
-            case persistence::RDB_TYPE_SET:
-            case persistence::RDB_TYPE_ZSET:
-              ASTRADB_LOG_WARN("Unsupported key type in RDB: {} for key {}",
-                               kv.type, kv.key);
-              break;
-            default:
-              ASTRADB_LOG_WARN("Unknown key type in RDB: {} for key {}",
-                               kv.type, kv.key);
-              break;
-          }
+        bool loaded = reader.Load(
+            [this](int db_index, const persistence::RdbKeyValue& kv) {
+              // Insert into database based on type
+              switch (kv.type) {
+                case persistence::RDB_TYPE_STRING:
+                  database_->Set(kv.key, commands::StringValue(kv.value));
+                  break;
+                // TODO: Handle other types (hash, list, set, zset)
+                case persistence::RDB_TYPE_HASH:
+                case persistence::RDB_TYPE_LIST:
+                case persistence::RDB_TYPE_SET:
+                case persistence::RDB_TYPE_ZSET:
+                  ASTRADB_LOG_WARN("Unsupported key type in RDB: {} for key {}",
+                                   kv.type, kv.key);
+                  break;
+                default:
+                  ASTRADB_LOG_WARN("Unknown key type in RDB: {} for key {}",
+                                   kv.type, kv.key);
+                  break;
+              }
 
-          // TODO: Set TTL for keys that have expiration
-          if (kv.expire_ms > 0) {
-            // Database doesn't have direct TTL support in Set method
-            // Need to use metadata to set expiration
-          }
-        });
+              // TODO: Set TTL for keys that have expiration
+              if (kv.expire_ms > 0) {
+                // Database doesn't have direct TTL support in Set method
+                // Need to use metadata to set expiration
+              }
+            });
 
         if (loaded) {
           ASTRADB_LOG_DEBUG("RDB snapshot loaded successfully");
@@ -769,8 +787,8 @@ class ReplicationManager {
   }
 
   // Send command to slave (master only) - coroutine-based
-  asio::awaitable<void> SendCommandToSlave(SlaveInfo* slave,
-                                            const protocol::Command& cmd) noexcept {
+  asio::awaitable<void> SendCommandToSlave(
+      SlaveInfo* slave, const protocol::Command& cmd) noexcept {
     if (!slave || !slave->online.load(std::memory_order_acquire)) {
       co_return;
     }
@@ -780,9 +798,9 @@ class ReplicationManager {
     if (get_socket_callback_) {
       socket = get_socket_callback_(slave->connection_id);
     }
-    
+
     if (!socket || !socket->is_open()) {
-      ASTRADB_LOG_WARN("Slave {} connection {} socket not available", 
+      ASTRADB_LOG_WARN("Slave {} connection {} socket not available",
                        slave->remote_addr, slave->connection_id);
       slave->online.store(false, std::memory_order_release);
       co_return;
@@ -797,13 +815,14 @@ class ReplicationManager {
         asio::redirect_error(asio::use_awaitable, ec));
 
     if (ec) {
-      ASTRADB_LOG_ERROR("Failed to send command to slave {} (connection {}): {}",
-                        slave->remote_addr, slave->connection_id, ec.message());
+      ASTRADB_LOG_ERROR(
+          "Failed to send command to slave {} (connection {}): {}",
+          slave->remote_addr, slave->connection_id, ec.message());
       slave->online.store(false, std::memory_order_release);
       co_return;
     }
 
-    ASTRADB_LOG_DEBUG("Sent command to slave {} (connection {}) ({} bytes)", 
+    ASTRADB_LOG_DEBUG("Sent command to slave {} (connection {}) ({} bytes)",
                       slave->remote_addr, slave->connection_id, bytes_sent);
 
     // Update slave's replication offset
@@ -824,8 +843,7 @@ class ReplicationManager {
 
     while (running_.load(std::memory_order_acquire)) {
       size_t bytes_received = co_await master_socket_->async_read_some(
-          asio::buffer(buf),
-          asio::redirect_error(asio::use_awaitable, ec));
+          asio::buffer(buf), asio::redirect_error(asio::use_awaitable, ec));
 
       if (ec) {
         if (ec == asio::error::eof) {
@@ -839,12 +857,14 @@ class ReplicationManager {
 
       // Append received data to buffer
       recv_buffer.append(buf.data(), bytes_received);
-      ASTRADB_LOG_DEBUG("Received {} bytes of replication data", bytes_received);
+      ASTRADB_LOG_DEBUG("Received {} bytes of replication data",
+                        bytes_received);
 
       // Process RESP commands from buffer
       while (!recv_buffer.empty()) {
         // Try to parse a complete RESP command
-        // This is a simplified implementation - in production, we would use a proper RESP parser
+        // This is a simplified implementation - in production, we would use a
+        // proper RESP parser
         size_t cmd_end = FindRespCommandEnd(recv_buffer);
         if (cmd_end == std::string::npos) {
           // Incomplete command, wait for more data
@@ -903,7 +923,8 @@ class ReplicationManager {
 
       if (value_opt) {
         // Parse command from RESP value
-        auto command_opt = astra::protocol::RespParser::ParseCommand(*value_opt);
+        auto command_opt =
+            astra::protocol::RespParser::ParseCommand(*value_opt);
         if (command_opt) {
           // Execute command
           command_callback_(*command_opt);
@@ -918,14 +939,15 @@ class ReplicationManager {
 
   // Send ACK to master (slave only)
   void SendAckToMaster(uint64_t offset) noexcept {
-    if (role_ != ReplicationRole::kSlave || !master_socket_ || !master_socket_->is_open()) {
+    if (role_ != ReplicationRole::kSlave || !master_socket_ ||
+        !master_socket_->is_open()) {
       return;
     }
 
     // Send REPLCONF ACK command
     std::string ack_cmd = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" +
-                         std::to_string(std::to_string(offset).size()) + "\r\n" +
-                         std::to_string(offset) + "\r\n";
+                          std::to_string(std::to_string(offset).size()) +
+                          "\r\n" + std::to_string(offset) + "\r\n";
 
     // Note: This is a synchronous send for simplicity
     // In production, we would use async send
@@ -935,7 +957,8 @@ class ReplicationManager {
     if (ec) {
       ASTRADB_LOG_ERROR("Failed to send ACK to master: {}", ec.message());
     } else {
-      ASTRADB_LOG_DEBUG("Sent ACK to master: offset={} ({} bytes)", offset, bytes_sent);
+      ASTRADB_LOG_DEBUG("Sent ACK to master: offset={} ({} bytes)", offset,
+                        bytes_sent);
     }
   }
 
@@ -991,18 +1014,18 @@ class ReplicationManager {
       writer.ResizeDb(db_size, 0);
 
       // Iterate through all keys and write to RDB
-      database_->ForEachKey([&writer](const std::string& key,
-                                      astra::storage::KeyType type,
-                                      const std::string& value, int64_t ttl_ms) {
-        // Convert storage::KeyType to RDB type using the correct mapping
-        uint8_t rdb_type = persistence::KeyTypeToRdbType(type);
+      database_->ForEachKey(
+          [&writer](const std::string& key, astra::storage::KeyType type,
+                    const std::string& value, int64_t ttl_ms) {
+            // Convert storage::KeyType to RDB type using the correct mapping
+            uint8_t rdb_type = persistence::KeyTypeToRdbType(type);
 
-        // Calculate expire time (ttl_ms is absolute time in milliseconds)
-        int64_t expire_ms = (ttl_ms > 0) ? ttl_ms : -1;
+            // Calculate expire time (ttl_ms is absolute time in milliseconds)
+            int64_t expire_ms = (ttl_ms > 0) ? ttl_ms : -1;
 
-        // Write key-value pair to RDB
-        writer.WriteKv(rdb_type, key, value, expire_ms);
-      });
+            // Write key-value pair to RDB
+            writer.WriteKv(rdb_type, key, value, expire_ms);
+          });
     });
 
     if (!success) {

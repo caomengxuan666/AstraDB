@@ -241,7 +241,8 @@ CommandResult HandleAclGetUser(const protocol::Command& command,
   if (user_info->all_keys) {
     keys_value.SetString("~*", protocol::RespType::kBulkString);
   } else if (!user_info->key_patterns.empty()) {
-    keys_value.SetString(user_info->key_patterns[0], protocol::RespType::kBulkString);
+    keys_value.SetString(user_info->key_patterns[0],
+                         protocol::RespType::kBulkString);
   } else {
     keys_value.SetString("", protocol::RespType::kBulkString);
   }
@@ -257,7 +258,8 @@ CommandResult HandleAclGetUser(const protocol::Command& command,
   if (user_info->all_channels) {
     channels_value.SetString("&*", protocol::RespType::kBulkString);
   } else if (!user_info->channel_patterns.empty()) {
-    channels_value.SetString(user_info->channel_patterns[0], protocol::RespType::kBulkString);
+    channels_value.SetString(user_info->channel_patterns[0],
+                             protocol::RespType::kBulkString);
   } else {
     channels_value.SetString("", protocol::RespType::kBulkString);
   }
@@ -325,7 +327,7 @@ CommandResult HandleAclUsers(const protocol::Command& command,
 CommandResult HandleAclCat(const protocol::Command& command,
                            CommandContext* context) {
   // ACL CAT [categoryname]
-  
+
   auto* acl_manager = context->GetAclManager();
   if (!acl_manager) {
     return CommandResult(false, "ERR ACL not configured");
@@ -333,14 +335,14 @@ CommandResult HandleAclCat(const protocol::Command& command,
 
   // Redis command categories
   static const std::vector<std::string> categories = {
-    "@keyspace", "@read", "@write", "@set", "@sortedset", "@list",
-    "@hash", "@string", "@bitmap", "@hyperloglog", "@geo", "@stream",
-    "@pubsub", "@admin", "@fast", "@slow", "@blocking", "@dangerous",
-    "@connection", "@transaction", "@scripting"
-  };
+      "@keyspace", "@read",     "@write",     "@set",        "@sortedset",
+      "@list",     "@hash",     "@string",    "@bitmap",     "@hyperloglog",
+      "@geo",      "@stream",   "@pubsub",    "@admin",      "@fast",
+      "@slow",     "@blocking", "@dangerous", "@connection", "@transaction",
+      "@scripting"};
 
   protocol::RespValue resp;
-  
+
   if (command.ArgCount() == 0) {
     // List all categories
     std::vector<protocol::RespValue> cat_array;
@@ -353,13 +355,13 @@ CommandResult HandleAclCat(const protocol::Command& command,
   } else {
     // List commands in a specific category
     // const std::string& category = command[0].AsString();
-    
+
     // For now, return all commands for any category
     // In production, this should return actual commands in the category
     std::vector<protocol::RespValue> cmd_array;
     resp.SetArray(cmd_array);
   }
-  
+
   return CommandResult(resp);
 }
 
@@ -381,10 +383,11 @@ CommandResult HandleAclGenpass(const protocol::Command& command,
   }
 
   // Generate random password
-  static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  static const char charset[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   std::string password;
   int length = bits / 8;  // bytes
-  
+
   for (int i = 0; i < length; ++i) {
     password += charset[rand() % (sizeof(charset) - 1)];
   }
@@ -398,15 +401,16 @@ CommandResult HandleAclGenpass(const protocol::Command& command,
 CommandResult HandleAclWhoami(const protocol::Command& command,
                               CommandContext* context) {
   // ACL WHOAMI
-  
+
   protocol::RespValue resp;
-  
+
   if (context->IsAuthenticated()) {
-    resp.SetString(context->GetAuthenticatedUser(), protocol::RespType::kBulkString);
+    resp.SetString(context->GetAuthenticatedUser(),
+                   protocol::RespType::kBulkString);
   } else {
     resp.SetString("default", protocol::RespType::kBulkString);
   }
-  
+
   return CommandResult(resp);
 }
 

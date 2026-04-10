@@ -19,11 +19,11 @@
 #include <string>
 #include <vector>
 
+#include "astra/base/config.hpp"
 #include "astra/container/dash_map.hpp"
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
 #include "astra/container/zset/bplustree_zset.hpp"
-#include "astra/base/config.hpp"
 #include "astra/core/memory/eviction_manager.hpp"
 #include "astra/core/memory/memory_tracker.hpp"
 #include "astra/core/memory/object_size_estimator.hpp"
@@ -118,8 +118,9 @@ class Database {
   }
 
   // Set RocksDB adapter and storage mode (called by Shard)
-  void SetRocksDBAdapter(persistence::RocksDBAdapter* adapter, 
-                         base::StorageMode storage_mode = base::StorageMode::kRedis) {
+  void SetRocksDBAdapter(
+      persistence::RocksDBAdapter* adapter,
+      base::StorageMode storage_mode = base::StorageMode::kRedis) {
     rocksdb_adapter_ = adapter;
     storage_mode_ = storage_mode;
   }
@@ -128,11 +129,9 @@ class Database {
   persistence::RocksDBAdapter* GetRocksDBAdapter() const {
     return rocksdb_adapter_;
   }
-  
+
   // Get storage mode
-  base::StorageMode GetStorageMode() const {
-    return storage_mode_;
-  }
+  base::StorageMode GetStorageMode() const { return storage_mode_; }
 
   // Initialize eviction manager (called after SetMemoryTracker)
   void InitializeEvictionManager(core::memory::GetTotalMemoryCallback
@@ -151,9 +150,10 @@ class Database {
   }
 
   // ========== Persistence Operations (RocksDB) ==========
-  
+
   // Generic method to persist any key type to RocksDB
-  // Used by both EvictKey (Redis mode) and immediate persistence (RocksDB all-in mode)
+  // Used by both EvictKey (Redis mode) and immediate persistence (RocksDB
+  // all-in mode)
   void PersistKey(const std::string& key, astra::storage::KeyType type) {
     if (!rocksdb_adapter_) {
       return;
@@ -166,7 +166,8 @@ class Database {
       case astra::storage::KeyType::kString: {
         StringValue value;
         if (strings_.Get(key, &value)) {
-          serialized = persistence::RocksDBSerializer::SerializeString(key, value.value);
+          serialized =
+              persistence::RocksDBSerializer::SerializeString(key, value.value);
           success = !serialized.empty();
         }
         break;
@@ -176,7 +177,8 @@ class Database {
         if (hashes_.Get(key, &hash_ptr) && hash_ptr) {
           // Extract all key-value pairs from the hash
           auto hash_data = hash_ptr->GetAllKeyValuePairs();
-          serialized = persistence::RocksDBSerializer::SerializeHash(key, hash_data);
+          serialized =
+              persistence::RocksDBSerializer::SerializeHash(key, hash_data);
           success = !serialized.empty();
         }
         break;
@@ -186,7 +188,8 @@ class Database {
         if (sets_.Get(key, &set_ptr) && set_ptr) {
           // Extract all members from the set
           auto set_data = set_ptr->GetAll();
-          serialized = persistence::RocksDBSerializer::SerializeSet(key, set_data);
+          serialized =
+              persistence::RocksDBSerializer::SerializeSet(key, set_data);
           success = !serialized.empty();
         }
         break;
@@ -197,7 +200,9 @@ class Database {
           // Extract all members from the zset
           auto zset_data = zset_ptr->GetRangeByRank(0, -1, false, true);
           // TODO: Implement ZSet serialization with RocksDBSerializer
-          ASTRADB_LOG_WARN("PersistKey: ZSet type not yet implemented with RocksDBSerializer");
+          ASTRADB_LOG_WARN(
+              "PersistKey: ZSet type not yet implemented with "
+              "RocksDBSerializer");
           success = false;
         }
         break;
@@ -208,14 +213,17 @@ class Database {
           // Extract all elements from the list
           auto list_data = list_ptr->Range(0, -1);
           // TODO: Implement List serialization with RocksDBSerializer
-          ASTRADB_LOG_WARN("PersistKey: List type not yet implemented with RocksDBSerializer");
+          ASTRADB_LOG_WARN(
+              "PersistKey: List type not yet implemented with "
+              "RocksDBSerializer");
           success = false;
         }
         break;
       }
       case astra::storage::KeyType::kStream: {
         // TODO: Implement stream serialization
-        ASTRADB_LOG_WARN("PersistKey: Stream type not yet supported for RocksDB");
+        ASTRADB_LOG_WARN(
+            "PersistKey: Stream type not yet supported for RocksDB");
         break;
       }
       default:
@@ -320,15 +328,16 @@ class Database {
     // Check and perform eviction if needed (performance optimized)
     // Only check eviction when memory is close to threshold to avoid
     // performance impact
-    ASTRADB_LOG_DEBUG("SET: memory_tracker_={}, eviction_manager_={}, ShouldCheckEviction={}", 
-                      static_cast<bool>(memory_tracker_), 
-                      static_cast<bool>(eviction_manager_),
-                      memory_tracker_ ? memory_tracker_->ShouldCheckEviction() : false);
+    ASTRADB_LOG_DEBUG(
+        "SET: memory_tracker_={}, eviction_manager_={}, ShouldCheckEviction={}",
+        static_cast<bool>(memory_tracker_),
+        static_cast<bool>(eviction_manager_),
+        memory_tracker_ ? memory_tracker_->ShouldCheckEviction() : false);
     if (memory_tracker_) {
-      ASTRADB_LOG_DEBUG("SET: current_memory={}, max_memory={}, percentage={:.2f}%", 
-                        memory_tracker_->GetCurrentMemory(),
-                        memory_tracker_->GetMaxMemory(),
-                        memory_tracker_->GetMemoryUsagePercentage() * 100);
+      ASTRADB_LOG_DEBUG(
+          "SET: current_memory={}, max_memory={}, percentage={:.2f}%",
+          memory_tracker_->GetCurrentMemory(), memory_tracker_->GetMaxMemory(),
+          memory_tracker_->GetMemoryUsagePercentage() * 100);
     }
     if (eviction_manager_ && memory_tracker_ &&
         memory_tracker_->ShouldCheckEviction()) {
@@ -363,25 +372,26 @@ class Database {
       // Memory cache miss - load from RocksDB
       auto serialized = rocksdb_adapter_->Get(key);
       if (serialized.has_value()) {
-        ASTRADB_LOG_DEBUG("GET: loading from RocksDB all-in: {}, data: {}", key, *serialized);
+        ASTRADB_LOG_DEBUG("GET: loading from RocksDB all-in: {}, data: {}", key,
+                          *serialized);
         std::string deserialized_str;
         int64_t timestamp, ttl_ms;
         if (persistence::RocksDBSerializer::DeserializeString(
                 *serialized, &deserialized_str, &timestamp, &ttl_ms)) {
           ASTRADB_LOG_DEBUG("GET: deserialized: {}", deserialized_str);
           StringValue str_value(deserialized_str);
-          
+
           // Insert into memory cache and metadata
           strings_.Insert(key, std::move(str_value));
           metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
           metadata_manager_.UpdateAccessInfo(key);
-          
+
           // Update memory tracker
           if (memory_tracker_) {
             core::memory::MemoryTrackerHelper::UpdateString(
                 memory_tracker_, &metadata_manager_, key, "", deserialized_str);
           }
-          
+
           // Return the loaded value
           StringValue result;
           if (strings_.Get(key, &result)) {
@@ -394,10 +404,10 @@ class Database {
       }
       return std::nullopt;
 
-    // Redis mode: check if key exists and is not expired
-    if (!metadata_manager_.IsValid(key)) {
-      return std::nullopt;
-    }
+      // Redis mode: check if key exists and is not expired
+      if (!metadata_manager_.IsValid(key)) {
+        return std::nullopt;
+      }
     }
 
     StringValue value;
@@ -420,29 +430,34 @@ class Database {
     if (rocksdb_adapter_) {
       auto serialized = rocksdb_adapter_->Get(key);
       if (serialized.has_value()) {
-        ASTRADB_LOG_DEBUG("GET: loading from RocksDB cold data: {}, data: {}", key, *serialized);
-        auto* serializer = persistence::SerializerFactory::GetSerializer(astra::storage::KeyType::kString);
+        ASTRADB_LOG_DEBUG("GET: loading from RocksDB cold data: {}, data: {}",
+                          key, *serialized);
+        auto* serializer = persistence::SerializerFactory::GetSerializer(
+            astra::storage::KeyType::kString);
         if (serializer) {
           std::string deserialized_str;
           if (serializer->Deserialize(*serialized, &deserialized_str)) {
             ASTRADB_LOG_DEBUG("GET: deserialized: {}", deserialized_str);
             StringValue str_value(deserialized_str);
-            
+
             // Insert into memory cache and metadata
             strings_.Insert(key, std::move(str_value));
-            metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+            metadata_manager_.RegisterKey(key,
+                                          astra::storage::KeyType::kString);
             metadata_manager_.UpdateAccessInfo(key);
-            
+
             // Update memory tracker
             if (memory_tracker_) {
               core::memory::MemoryTrackerHelper::UpdateString(
-                  memory_tracker_, &metadata_manager_, key, "", deserialized_str);
+                  memory_tracker_, &metadata_manager_, key, "",
+                  deserialized_str);
             }
-            
+
             // Return the loaded value
             StringValue result;
             if (strings_.Get(key, &result)) {
-              ASTRADB_LOG_DEBUG("GET: returning loaded value: {}", result.value);
+              ASTRADB_LOG_DEBUG("GET: returning loaded value: {}",
+                                result.value);
               return result;
             }
           } else {
@@ -451,8 +466,9 @@ class Database {
         }
       }
     }
-    
-    return std::nullopt;  }
+
+    return std::nullopt;
+  }
 
   // GETRANGE key start end - Get substring of string value
   std::string GetRange(const std::string& key, int64_t start, int64_t end) {
@@ -531,14 +547,15 @@ class Database {
     }
 
     metadata_manager_.UnregisterKey(key);
-    
+
     // Delete from RocksDB in all-in mode
-    if (removed && storage_mode_ == base::StorageMode::kRocksDB && rocksdb_adapter_) {
+    if (removed && storage_mode_ == base::StorageMode::kRocksDB &&
+        rocksdb_adapter_) {
       if (!rocksdb_adapter_->Delete(key)) {
         ASTRADB_LOG_WARN("Del: failed to delete key from RocksDB: {}", key);
       }
     }
-    
+
     return removed;
   }
 
@@ -644,12 +661,12 @@ class Database {
 
     // Insert field
     bool result = hash->Insert(field, value);
-    
+
     // Write to RocksDB in all-in mode (for immediate persistence)
     if (result && storage_mode_ == base::StorageMode::kRocksDB) {
       PersistKey(key, astra::storage::KeyType::kHash);
     }
-    
+
     return result;
   }
 
@@ -2182,7 +2199,6 @@ class Database {
     return nullptr;
   }
 
-
   // Load data from RocksDB (for RocksDB all-in mode)
   bool LoadFromRocksDB(const std::string& key) {
     if (!rocksdb_adapter_) {
@@ -2199,7 +2215,8 @@ class Database {
     // Detect value type
     astra::storage::KeyType key_type;
     if (!persistence::RocksDBSerializer::GetValueType(*serialized, &key_type)) {
-      ASTRADB_LOG_WARN("LoadFromRocksDB: failed to detect value type for key: {}", key);
+      ASTRADB_LOG_WARN(
+          "LoadFromRocksDB: failed to detect value type for key: {}", key);
       return false;
     }
 
@@ -2251,7 +2268,8 @@ class Database {
         break;
       }
       default:
-        ASTRADB_LOG_WARN("LoadFromRocksDB: unsupported value type for key: {}", key);
+        ASTRADB_LOG_WARN("LoadFromRocksDB: unsupported value type for key: {}",
+                         key);
         break;
     }
 
@@ -2268,7 +2286,7 @@ class Database {
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned
   std::unique_ptr<core::memory::EvictionManager> eviction_manager_;  // Owned
   persistence::RocksDBAdapter* rocksdb_adapter_ =
-      nullptr;                                   // Not owned, managed by Worker
+      nullptr;  // Not owned, managed by Worker
   base::StorageMode storage_mode_ = base::StorageMode::kRedis;  // Storage mode
   BatchRequestCallback batch_request_callback_;  // For cross-worker requests
   std::function<void(const std::string&)> aof_callback_;  // For persistence
@@ -2286,9 +2304,7 @@ class DatabaseManager {
 
   ~DatabaseManager() = default;
 
-  Database* GetDatabase(int index) {
-    return databases_[index].get();
-  }
+  Database* GetDatabase(int index) { return databases_[index].get(); }
 
   size_t GetDatabaseCount() const { return databases_.size(); }
 

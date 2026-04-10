@@ -11,22 +11,25 @@
 
 namespace astra::container {
 
-template <typename T> struct DefaultCompareTo {
+template <typename T>
+struct DefaultCompareTo {
   int operator()(const T& a, const T& b) const {
     std::less<T> cmp;
     return cmp(a, b) ? -1 : (cmp(b, a) ? 1 : 0);
   }
 };
 
-template <typename T> struct BPTreePolicy {
+template <typename T>
+struct BPTreePolicy {
   using KeyT = T;
 
-  // The three way comparator that should accept a query ( or key) on the left, and the key
-  // on the right.
+  // The three way comparator that should accept a query ( or key) on the left,
+  // and the key on the right.
   using KeyCompareTo = DefaultCompareTo<T>;
 };
 
-template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
+template <typename T, typename Policy = BPTreePolicy<T>>
+class BPTree {
   BPTree(const BPTree&) = delete;
   BPTree& operator=(const BPTree&) = delete;
 
@@ -36,12 +39,9 @@ template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
  public:
   using KeyT = typename Policy::KeyT;
 
-  BPTree() {
-  }
+  BPTree() {}
 
-  ~BPTree() {
-    Clear();
-  }
+  ~BPTree() { Clear(); }
 
   // true if inserted, false if skipped.
   bool Insert(KeyT item);
@@ -52,28 +52,23 @@ template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
 
   std::optional<uint32_t> GetRank(KeyT item, bool reverse = false) const;
 
-  size_t Height() const {
-    return height_;
-  }
+  size_t Height() const { return height_; }
 
   size_t Size() const {
     return count_;  // number of items in the tree
   }
 
-  bool Empty() const {
-    return count_ == 0;
-  }
+  bool Empty() const { return count_ == 0; }
 
   size_t NodeCount() const {
-    // number of nodes in the tree (usually, order of magnitude smaller than Size()).
+    // number of nodes in the tree (usually, order of magnitude smaller than
+    // Size()).
     return num_nodes_;
   }
 
   void Clear();
 
-  const BPTreeNode* DEBUG_root() const {
-    return root_;
-  }
+  const BPTreeNode* DEBUG_root() const { return root_; }
 
   BPTreePath FromRank(uint32_t rank) const {
     BPTreePath path;
@@ -81,29 +76,37 @@ template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
     return path;
   }
 
-  /// @brief Iterates over all items in the range [rank_start, rank_end] by rank.
+  /// @brief Iterates over all items in the range [rank_start, rank_end] by
+  /// rank.
   /// @param rank_start
   /// @param rank_end - inclusive.
   /// @param cb - callback to be called for each item in the range.
   ///             Should return false to stop iteration.
-  bool Iterate(uint32_t rank_start, uint32_t rank_end, std::function<bool(KeyT)> cb) const;
+  bool Iterate(uint32_t rank_start, uint32_t rank_end,
+               std::function<bool(KeyT)> cb) const;
 
-  /// @brief Iterates over all items in the range [rank_start, rank_end] by rank in reverse order.
+  /// @brief Iterates over all items in the range [rank_start, rank_end] by rank
+  /// in reverse order.
   /// @param rank_start
   /// @param rank_end
   /// @param cb - callback to be called for each item in the range.
   ///             Should return false to stop iteration.
-  bool IterateReverse(uint32_t rank_start, uint32_t rank_end, std::function<bool(KeyT)> cb) const;
+  bool IterateReverse(uint32_t rank_start, uint32_t rank_end,
+                      std::function<bool(KeyT)> cb) const;
 
-  /// @brief Returns the path to the first item in the tree for which comp(q, key) >= 0.
+  /// @brief Returns the path to the first item in the tree for which comp(q,
+  /// key) >= 0.
   /// @param item
   /// @return the path if such item exists, empty path otherwise.
-  template <typename Q> BPTreePath GEQ(Q&& query) const;
+  template <typename Q>
+  BPTreePath GEQ(Q&& query) const;
 
-  /// @brief Returns the path to the largest item in the tree such that comp(q, key) <= 0.
+  /// @brief Returns the path to the largest item in the tree such that comp(q,
+  /// key) <= 0.
   /// @param key
   /// @return the path if such item exists, empty path otherwise.
-  template <typename Q> BPTreePath LEQ(Q&& query) const;
+  template <typename Q>
+  BPTreePath LEQ(Q&& query) const;
 
   /// @brief Deletes the element pointed by path.
   /// @param path
@@ -121,19 +124,22 @@ template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
   void InsertToFullLeaf(KeyT item, const BPTreePath& path);
 
   // Returns true if insertion was handled by rebalancing.
-  bool RebalanceLeafAndInsert(const BPTreePath& path, unsigned parent_depth, KeyT item,
-                              unsigned insert_pos);
+  bool RebalanceLeafAndInsert(const BPTreePath& path, unsigned parent_depth,
+                              KeyT item, unsigned insert_pos);
 
-  void IncreaseSubtreeCounts(const BPTreePath& path, unsigned depth, int32_t delta);
+  void IncreaseSubtreeCounts(const BPTreePath& path, unsigned depth,
+                             int32_t delta);
 
   // Charts the path towards key. Returns true if key is found.
   // In that case comp(q, path->Last().first->Key(path->Last().second)) == 0.
-  // Fills the tree path not including the key itself. In case key was not found,
-  // returns the path to the item that is greater than the key.
-  template <typename Q> bool Locate(Q&& q, BPTreePath* path) const;
+  // Fills the tree path not including the key itself. In case key was not
+  // found, returns the path to the item that is greater than the key.
+  template <typename Q>
+  bool Locate(Q&& q, BPTreePath* path) const;
 
-  // Sets the tree path to item at specified rank. Rank is 0-based and must be less than Size().
-  // returns the index of the key in the last node of the path.
+  // Sets the tree path to item at specified rank. Rank is 0-based and must be
+  // less than Size(). returns the index of the key in the last node of the
+  // path.
   void ToRank(uint32_t rank, BPTreePath* path) const;
 
   BPTreeNode* root_ = nullptr;  // root node or NULL if empty tree
@@ -142,15 +148,16 @@ template <typename T, typename Policy = BPTreePolicy<T>> class BPTree {
   uint32_t num_nodes_ = 0;      // number of nodes in tree
 };
 
-template <typename T, typename Policy> bool BPTree<T, Policy>::Contains(KeyT item) const {
+template <typename T, typename Policy>
+bool BPTree<T, Policy>::Contains(KeyT item) const {
   BPTreePath path;
   bool found = Locate(item, &path);
   return found;
 }
 
-template <typename T, typename Policy> void BPTree<T, Policy>::Clear() {
-  if (!root_)
-    return;
+template <typename T, typename Policy>
+void BPTree<T, Policy>::Clear() {
+  if (!root_) return;
 
   BPTreePath path;
   BPTreeNode* node = root_;
@@ -163,8 +170,7 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Clear() {
     } while (!node->IsLeaf());
   };
 
-  if (!root_->IsLeaf())
-    deep_left(0);
+  if (!root_->IsLeaf()) deep_left(0);
 
   while (true) {
     DestroyNode(node);
@@ -183,7 +189,8 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Clear() {
   height_ = count_ = 0;
 }
 
-template <typename T, typename Policy> bool BPTree<T, Policy>::Insert(KeyT item) {
+template <typename T, typename Policy>
+bool BPTree<T, Policy>::Insert(KeyT item) {
   if (!root_) {
     root_ = CreateNode(true);
     root_->InitSingle(item);
@@ -209,35 +216,32 @@ template <typename T, typename Policy> bool BPTree<T, Policy>::Insert(KeyT item)
   } else {
     unsigned pos = path.Last().second;
     leaf->LeafInsert(pos, item);
-    if (path.Depth() > 1)
-      IncreaseSubtreeCounts(path, path.Depth() - 2, 1);
+    if (path.Depth() > 1) IncreaseSubtreeCounts(path, path.Depth() - 2, 1);
   }
   count_++;
   return true;
 }
 
-template <typename T, typename Policy> bool BPTree<T, Policy>::Delete(KeyT item) {
-  if (!root_)
-    return false;
+template <typename T, typename Policy>
+bool BPTree<T, Policy>::Delete(KeyT item) {
+  if (!root_) return false;
 
   BPTreePath path;
   bool found = Locate(item, &path);
-  if (!found)
-    return false;
+  if (!found) return false;
 
   Delete(path);
   return true;
 }
 
 template <typename T, typename Policy>
-std::optional<uint32_t> BPTree<T, Policy>::GetRank(KeyT item, bool reverse) const {
-  if (!root_)
-    return std::nullopt;
+std::optional<uint32_t> BPTree<T, Policy>::GetRank(KeyT item,
+                                                   bool reverse) const {
+  if (!root_) return std::nullopt;
 
   BPTreePath path;
   bool found = Locate(item, &path);
-  if (!found)
-    return std::nullopt;
+  if (!found) return std::nullopt;
 
   if (reverse) {
     return count_ - path.Rank() - 1;
@@ -302,29 +306,31 @@ void BPTree<T, Policy>::InsertToFullLeaf(KeyT item, const BPTreePath& path) {
     right->LeafInsert(insert_pos - node->NumItems() - 1, item);
   }
 
-  // we must add the newly created `right` to the parent and update its tree count.
+  // we must add the newly created `right` to the parent and update its tree
+  // count.
   while (level > 0) {
     --level;
     // level up, now node is parent.
     node = path.Node(level);
-    unsigned pos = path.Position(level);  // position of the child node in parent.
+    unsigned pos =
+        path.Position(level);  // position of the child node in parent.
 
     assert(!node->IsLeaf() && pos <= node->NumItems());
     assert(right);
 
     // Terminal case: Node is not full so we can just add `right` to it.
     if (node->NumItems() < Layout::kMaxInnerKeys) {
-      // We do not update the subtree count of the node here because the surpus of another item
-      // resulted with the additional key in this node.
+      // We do not update the subtree count of the node here because the surpus
+      // of another item resulted with the additional key in this node.
       node->InnerInsert(pos, median, right);
       node->IncreaseTreeCount(1);
       right = nullptr;
       break;
     }
 
-    // We need to insert right into a node as position pos. Node is full so we must handle it
-    // either via rebalancing "node" or via its splitting. Rebalancing is a better case, we try
-    // it first.
+    // We need to insert right into a node as position pos. Node is full so we
+    // must handle it either via rebalancing "node" or via its splitting.
+    // Rebalancing is a better case, we try it first.
     if (level > 0) {
       // see if we can rebalance node (right's parent) via node's parent.
       BPTreeNode* parent = path.Node(level - 1);
@@ -333,7 +339,8 @@ void BPTree<T, Policy>::InsertToFullLeaf(KeyT item, const BPTreePath& path) {
 
       auto [new_node, inner_pos] = parent->RebalanceChild(parent_pos, pos);
       if (new_node) {
-        // we rebalanced inner_full so we can insert (median, right) and stop propagating.
+        // we rebalanced inner_full so we can insert (median, right) and stop
+        // propagating.
         new_node->InnerInsert(inner_pos, median, right);
 
         if (new_node != node) {
@@ -389,12 +396,14 @@ void BPTree<T, Policy>::InsertToFullLeaf(KeyT item, const BPTreePath& path) {
 }
 
 template <typename T, typename Policy>
-bool BPTree<T, Policy>::RebalanceLeafAndInsert(const BPTreePath& path, unsigned parent_depth,
-                                               KeyT item, unsigned insert_pos) {
+bool BPTree<T, Policy>::RebalanceLeafAndInsert(const BPTreePath& path,
+                                               unsigned parent_depth, KeyT item,
+                                               unsigned insert_pos) {
   BPTreeNode* parent = path.Node(parent_depth);
   unsigned pos = path.Position(parent_depth);
 
-  std::pair<BPTreeNode*, unsigned> rebalance_res = parent->RebalanceChild(pos, insert_pos);
+  std::pair<BPTreeNode*, unsigned> rebalance_res =
+      parent->RebalanceChild(pos, insert_pos);
   if (rebalance_res.first) {
     rebalance_res.first->LeafInsert(rebalance_res.second, item);
     return true;
@@ -403,8 +412,8 @@ bool BPTree<T, Policy>::RebalanceLeafAndInsert(const BPTreePath& path, unsigned 
 }
 
 template <typename T, typename Policy>
-void BPTree<T, Policy>::IncreaseSubtreeCounts(const BPTreePath& path, unsigned depth,
-                                              int32_t delta) {
+void BPTree<T, Policy>::IncreaseSubtreeCounts(const BPTreePath& path,
+                                              unsigned depth, int32_t delta) {
   for (int i = depth; i >= 0; --i) {
     BPTreeNode* node = path.Node(i);
     node->IncreaseTreeCount(delta);
@@ -414,19 +423,16 @@ void BPTree<T, Policy>::IncreaseSubtreeCounts(const BPTreePath& path, unsigned d
 template <typename T, typename Policy>
 bool BPTree<T, Policy>::Iterate(uint32_t rank_start, uint32_t rank_end,
                                 std::function<bool(KeyT)> cb) const {
-  if (rank_start >= Size())
-    return true;
+  if (rank_start >= Size()) return true;
 
   assert(rank_start <= rank_end);
 
   BPTreePath path;
   ToRank(rank_start, &path);
   for (uint32_t i = rank_start; i <= rank_end; ++i) {
-    if (!cb(path.Terminal()))
-      return false;
+    if (!cb(path.Terminal())) return false;
 
-    if (!path.Next())
-      return true;
+    if (!path.Next()) return true;
   }
   return true;
 }
@@ -439,8 +445,7 @@ bool BPTree<T, Policy>::IterateReverse(uint32_t rank_start, uint32_t rank_end,
   BPTreePath path;
   ToRank(count_ - 1 - rank_start, &path);
   for (uint32_t i = rank_start; i <= rank_end; ++i) {
-    if (!cb(path.Terminal()))
-      return false;
+    if (!cb(path.Terminal())) return false;
 
     path.Prev();
   }
@@ -463,7 +468,8 @@ void BPTree<T, Policy>::ToRank(uint32_t rank, BPTreePath* path) const {
   }
 
   while (!node->IsLeaf()) {
-    // handle common corner case of search of left-most node, and avoid counting sub-tree count.
+    // handle common corner case of search of left-most node, and avoid counting
+    // sub-tree count.
     if (rank == 0) {
       path->Push(node, 0);
       node = node->Child(0);
@@ -499,9 +505,9 @@ auto BPTree<T, Policy>::GEQ(Q&& query) const -> BPTreePath {
 
   bool res = Locate(query, &path);
 
-  // if we did not find the item and the path does not lead to any key in the node,
-  // adjust the path to point to the next key in the tree.
-  // In case we are past all items in the tree, Next() will collapse to the empty path.
+  // if we did not find the item and the path does not lead to any key in the
+  // node, adjust the path to point to the next key in the tree. In case we are
+  // past all items in the tree, Next() will collapse to the empty path.
   if (!res && path.Last().second >= path.Last().first->NumItems()) {
     path.Next();
   }
@@ -515,7 +521,8 @@ auto BPTree<T, Policy>::LEQ(Q&& query) const -> BPTreePath {
   BPTreePath path;
   bool res = Locate(query, &path);
 
-  if (!res) {  // fix the result in case the path leads to key greater than item.
+  if (!res) {  // fix the result in case the path leads to key greater than
+               // item.
     path.Prev();
   }
 
@@ -531,7 +538,8 @@ detail::BPTreeNode<T>* BPTree<T, Policy>::CreateNode(bool leaf) {
   return node;
 }
 
-template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath path) {
+template <typename T, typename Policy>
+void BPTree<T, Policy>::Delete(BPTreePath path) {
   using Comp [[maybe_unused]] = typename Policy::KeyCompareTo;
 
   BPTreeNode* node = path.Last().first;
@@ -541,8 +549,9 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath
   if (node->IsLeaf()) {
     node->ShiftLeft(key_pos);  // shift left everything after key_pos.
   } else {
-    // We can not remove the item from the inner node because it also serves as a separator.
-    // Therefore, we swap it the rightmost key in the left subtree and pop from there instead.
+    // We can not remove the item from the inner node because it also serves as
+    // a separator. Therefore, we swap it the rightmost key in the left subtree
+    // and pop from there instead.
     path.DigRight();
 
     BPTreeNode* leaf = path.Last().first;
@@ -562,9 +571,9 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath
   while (node->NumItems() < node->MinItems()) {
     if (node == root_) {
       if (node->NumItems() == 0) {
-        // terminal case, we reached the root - and it has either a single child (0 delimiters)
-        // or no children at all (leaf). The former is more common case: the tree can only shrink
-        // through the root.
+        // terminal case, we reached the root - and it has either a single child
+        // (0 delimiters) or no children at all (leaf). The former is more
+        // common case: the tree can only shrink through the root.
         if (node->IsLeaf()) {
           assert(count_ == 0u);
           root_ = nullptr;
@@ -577,7 +586,8 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath
       return;
     }
 
-    // The node has a parent. Pop the node from the path and try rebalance it via its parent.
+    // The node has a parent. Pop the node from the path and try rebalance it
+    // via its parent.
     assert(path.Depth() > 0u);
     path.Pop();
 
@@ -588,7 +598,8 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath
 
     parent->IncreaseTreeCount(-1);
 
-    if (node == nullptr)  // succeeded to merge/rebalance without the need to propagate.
+    if (node ==
+        nullptr)  // succeeded to merge/rebalance without the need to propagate.
       break;
 
     DestroyNode(node);
@@ -602,13 +613,15 @@ template <typename T, typename Policy> void BPTree<T, Policy>::Delete(BPTreePath
   }
 }
 
-template <typename T, typename Policy> void BPTree<T, Policy>::DestroyNode(BPTreeNode* node) {
+template <typename T, typename Policy>
+void BPTree<T, Policy>::DestroyNode(BPTreeNode* node) {
   void* ptr = node;
   ::operator delete(ptr);
   num_nodes_--;
 }
 
-template <typename T, typename Policy> void BPTree<T, Policy>::ForceUpdate(KeyT old, KeyT new_obj) {
+template <typename T, typename Policy>
+void BPTree<T, Policy>::ForceUpdate(KeyT old, KeyT new_obj) {
   BPTreePath path;
   [[maybe_unused]] bool found = Locate(old, &path);
 
@@ -619,4 +632,4 @@ template <typename T, typename Policy> void BPTree<T, Policy>::ForceUpdate(KeyT 
   node->SetKey(path.Last().second, new_obj);
 }
 
-}  // namespace dfly
+}  // namespace astra::container

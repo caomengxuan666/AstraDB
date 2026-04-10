@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "astra/container/zset/btree_zset.hpp"
 #include "astra/container/zset/bplustree_zset.hpp"
+#include "astra/container/zset/btree_zset.hpp"
 
 namespace {
 
@@ -42,7 +42,8 @@ static void BM_BTreeZSet_Insert(benchmark::State& state) {
   }
 
   state.SetItemsProcessed(num_elements);
-  state.SetBytesProcessed(num_elements * sizeof(std::string) + num_elements * sizeof(double));
+  state.SetBytesProcessed(num_elements * sizeof(std::string) +
+                          num_elements * sizeof(double));
 }
 
 // Benchmark B-Tree ZSet lookup by rank
@@ -197,7 +198,8 @@ static void BM_BPlusTreeZSet_Insert(benchmark::State& state) {
   }
 
   state.SetItemsProcessed(num_elements);
-  state.SetBytesProcessed(num_elements * sizeof(std::string) + num_elements * sizeof(double));
+  state.SetBytesProcessed(num_elements * sizeof(std::string) +
+                          num_elements * sizeof(double));
 }
 
 // Benchmark B+ Tree ZSet lookup by rank
@@ -337,54 +339,148 @@ static void BM_BPlusTreeZSet_GetRank(benchmark::State& state) {
 // ==================== Register Benchmarks ====================
 
 // Small dataset benchmarks
-BENCHMARK(BM_BTreeZSet_Insert)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_Insert)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_Insert)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_Insert)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_GetByRank)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_GetByRank)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_GetByRank)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_GetByRank)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_GetScore)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_GetScore)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_GetScore)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_GetScore)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_GetRangeByRank)->Range(1000, 100000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRangeByRank)->Range(1000, 100000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_GetRangeByRank)
+    ->Range(1000, 100000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRangeByRank)
+    ->Range(1000, 100000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_GetRangeByScore)->Range(1000, 100000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRangeByScore)->Range(1000, 100000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_GetRangeByScore)
+    ->Range(1000, 100000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRangeByScore)
+    ->Range(1000, 100000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_Remove)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_Remove)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_Remove)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_Remove)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_Update)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_Update)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_Update)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_Update)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_BTreeZSet_GetRank)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRank)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BTreeZSet_GetRank)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRank)
+    ->Range(100, 10000)
+    ->Unit(benchmark::kMicrosecond);
 
 // Large dataset benchmarks
-BENCHMARK(BM_BTreeZSet_Insert)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_Insert)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_Insert)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_Insert)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_GetByRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_GetByRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_GetByRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_GetByRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_GetScore)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_GetScore)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_GetScore)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_GetScore)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_GetRangeByRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRangeByRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_GetRangeByRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRangeByRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_GetRangeByScore)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRangeByScore)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_GetRangeByScore)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRangeByScore)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_Remove)->Arg(100000)->Arg(500000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_Remove)->Arg(100000)->Arg(500000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_Remove)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_Remove)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_Update)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_Update)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_Update)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_Update)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_BTreeZSet_GetRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
-BENCHMARK(BM_BPlusTreeZSet_GetRank)->Arg(100000)->Arg(500000)->Arg(1000000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BTreeZSet_GetRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_BPlusTreeZSet_GetRank)
+    ->Arg(100000)
+    ->Arg(500000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();
 

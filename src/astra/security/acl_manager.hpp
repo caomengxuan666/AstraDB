@@ -22,37 +22,37 @@ enum class AclPermission { kRead = 1 << 0, kWrite = 1 << 1, kAdmin = 1 << 2 };
 struct AclUser {
   std::string username;
   bool enabled = true;
-  bool all_keys = false;     // allkeys flag
-  bool all_channels = false; // allchannels flag
-  bool no_password = false;  // nopass flag
-  
+  bool all_keys = false;      // allkeys flag
+  bool all_channels = false;  // allchannels flag
+  bool no_password = false;   // nopass flag
+
   // Passwords (multiple passwords supported)
   std::vector<std::string> passwords;  // SHA256 hashed passwords
-  
+
   // Command permissions (categories and individual commands)
-  std::vector<std::string> categories; // e.g., "+@all", "+@string"
-  std::vector<std::string> commands;   // e.g., "+GET", "-SET"
-  
+  std::vector<std::string> categories;  // e.g., "+@all", "+@string"
+  std::vector<std::string> commands;    // e.g., "+GET", "-SET"
+
   // Key patterns (glob style)
   std::vector<std::string> key_patterns;  // e.g., "~*", "~objects:*"
-  
+
   // Channel patterns (glob style)
   std::vector<std::string> channel_patterns;  // e.g., "&*", "&chatroom:*"
-  
+
   // Convert to ACL LIST format
   std::string ToAclListString() const {
     std::string result = "user " + username + " ";
-    
+
     if (!enabled) {
       result += "off ";
     } else {
       result += "on ";
     }
-    
+
     if (no_password) {
       result += "nopass ";
     }
-    
+
     if (all_keys) {
       result += "~* ";
     } else {
@@ -60,7 +60,7 @@ struct AclUser {
         result += pattern + " ";
       }
     }
-    
+
     if (all_channels) {
       result += "&* ";
     } else {
@@ -68,15 +68,15 @@ struct AclUser {
         result += pattern + " ";
       }
     }
-    
+
     for (const auto& category : categories) {
       result += category + " ";
     }
-    
+
     for (const auto& command : commands) {
       result += command + " ";
     }
-    
+
     return result;
   }
 };
@@ -140,13 +140,13 @@ class AclManager {
   }
 
   // Create or update user with ACL rules
-  bool SetUser(const std::string& username, 
+  bool SetUser(const std::string& username,
                const std::vector<std::string>& rules) noexcept {
     absl::MutexLock lock(&mutex_);
-    
+
     AclUser* user = nullptr;
     auto it = users_.find(username);
-    
+
     // Check if user exists
     if (it == users_.end()) {
       // Create new user
@@ -159,7 +159,7 @@ class AclManager {
     } else {
       user = &it->second;
     }
-    
+
     // Process rules
     for (const auto& rule : rules) {
       if (rule == "on") {
@@ -206,7 +206,7 @@ class AclManager {
       } else if (rule.size() > 1) {
         char prefix = rule[0];
         std::string suffix = rule.substr(1);
-        
+
         if (prefix == '+' || prefix == '-') {
           // Command or category
           user->commands.push_back(rule);
@@ -224,7 +224,8 @@ class AclManager {
           user->passwords.push_back(suffix);
         } else if (prefix == '<') {
           // Remove password
-          auto it = std::find(user->passwords.begin(), user->passwords.end(), suffix);
+          auto it =
+              std::find(user->passwords.begin(), user->passwords.end(), suffix);
           if (it != user->passwords.end()) {
             user->passwords.erase(it);
           }
@@ -247,7 +248,7 @@ class AclManager {
         }
       }
     }
-    
+
     return true;
   }
 
@@ -261,11 +262,11 @@ class AclManager {
     } else {
       rules.push_back("nopass");
     }
-    
+
     if (permissions != 0) {
       rules.push_back("+@all");
     }
-    
+
     return SetUser(username, rules);
   }
 
@@ -315,7 +316,7 @@ class AclManager {
     }
     return users;
   }
-  
+
   // Get user names only
   std::vector<std::string> GetUserNames() const noexcept {
     absl::MutexLock lock(&mutex_);
@@ -328,79 +329,92 @@ class AclManager {
 
   // Check if user has permission to execute a command
   bool CheckCommandPermission(const std::string& username,
-                               const std::string& command) const noexcept {
+                              const std::string& command) const noexcept {
     absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
-      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' doesn't exist", username);
+      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' doesn't exist",
+                       username);
       return false;  // User doesn't exist
     }
-    
+
     const AclUser& user = it->second;
     if (!user.enabled) {
-      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' is disabled", username);
+      ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' is disabled",
+                       username);
       return false;  // User is disabled
     }
-    
+
     // Check if user has -@all (no commands)
     for (const auto& cmd : user.commands) {
       if (cmd == "-@all") {
-        ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' has -@all", username);
+        ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' has -@all",
+                         username);
         return false;
       }
     }
-    
+
     // Check if user has +@all (all commands)
     for (const auto& cmd : user.commands) {
       if (cmd == "+@all" || cmd == "allcommands") {
-        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has +@all, allowing command '{}'", username, command);
+        ASTRADB_LOG_INFO(
+            "CheckCommandPermission: User '{}' has +@all, allowing command "
+            "'{}'",
+            username, command);
         return true;
       }
     }
-    
+
     // Check if user has specific command permission
     std::string cmd_plus = "+" + command;
     for (const auto& cmd : user.commands) {
       if (cmd == cmd_plus) {
-        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has +{}, allowing", username, command);
+        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has +{}, allowing",
+                         username, command);
         return true;
       }
     }
-    
+
     // Check if user has category permission
     // For now, we assume all commands belong to @all category
     // In production, this should check actual command categories
     for (const auto& cat : user.categories) {
       if (cat == "+@all" || cat == "allcommands") {
-        ASTRADB_LOG_INFO("CheckCommandPermission: User '{}' has category +@all, allowing command '{}'", username, command);
+        ASTRADB_LOG_INFO(
+            "CheckCommandPermission: User '{}' has category +@all, allowing "
+            "command '{}'",
+            username, command);
         return true;
       }
     }
-    
+
     // Default: deny
-    ASTRADB_LOG_WARN("CheckCommandPermission: User '{}' doesn't have permission for command '{}'", username, command);
+    ASTRADB_LOG_WARN(
+        "CheckCommandPermission: User '{}' doesn't have permission for command "
+        "'{}'",
+        username, command);
     return false;
   }
 
   // Check if user has permission to access a key
   bool CheckKeyPermission(const std::string& username,
-                           const std::string& key) const noexcept {
+                          const std::string& key) const noexcept {
     absl::MutexLock lock(&mutex_);
     auto it = users_.find(username);
     if (it == users_.end()) {
       return false;  // User doesn't exist
     }
-    
+
     const AclUser& user = it->second;
     if (!user.enabled) {
       return false;  // User is disabled
     }
-    
+
     // If user has allkeys permission, allow access
     if (user.all_keys) {
       return true;
     }
-    
+
     // Check if key matches any pattern
     for (const auto& pattern : user.key_patterns) {
       if (pattern.size() > 1 && pattern[0] == '~') {
@@ -426,7 +440,7 @@ class AclManager {
         }
       }
     }
-    
+
     return false;
   }
 
