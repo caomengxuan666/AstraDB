@@ -346,11 +346,62 @@ level = "info"
 async = true
 queue_size = 8192
 
+# Storage mode configuration
+[storage]
+mode = "redis"  # Options: "redis" (default) or "rocksdb"
+
+# Redis mode persistence (when mode = "redis")
 [persistence]
 aof_enabled = true
 rdb_enabled = true
 snapshot_interval = 300  # seconds
+
+# RocksDB configuration (when mode = "rocksdb")
+[rocksdb]
+data_dir = "./data/rocksdb_allin"
+# All data is persisted to RocksDB in all-in mode
+# This is different from Redis mode where RocksDB is only used for cold data
 ```
+
+### Storage Modes
+
+AstraDB supports two storage modes for different use cases:
+
+#### Redis Mode (Default)
+- **Memory-first**: Data primarily stored in memory
+- **Persistence**: AOF and RDB for durability
+- **Cold Data Storage**: RocksDB for evicted data (optional)
+- **Use Case**: High-performance scenarios with low latency requirements
+
+```toml
+[storage]
+mode = "redis"
+
+[persistence]
+aof_enabled = true
+rdb_enabled = true
+rocksdb_cold_data = true  # Optional: enable RocksDB for cold data
+```
+
+#### RocksDB All-in Mode
+- **Disk-first**: All data persisted to RocksDB
+- **Memory Cache**: Hot data cached in memory with automatic eviction
+- **Persistence**: FlatBuffer serialization for type-safe storage
+- **Use Case**: Large datasets, memory-constrained environments
+
+```toml
+[storage]
+mode = "rocksdb"
+
+[rocksdb]
+data_dir = "./data/rocksdb_allin"
+```
+
+**Key Differences**:
+- **Redis Mode**: Best for performance, lower latency, requires more memory
+- **RocksDB All-in Mode**: Best for memory efficiency, handles large datasets, slightly higher latency
+
+Both modes support all Redis data types and commands with automatic persistence.
 
 ## 🧪 Testing
 
