@@ -25,6 +25,110 @@
 
 namespace astra::commands {
 
+// Helper function to build command documentation array
+static void BuildCommandDocsArray(std::vector<RespValue>& docs_array,
+                                   const CommandInfo& info) {
+  // 1. Command name
+  RespValue name_val;
+  name_val.SetString(info.name, protocol::RespType::kBulkString);
+  docs_array.push_back(name_val);
+
+  // 2. Summary - build from available info
+  std::ostringstream summary;
+  summary << info.name << " - ";
+  if (info.arity >= 0) {
+    summary << "arity: " << info.arity << ", ";
+  } else {
+    summary << "arity: at least " << (-info.arity - 1) << ", ";
+  }
+
+  // Add flags to summary
+  if (!info.flags.empty()) {
+    summary << "flags: ";
+    for (size_t i = 0; i < info.flags.size(); ++i) {
+      if (i > 0) summary << ", ";
+      summary << info.flags[i];
+    }
+  } else {
+    summary << "no special flags";
+  }
+
+  RespValue summary_val;
+  summary_val.SetString(summary.str(), protocol::RespType::kBulkString);
+  docs_array.push_back(summary_val);
+
+  // 3. Complexity
+  RespValue complexity_val;
+  complexity_val.SetString("O(1)", protocol::RespType::kBulkString);
+  docs_array.push_back(complexity_val);
+
+  // 4. Since (version since command was introduced)
+  RespValue since_val;
+  since_val.SetString("1.0.0", protocol::RespType::kBulkString);
+  docs_array.push_back(since_val);
+
+  // 5. Group (command group/category)
+  RespValue group_val;
+  group_val.SetString("generic", protocol::RespType::kBulkString);
+  docs_array.push_back(group_val);
+
+  // 6. Syntax (command syntax)
+  std::ostringstream syntax;
+  syntax << info.name;
+  if (info.arity < 0) {
+    syntax << " [arg ...]";
+  } else {
+    for (int i = 1; i < info.arity; ++i) {
+      syntax << " <arg" << i << ">";
+    }
+  }
+
+  RespValue syntax_val;
+  syntax_val.SetString(syntax.str(), protocol::RespType::kBulkString);
+  docs_array.push_back(syntax_val);
+
+  // 7. Example
+  std::ostringstream example;
+  example << info.name;
+  if (info.arity <= 1) {
+    // No arguments or just command name
+  } else {
+    example << " mykey myvalue";
+  }
+
+  RespValue example_val;
+  example_val.SetString(example.str(), protocol::RespType::kBulkString);
+  docs_array.push_back(example_val);
+
+  // 8. Arguments documentation (array of argument info)
+  std::vector<RespValue> args_docs;
+  if (info.arity < 0) {
+    // Variable arguments
+    RespValue arg_name;
+    arg_name.SetString("args", protocol::RespType::kBulkString);
+    args_docs.push_back(arg_name);
+
+    RespValue arg_type;
+    arg_type.SetString("string", protocol::RespType::kBulkString);
+    args_docs.push_back(arg_type);
+
+    RespValue arg_flags;
+    arg_flags.SetString("variadic", protocol::RespType::kBulkString);
+    args_docs.push_back(arg_flags);
+
+    RespValue arg_since;
+    arg_since.SetString("1.0.0", protocol::RespType::kBulkString);
+    args_docs.push_back(arg_since);
+
+    RespValue arg_summary;
+    arg_summary.SetString("One or more string arguments",
+                          protocol::RespType::kBulkString);
+    args_docs.push_back(arg_summary);
+
+    docs_array.push_back(RespValue(args_docs));
+  }
+}
+
 // Helper function to format bytes to human readable format
 static std::string FormatBytes(uint64_t bytes) {
   const char* units[] = {"B", "KB", "MB", "GB", "TB"};
@@ -663,15 +767,36 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
   if (upper_subcommand == "DOCS") {
     ASTRADB_LOG_TRACE("HandleCommand: DOCS branch");
 
+    auto* registry = context->GetCommandRegistry();
+
+    // Support two cases:
+    // 1. No arguments: return all commands documentation
+    // 2. With arguments: return specific command documentation
     if (command.ArgCount() < 2) {
-      return CommandResult(
-          false, "ERR wrong number of arguments for 'COMMAND|DOCS' command");
+      ASTRADB_LOG_TRACE("HandleCommand: DOCS for all commands");
+      
+      // Get all command names
+      auto cmd_names = registry->GetCommandNames();
+      std::vector<RespValue> all_docs_array;
+      
+      // Build documentation for each command
+      for (const auto& cmd_name : cmd_names) {
+        const auto* info = registry->GetInfo(cmd_name);
+        if (info) {
+          // Build documentation array for this command
+          std::vector<RespValue> docs_array;
+          BuildCommandDocsArray(docs_array, *info);
+          all_docs_array.push_back(RespValue(std::move(docs_array)));
+        }
+      }
+      
+      return CommandResult(RespValue(std::move(all_docs_array)));
     }
 
+    // Specific command documentation
     const std::string& cmd_name = command[1].AsString();
     ASTRADB_LOG_TRACE("HandleCommand: DOCS for command '{}'", cmd_name);
 
-    auto* registry = context->GetCommandRegistry();
     const auto* info = registry->GetInfo(cmd_name);
 
     if (!info) {
@@ -683,109 +808,8 @@ CommandResult HandleCommand(const astra::protocol::Command& command,
     }
 
     // Build documentation array according to Redis COMMAND DOCS spec
-    // Format: array with documentation information
     std::vector<RespValue> docs_array;
-
-    // 1. Command name
-    RespValue name_val;
-    name_val.SetString(info->name, protocol::RespType::kBulkString);
-    docs_array.push_back(name_val);
-
-    // 2. Summary - build from available info
-    std::ostringstream summary;
-    summary << info->name << " - ";
-    if (info->arity >= 0) {
-      summary << "arity: " << info->arity << ", ";
-    } else {
-      summary << "arity: at least " << (-info->arity - 1) << ", ";
-    }
-
-    // Add flags to summary
-    if (!info->flags.empty()) {
-      summary << "flags: ";
-      for (size_t i = 0; i < info->flags.size(); ++i) {
-        if (i > 0) summary << ", ";
-        summary << info->flags[i];
-      }
-    } else {
-      summary << "no special flags";
-    }
-
-    RespValue summary_val;
-    summary_val.SetString(summary.str(), protocol::RespType::kBulkString);
-    docs_array.push_back(summary_val);
-
-    // 3. Complexity
-    RespValue complexity_val;
-    complexity_val.SetString("O(1)", protocol::RespType::kBulkString);
-    docs_array.push_back(complexity_val);
-
-    // 4. Since (version since command was introduced)
-    RespValue since_val;
-    since_val.SetString("1.0.0", protocol::RespType::kBulkString);
-    docs_array.push_back(since_val);
-
-    // 5. Group (command group/category)
-    RespValue group_val;
-    group_val.SetString("generic", protocol::RespType::kBulkString);
-    docs_array.push_back(group_val);
-
-    // 6. Syntax (command syntax)
-    std::ostringstream syntax;
-    syntax << info->name;
-    if (info->arity < 0) {
-      syntax << " [arg ...]";
-    } else {
-      for (int i = 1; i < info->arity; ++i) {
-        syntax << " <arg" << i << ">";
-      }
-    }
-
-    RespValue syntax_val;
-    syntax_val.SetString(syntax.str(), protocol::RespType::kBulkString);
-    docs_array.push_back(syntax_val);
-
-    // 7. Example
-    std::ostringstream example;
-    example << info->name;
-    if (info->arity <= 1) {
-      // No arguments or just command name
-    } else {
-      example << " mykey myvalue";
-    }
-
-    RespValue example_val;
-    example_val.SetString(example.str(), protocol::RespType::kBulkString);
-    docs_array.push_back(example_val);
-
-    // 8. Arguments documentation (array of argument info)
-    std::vector<RespValue> args_docs;
-    if (info->arity < 0) {
-      // Variable arguments
-      RespValue arg_name;
-      arg_name.SetString("args", protocol::RespType::kBulkString);
-      args_docs.push_back(arg_name);
-
-      RespValue arg_type;
-      arg_type.SetString("string", protocol::RespType::kBulkString);
-      args_docs.push_back(arg_type);
-
-      RespValue arg_flags;
-      arg_flags.SetString("variadic", protocol::RespType::kBulkString);
-      args_docs.push_back(arg_flags);
-
-      RespValue arg_since;
-      arg_since.SetString("1.0.0", protocol::RespType::kBulkString);
-      args_docs.push_back(arg_since);
-
-      RespValue arg_summary;
-      arg_summary.SetString("One or more string arguments",
-                            protocol::RespType::kBulkString);
-      args_docs.push_back(arg_summary);
-
-      docs_array.push_back(RespValue(args_docs));
-    }
-
+    BuildCommandDocsArray(docs_array, *info);
     return CommandResult(RespValue(std::move(docs_array)));
   } else if (subcommand == "COUNT") {
     ASTRADB_LOG_TRACE("HandleCommand: COUNT branch, returning count");
