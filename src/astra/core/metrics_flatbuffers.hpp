@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "metrics_generated.h"
+#include "generated/metrics_generated.h"
 
 namespace astra {
 namespace core {

@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "aof_generated.h"
+#include "generated/aof_generated.h"
 #include "astra/base/logging.hpp"
 #include "astra/base/version.hpp"
 

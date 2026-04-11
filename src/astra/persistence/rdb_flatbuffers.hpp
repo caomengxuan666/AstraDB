@@ -18,7 +18,7 @@
 #include "astra/base/logging.hpp"
 #include "astra/base/version.hpp"
 #include "astra/commands/database.hpp"
-#include "rdb_generated.h"
+#include "generated/rdb_generated.h"
 
 namespace astra::persistence {
 

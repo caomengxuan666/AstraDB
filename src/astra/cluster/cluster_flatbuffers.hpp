@@ -14,7 +14,7 @@
 
 #include "astra/base/logging.hpp"
 #include "astra/base/version.hpp"
-#include "cluster_message_generated.h"
+#include "generated/cluster_message_generated.h"
 #include "gossip_manager.hpp"
 #include "shard_manager.hpp"
 

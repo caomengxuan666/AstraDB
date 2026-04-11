@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "command_cache_generated.h"
+#include "generated/command_cache_generated.h"
 
 namespace astra::commands {
 
