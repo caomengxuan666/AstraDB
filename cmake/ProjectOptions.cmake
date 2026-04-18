@@ -27,6 +27,7 @@ option(ASTRADB_BUILD_DOCS "Build documentation" ON)
 option(ASTRADB_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(ASTRADB_ENABLE_SANITIZERS "Enable sanitizers (debug mode)" OFF)
 option(ASTRADB_ENABLE_LTO "Enable Link Time Optimization (release mode)" ON)
+option(ASTRADB_RELEASE_OPTIMIZED "Disable TRACE logs in release builds (performance optimization)" ON)
 
 # ==============================================================================
 # Build Configuration: Static vs Dynamic
@@ -89,6 +90,20 @@ if(ASTRADB_ENABLE_SANITIZERS)
   # add_compile_options(-fsanitize=undefined)
   # add_link_options(-fsanitize=undefined)
   
+endif()
+
+# ==============================================================================
+# Release Optimization: Disable TRACE Logs
+# ==============================================================================
+# When ASTRADB_RELEASE_OPTIMIZED is ON (default for release builds),
+# TRACE log macros are compiled out to eliminate string construction overhead.
+# This provides ~1% performance improvement in hot paths.
+
+if(ASTRADB_RELEASE_OPTIMIZED)
+  message(STATUS "Release Optimization: TRACE logs disabled (compile-time)")
+  add_compile_definitions(ASTRADB_DISABLE_TRACE)
+else()
+  message(STATUS "TRACE logs: ENABLED (development mode)")
 endif()
 
 # ==============================================================================

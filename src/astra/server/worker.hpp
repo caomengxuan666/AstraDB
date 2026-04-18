@@ -233,35 +233,37 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // Log command to AOF
   void LogToAof(absl::string_view command,
                 absl::Span<const absl::string_view> args) override {
-    ASTRADB_LOG_DEBUG("LogToAof called: command={}, args={}", command,
-                      args.size());
-    if (aof_callback_) {
-      // Build RESP command string
-      std::string cmd_str;
-      cmd_str += "*";
-      cmd_str += std::to_string(args.size() + 1);  // +1 for the command name
-      cmd_str += "\r\n";
-      cmd_str += "$";
-      cmd_str += std::to_string(command.size());
-      cmd_str += "\r\n";
-      cmd_str.append(command.data(), command.size());
-      cmd_str += "\r\n";
-
-      for (size_t i = 0; i < args.size(); ++i) {
-        cmd_str += "$";
-        cmd_str += std::to_string(args[i].size());
-        cmd_str += "\r\n";
-        cmd_str.append(args[i].data(), args[i].size());
-        cmd_str += "\r\n";
-      }
-
-      ASTRADB_LOG_DEBUG("LogToAof calling callback, cmd_str size={}",
-                        cmd_str.size());
-      aof_callback_(cmd_str);
-      ASTRADB_LOG_DEBUG("LogToAof callback completed");
-    } else {
-      ASTRADB_LOG_WARN("LogToAof called but aof_callback_ is null!");
+    // Fast path: return immediately if AOF is disabled
+    if (!aof_callback_) {
+      return;
     }
+
+    ASTRADB_LOG_TRACE("LogToAof called: command={}, args={}", command,
+                      args.size());
+    // Build RESP command string
+    std::string cmd_str;
+    cmd_str.reserve(64);  // Reserve some space to avoid reallocations
+    cmd_str += "*";
+    cmd_str += std::to_string(args.size() + 1);  // +1 for the command name
+    cmd_str += "\r\n";
+    cmd_str += "$";
+    cmd_str += std::to_string(command.size());
+    cmd_str += "\r\n";
+    cmd_str.append(command.data(), command.size());
+    cmd_str += "\r\n";
+
+    for (size_t i = 0; i < args.size(); ++i) {
+      cmd_str += "$";
+      cmd_str += std::to_string(args[i].size());
+      cmd_str += "\r\n";
+      cmd_str.append(args[i].data(), args[i].size());
+      cmd_str += "\r\n";
+    }
+
+    ASTRADB_LOG_TRACE("LogToAof calling callback, cmd_str size={}",
+                      cmd_str.size());
+    aof_callback_(cmd_str);
+    ASTRADB_LOG_TRACE("LogToAof callback completed");
   }
 
  private:
@@ -385,7 +387,7 @@ class DataShard {
 
     // Calculate hash slot
     uint16_t slot = cluster::HashSlotCalculator::CalculateWithTag(key);
-    ASTRADB_LOG_DEBUG("Shard {}: CheckClusterSlot - key='{}', slot={}",
+    ASTRADB_LOG_TRACE("Shard {}: CheckClusterSlot - key='{}', slot={}",
                       shard_id_, key, slot);
 
     // Get cluster state
@@ -417,13 +419,13 @@ class DataShard {
 
     // Check if slot belongs to this node
     if (slot_owner.value() == self_id) {
-      ASTRADB_LOG_DEBUG("Shard {}: Slot {} belongs to this node ({})",
+      ASTRADB_LOG_TRACE("Shard {}: Slot {} belongs to this node ({})",
                         shard_id_, slot, self_id);
       return "";  // Slot belongs to this node, handle locally
     }
 
     // Slot belongs to another node, find target node information
-    ASTRADB_LOG_DEBUG(
+    ASTRADB_LOG_TRACE(
         "Shard {}: Slot {} belongs to another node ({}), checking target "
         "node...",
         shard_id_, slot, slot_owner.value());
@@ -453,14 +455,14 @@ class DataShard {
 
   // Execute a command using the command registry
   std::string Execute(const astra::protocol::Command& command) {
-    ASTRADB_LOG_DEBUG("Shard {}: Executing command: {}", shard_id_,
+    ASTRADB_LOG_TRACE("Shard {}: Executing command: {}", shard_id_,
                       command.name);
-    ASTRADB_LOG_DEBUG("Shard {}: Command args count: {}", shard_id_,
+    ASTRADB_LOG_TRACE("Shard {}: Command args count: {}", shard_id_,
                       command.args.size());
 
     // Check cluster slot if cluster is enabled
     if (context_.IsClusterEnabled()) {
-      ASTRADB_LOG_DEBUG(
+      ASTRADB_LOG_TRACE(
           "Shard {}: Cluster enabled, checking slot for command '{}'",
           shard_id_, command.name);
       auto moved_error = CheckClusterSlot(command);
@@ -469,14 +471,14 @@ class DataShard {
                           command.name, moved_error);
         return moved_error;
       }
-      ASTRADB_LOG_DEBUG(
+      ASTRADB_LOG_TRACE(
           "Shard {}: Command '{}' slot check passed, handling locally",
           shard_id_, command.name);
     }
 
     auto result = registry_.Execute(command, &context_);
-    ASTRADB_LOG_DEBUG("Shard {}: Registry::Execute completed", shard_id_);
-    ASTRADB_LOG_DEBUG("Shard {}: Command result success={}, type={}", shard_id_,
+    ASTRADB_LOG_TRACE("Shard {}: Registry::Execute completed", shard_id_);
+    ASTRADB_LOG_TRACE("Shard {}: Command result success={}, type={}", shard_id_,
                       result.success,
                       static_cast<int>(result.response.GetType()));
 
@@ -486,9 +488,9 @@ class DataShard {
       return astra::protocol::RespBuilder::BuildError(result.error);
     }
 
-    ASTRADB_LOG_DEBUG("Shard {}: Calling RespBuilder::Build", shard_id_);
+    ASTRADB_LOG_TRACE("Shard {}: Calling RespBuilder::Build", shard_id_);
     auto response = astra::protocol::RespBuilder::Build(result.response);
-    ASTRADB_LOG_DEBUG("Shard {}: RespBuilder::Build completed, len={}",
+    ASTRADB_LOG_TRACE("Shard {}: RespBuilder::Build completed, len={}",
                       shard_id_, response.size());
 
     return response;
@@ -942,25 +944,29 @@ class Worker {
   }
 
   // Set persistence manager (called by Server after persistence is initialized)
-
-  void SetPersistenceManager(void* persistence_manager) {
-    ASTRADB_LOG_DEBUG("Worker {}: SetPersistenceManager called with ptr={}",
-                      worker_id_, persistence_manager);
+  // aof_enabled: whether AOF logging is enabled (if false, AOF callback will not be set)
+  void SetPersistenceManager(void* persistence_manager, bool aof_enabled = false) {
+    ASTRADB_LOG_DEBUG("Worker {}: SetPersistenceManager called with ptr={}, aof_enabled={}",
+                      worker_id_, persistence_manager, aof_enabled);
 
     if (persistence_manager) {
       auto* pm = static_cast<PersistenceManager*>(persistence_manager);
 
-      // Set AOF callback
-
-      data_shard_.GetCommandContext()->SetAofCallbackString(
-          [pm](const std::string& command) {
-            ASTRADB_LOG_DEBUG("AOF callback invoked, command size={}",
-                              command.size());
-
-            pm->AppendCommand(command);
-
-            ASTRADB_LOG_DEBUG("AOF callback completed");
-          });
+      // Set AOF callback only if AOF is enabled
+      if (aof_enabled) {
+        data_shard_.GetCommandContext()->SetAofCallbackString(
+            [pm](const std::string& command) {
+              ASTRADB_LOG_TRACE("AOF callback invoked, command size={}",
+                                command.size());
+              pm->AppendCommand(command);
+              ASTRADB_LOG_TRACE("AOF callback completed");
+            });
+        ASTRADB_LOG_DEBUG("Worker {}: AOF callback set successfully", worker_id_);
+      } else {
+        // Explicitly clear AOF callback to avoid unnecessary overhead
+        data_shard_.GetCommandContext()->SetAofCallbackString(nullptr);
+        ASTRADB_LOG_DEBUG("Worker {}: AOF disabled, skipping AOF callback", worker_id_);
+      }
 
       // Set RDB save callback
 
@@ -1210,7 +1216,7 @@ class Worker {
     asio::ip::tcp::socket& GetSocket() { return socket_; }
 
     asio::awaitable<void> Send(const std::string& response) {
-      ASTRADB_LOG_DEBUG(
+      ASTRADB_LOG_TRACE(
           "Worker {}: Connection {} sending response: {} (len={})", worker_id_,
           conn_id_, response, response.size());
 
@@ -1220,7 +1226,7 @@ class Worker {
           asio::redirect_error(asio::use_awaitable, ec));
 
       if (!ec) {
-        ASTRADB_LOG_DEBUG("Worker {}: Connection {} response sent (bytes={})",
+        ASTRADB_LOG_TRACE("Worker {}: Connection {} response sent (bytes={})",
                           worker_id_, conn_id_, bytes_written);
         astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
             bytes_written);
@@ -1295,7 +1301,7 @@ class Worker {
           break;
         }
 
-        ASTRADB_LOG_DEBUG("Worker {}: Connection {} received {} bytes",
+        ASTRADB_LOG_TRACE("Worker {}: Connection {} received {} bytes",
                           worker_id_, conn_id_, bytes_transferred);
 
         // Append to receive buffer
@@ -1401,7 +1407,7 @@ class Worker {
       CommandWithConnId cmd;
       if (cmd_queue_.try_dequeue(cmd)) {
         has_work = true;
-        ASTRADB_LOG_DEBUG(
+        ASTRADB_LOG_TRACE(
             "Worker {}: Executor processing command: {} for conn {} "
             "(forwarded={})",
             worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
@@ -1438,7 +1444,7 @@ class Worker {
               data_shard_.GetCommandRegistry()->GetRoutingStrategy(
                   cmd.command.name);
 
-          ASTRADB_LOG_DEBUG(
+          ASTRADB_LOG_TRACE(
               "Worker {}: Command '{}' has routing strategy={}, args_count={}",
               worker_id_, cmd.command.name, static_cast<int>(routing_strategy),
               cmd.command.args.size());
@@ -1450,8 +1456,8 @@ class Worker {
                cmd.command.args[0].IsSimpleString())) {
             std::string key = cmd.command.args[0].AsString();
             target_worker = RouteToWorker(key);
-            ASTRADB_LOG_DEBUG(
-                "Worker {}: Command '{}' has key='{}, routing to worker {} "
+            ASTRADB_LOG_TRACE(
+                "Worker {}: Command '{}' has key='{}', routing to worker {} "
                 "(current worker={})",
                 worker_id_, cmd.command.name, key, target_worker, worker_id_);
           }

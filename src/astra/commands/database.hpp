@@ -328,13 +328,13 @@ class Database {
     // Check and perform eviction if needed (performance optimized)
     // Only check eviction when memory is close to threshold to avoid
     // performance impact
-    ASTRADB_LOG_DEBUG(
+    ASTRADB_LOG_TRACE(
         "SET: memory_tracker_={}, eviction_manager_={}, ShouldCheckEviction={}",
         static_cast<bool>(memory_tracker_),
         static_cast<bool>(eviction_manager_),
         memory_tracker_ ? memory_tracker_->ShouldCheckEviction() : false);
     if (memory_tracker_) {
-      ASTRADB_LOG_DEBUG(
+      ASTRADB_LOG_TRACE(
           "SET: current_memory={}, max_memory={}, percentage={:.2f}%",
           memory_tracker_->GetCurrentMemory(), memory_tracker_->GetMaxMemory(),
           memory_tracker_->GetMemoryUsagePercentage() * 100);

@@ -28,6 +28,11 @@ message(STATUS "Enable Coverage:     ${ASTRADB_ENABLE_COVERAGE}")
 message(STATUS "Enable Sanitizers:   ${ASTRADB_ENABLE_SANITIZERS}")
 message(STATUS "Enable LTO:          ${ASTRADB_ENABLE_LTO}")
 message(STATUS "io_uring Support:    ${ASTRADB_IO_URING_ENABLED}")
+if(ASTRADB_RELEASE_OPTIMIZED)
+  message(STATUS "Release Optimized:   YES (TRACE logs disabled at compile-time)")
+else()
+  message(STATUS "Release Optimized:   NO (TRACE logs enabled)")
+endif()
 message(
   STATUS
     "==============================================================================="

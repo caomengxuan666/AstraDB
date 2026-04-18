@@ -69,9 +69,10 @@ void Server::Start() {
                        workers_.size());
       for (auto& worker : workers_) {
         ASTRADB_LOG_DEBUG("Calling SetPersistenceManager for worker");
-        worker->SetPersistenceManager(persistence_manager_.get());
+        worker->SetPersistenceManager(persistence_manager_.get(), config_.aof.enabled);
       }
-      ASTRADB_LOG_INFO("Persistence manager set for all workers");
+      ASTRADB_LOG_INFO("Persistence manager set for all workers (AOF: {})",
+                       config_.aof.enabled ? "enabled" : "disabled");
 
       // Set replication manager for all workers
       if (replication_manager_) {
@@ -147,10 +148,12 @@ void Server::Start() {
     }
   }
 
-  // Initialize replication
-  if (!InitReplication()) {
-    ASTRADB_LOG_WARN(
-        "Replication initialization failed, running without replication");
+  // Initialize replication only if enabled in configuration
+  if (config_.replication.enabled) {
+    if (!InitReplication()) {
+      ASTRADB_LOG_WARN(
+          "Replication initialization failed, running without replication");
+    }
   }
 
   // Create worker scheduler first (before setting memory config)

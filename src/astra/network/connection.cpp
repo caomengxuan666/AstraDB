@@ -107,12 +107,12 @@ void Connection::CloseSocketForReuse() {
 
 void Connection::Send(const std::string& data) {
   if (closing_ || !socket_.is_open()) {
-    ASTRADB_LOG_DEBUG("Send: id={}, skipped (closing={}, open={})", id_,
+    ASTRADB_LOG_TRACE("Send: id={}, skipped (closing={}, open={})", id_,
                       closing_, socket_.is_open());
     return;
   }
 
-  ASTRADB_LOG_DEBUG("Send: id={}, data_len={}, writing_={}", id_, data.size(),
+  ASTRADB_LOG_TRACE("Send: id={}, data_len={}, writing_={}", id_, data.size(),
                     writing_);
 
   // Append data to write buffer
@@ -188,7 +188,7 @@ void Connection::DoWrite() {
           return;
         }
 
-        ASTRADB_LOG_DEBUG(
+        ASTRADB_LOG_TRACE(
             "Write complete: id={}, bytes_transferred={}, buffer_remaining={}",
             id_, bytes_transferred, write_buffer_ ? write_buffer_->size() : 0);
 
@@ -202,7 +202,7 @@ void Connection::DoWrite() {
           std::memmove(write_buffer_->data(),
                        write_buffer_->data() + bytes_transferred, remaining);
           write_buffer_->Resize(remaining);
-          ASTRADB_LOG_DEBUG("Partial write: id={}, continuing with {} bytes",
+          ASTRADB_LOG_TRACE("Partial write: id={}, continuing with {} bytes",
                             id_, write_buffer_->size());
           DoWrite();
         } else {
@@ -217,7 +217,7 @@ void Connection::DoWrite() {
             std::memmove(write_buffer_->data(),
                          write_buffer_->data() + write_size, remaining);
             write_buffer_->Resize(remaining);
-            ASTRADB_LOG_DEBUG(
+            ASTRADB_LOG_TRACE(
                 "Write complete: id={}, removed {} bytes, {} bytes remaining",
                 id_, write_size, remaining);
 
@@ -228,7 +228,7 @@ void Connection::DoWrite() {
           } else {
             // Buffer size equals write size, clear the buffer
             write_buffer_->Clear();
-            ASTRADB_LOG_DEBUG("Write complete: id={}, buffer cleared", id_);
+            ASTRADB_LOG_TRACE("Write complete: id={}, buffer cleared", id_);
           }
         }
       }));
@@ -294,7 +294,7 @@ void Connection::ProcessData() {
     return;
   }
 
-  ASTRADB_LOG_DEBUG("ProcessData: id={}, buffer_size={}", id_,
+  ASTRADB_LOG_TRACE("ProcessData: id={}, buffer_size={}", id_,
                     read_buffer_->size());
 
   // Parse RESP commands from read_buffer_
@@ -332,7 +332,7 @@ void Connection::ProcessData() {
       if (value->IsArray()) {
         auto cmd = protocol::RespParser::ParseCommand(*value);
         if (cmd.has_value()) {
-          ASTRADB_LOG_DEBUG("ProcessData: id={}, batching command: {}, args={}",
+          ASTRADB_LOG_TRACE("ProcessData: id={}, batching command: {}, args={}",
                             id_, cmd->name, cmd->ArgCount());
           commands.push_back(std::move(*cmd));
         }
@@ -378,7 +378,7 @@ void Connection::ProcessData() {
       if (value->IsArray()) {
         auto cmd = protocol::RespParser::ParseCommand(*value);
         if (cmd.has_value() && command_callback_) {
-          ASTRADB_LOG_DEBUG(
+          ASTRADB_LOG_TRACE(
               "ProcessData: id={}, processing command: {}, args={}", id_,
               cmd->name, cmd->ArgCount());
           ProcessCommand(*cmd);
@@ -411,7 +411,7 @@ void Connection::ProcessData() {
 }
 
 void Connection::ProcessCommand(const protocol::Command& cmd) {
-  ASTRADB_LOG_DEBUG("Received command: id={}, name={}, args={}", id_, cmd.name,
+  ASTRADB_LOG_TRACE("Received command: id={}, name={}, args={}", id_, cmd.name,
                     cmd.ArgCount());
 
   // Print command arguments
@@ -432,7 +432,7 @@ void Connection::ProcessCommand(const protocol::Command& cmd) {
       }
     }
     oss << "]";
-    ASTRADB_LOG_DEBUG("Received command: id={}, name={}{}", id_, cmd.name,
+    ASTRADB_LOG_TRACE("Received command: id={}, name={}{}", id_, cmd.name,
                       oss.str());
   }
 

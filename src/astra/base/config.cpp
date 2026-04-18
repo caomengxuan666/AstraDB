@@ -296,12 +296,6 @@ ServerConfig ServerConfig::LoadFromFile(const std::string& config_file) {
       config.metrics.bind_addr =
           metrics["bind_addr"].value_or<std::string>("0.0.0.0");
       config.metrics.port = metrics["port"].value_or<uint16_t>(9100);
-      std::cout << "Config loaded: metrics.enabled = " << config.metrics.enabled
-                << ", port = " << config.metrics.port << std::endl;
-    } else {
-      std::cout
-          << "Config: [metrics] section not found, using defaults (disabled)"
-          << std::endl;
     }
 
   } catch (const std::exception& e) {

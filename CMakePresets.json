@@ -67,7 +67,8 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "ASTRADB_ENABLE_SANITIZERS": "ON",
         "ASTRADB_ENABLE_COVERAGE": "ON",
-        "ASTRADB_ENABLE_LTO": "OFF"
+        "ASTRADB_ENABLE_LTO": "OFF",
+        "ASTRADB_RELEASE_OPTIMIZED": "OFF"
       }
     },
     {
