@@ -6,9 +6,7 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/hash/hash.h>
 #include <absl/strings/string_view.h>
-#include <absl/synchronization/mutex.h>
 
-#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -55,8 +53,11 @@ struct StringEqual<std::string> {
   }
 };
 
-// DashMap - Zero-overhead concurrent hash map
-// Uses segmented sharding for lock-free reads and minimal lock contention
+// DashMap - Lock-free concurrent hash map (NO SHARING architecture)
+// In NO SHARING architecture, each Worker has its own DashMap instance
+// that is only accessed by that Worker's single Executor thread.
+// Therefore, no locking is required - this is a simple wrapper around
+// absl::flat_hash_map for API compatibility.
 template <typename Key, typename Value>
 class DashMap {
  public:
@@ -65,11 +66,8 @@ class DashMap {
   using EqualType = StringEqual<Key>;
   using MapType = absl::flat_hash_map<Key, Value, DashHash, EqualType>;
 
-  explicit DashMap(size_t num_shards = 16) : size_(0) {
-    shards_.reserve(num_shards);
-    for (size_t i = 0; i < num_shards; ++i) {
-      shards_.push_back(std::make_unique<Shard>());
-    }
+  explicit DashMap(size_t initial_capacity = 16) : size_(0) {
+    map_.reserve(initial_capacity);
   }
 
   ~DashMap() = default;
@@ -83,13 +81,9 @@ class DashMap {
   // Insert or update a key-value pair
   // Returns true if a new key was inserted, false if updated
   bool Insert(const Key& key, const Value& value) {
-    size_t shard_index = GetShardIndex(key);
-    Shard* shard = shards_[shard_index].get();
-
-    absl::MutexLock lock(&shard->mutex);
-    auto [it, inserted] = shard->map.insert_or_assign(key, value);
+    auto [it, inserted] = map_.insert_or_assign(key, value);
     if (inserted) {
-      size_.fetch_add(1, std::memory_order_relaxed);
+      ++size_;
     }
     return inserted;
   }
@@ -97,12 +91,8 @@ class DashMap {
   // Get value by key
   // Returns true if found, false otherwise
   bool Get(const Key& key, Value* out_value) const {
-    size_t shard_index = GetShardIndex(key);
-    const Shard* shard = shards_[shard_index].get();
-
-    absl::ReaderMutexLock lock(&shard->mutex);
-    auto it = shard->map.find(key);
-    if (it != shard->map.end()) {
+    auto it = map_.find(key);
+    if (it != map_.end()) {
       if (out_value) {
         *out_value = it->second;
       }
@@ -114,51 +104,35 @@ class DashMap {
   // Remove a key
   // Returns true if the key was removed, false if not found
   bool Remove(const Key& key) {
-    size_t shard_index = GetShardIndex(key);
-    Shard* shard = shards_[shard_index].get();
-
-    absl::MutexLock lock(&shard->mutex);
-    auto erased = shard->map.erase(key);
+    auto erased = map_.erase(key);
     if (erased > 0) {
-      size_.fetch_sub(1, std::memory_order_relaxed);
+      --size_;
       return true;
     }
     return false;
   }
 
   // Check if a key exists
-  bool Contains(const Key& key) const {
-    size_t shard_index = GetShardIndex(key);
-    const Shard* shard = shards_[shard_index].get();
-
-    absl::ReaderMutexLock lock(&shard->mutex);
-    return shard->map.contains(key);
-  }
+  bool Contains(const Key& key) const { return map_.contains(key); }
 
   // Get the number of elements
-  size_t Size() const { return size_.load(std::memory_order_relaxed); }
+  size_t Size() const { return size_; }
 
   // Check if the map is empty
-  bool Empty() const { return Size() == 0; }
+  bool Empty() const { return size_ == 0; }
 
   // Clear all elements
   void Clear() {
-    for (auto& shard : shards_) {
-      absl::MutexLock lock(&shard->mutex);
-      shard->map.clear();
-    }
-    size_.store(0, std::memory_order_relaxed);
+    map_.clear();
+    size_ = 0;
   }
 
   // Get all keys
   std::vector<Key> GetAllKeys() const {
     std::vector<Key> keys;
-    for (auto& shard : shards_) {
-      absl::ReaderMutexLock lock(&shard->mutex);
-      keys.reserve(keys.size() + shard->map.size());
-      for (const auto& [key, _] : shard->map) {
-        keys.push_back(key);
-      }
+    keys.reserve(map_.size());
+    for (const auto& [key, _] : map_) {
+      keys.push_back(key);
     }
     return keys;
   }
@@ -166,18 +140,15 @@ class DashMap {
   // Get all key-value pairs
   std::vector<std::pair<Key, Value>> GetAllKeyValuePairs() const {
     std::vector<std::pair<Key, Value>> pairs;
-    for (auto& shard : shards_) {
-      absl::ReaderMutexLock lock(&shard->mutex);
-      pairs.reserve(pairs.size() + shard->map.size());
-      for (const auto& [key, value] : shard->map) {
-        pairs.emplace_back(key, value);
-      }
+    pairs.reserve(map_.size());
+    for (const auto& [key, value] : map_) {
+      pairs.emplace_back(key, value);
     }
     return pairs;
   }
 
-  // Get total number of shards
-  size_t NumShards() const { return shards_.size(); }
+  // Get total capacity (always 1 for compatibility, no sharding)
+  size_t NumShards() const { return 1; }
 
   // For string keys, allow heterogeneous lookup
   template <typename K = Key>
@@ -189,12 +160,8 @@ class DashMap {
   template <typename K = Key>
   std::enable_if_t<std::is_same_v<K, std::string>, bool> Get(
       const absl::string_view key, Value* out_value) const {
-    size_t shard_index = GetShardIndex(absl::Hash<absl::string_view>{}(key));
-    const Shard* shard = shards_[shard_index].get();
-
-    absl::ReaderMutexLock lock(&shard->mutex);
-    auto it = shard->map.find(key);
-    if (it != shard->map.end()) {
+    auto it = map_.find(key);
+    if (it != map_.end()) {
       if (out_value) {
         *out_value = it->second;
       }
@@ -212,40 +179,22 @@ class DashMap {
   template <typename K = Key>
   std::enable_if_t<std::is_same_v<K, std::string>, bool> Contains(
       const absl::string_view key) const {
-    size_t shard_index = GetShardIndex(absl::Hash<absl::string_view>{}(key));
-    const Shard* shard = shards_[shard_index].get();
-
-    absl::ReaderMutexLock lock(&shard->mutex);
-    return shard->map.find(key) != shard->map.end();
+    return map_.find(key) != map_.end();
   }
 
  private:
-  struct Shard {
-    MapType map;
-    mutable absl::Mutex mutex;
-  };
-
-  size_t GetShardIndex(const Key& key) const {
-    size_t hash_value = DashHash{}(key);
-    return hash_value % shards_.size();
-  }
-
-  size_t GetShardIndex(size_t hash_value) const {
-    return hash_value % shards_.size();
-  }
-
-  std::vector<std::unique_ptr<Shard>> shards_;
-  std::atomic<size_t> size_;
+  MapType map_;
+  mutable size_t size_;
 };
 
 // StringMap - Specialized DashMap for string keys
 using StringMap = DashMap<std::string, std::string>;
 
-// DashSet - Set version of DashMap
+// DashSet - Set version of DashMap (no locking needed)
 template <typename Key>
 class DashSet {
  public:
-  explicit DashSet(size_t num_shards = 16) : map_(num_shards) {}
+  explicit DashSet(size_t initial_capacity = 16) : map_(initial_capacity) {}
 
   bool Insert(const Key& key) { return map_.Insert(key, Dummy{}); }
 
