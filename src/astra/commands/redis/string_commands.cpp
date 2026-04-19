@@ -286,7 +286,7 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
     std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(
         all_workers.size());
     for (size_t i = 0; i < keys.size(); ++i) {
-      size_t worker_id = std::hash<std::string>{}(keys[i]) % all_workers.size();
+      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(keys[i]) % all_workers.size();
       worker_keys[worker_id].push_back({i, keys[i]});
     }
 
@@ -436,7 +436,7 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
       std::string value = value_arg.AsString();
 
       // Hash key to determine which worker should handle it
-      size_t worker_id = std::hash<std::string>{}(key) % all_workers.size();
+      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(key) % all_workers.size();
 
       // Capture necessary data by value to make lambda copyable
       server::Worker* target_worker = all_workers[worker_id];

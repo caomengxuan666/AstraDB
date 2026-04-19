@@ -40,10 +40,13 @@ This document captures the performance analysis, benchmarking results, and archi
 
 | Metric | AstraDB | Dragonfly | Redis 7.4.2 | Notes |
 |--------|---------|-----------|--------------|-------|
-| **Pipeline QPS** | ~several million | ~several million | ~several million | All achieve high QPS in pipeline mode |
-| **Device Variance** | Significant | Significant | Significant | Performance varies by hardware configuration |
+| **Pipeline QPS (P=16)** | ~430k | ~several million | ~2.1M | Under development |
+| **Device Variance** | Significant | Significant | Significant | Performance varies by hardware |
 
-**Note**: Pipeline mode performance varies significantly across different hardware configurations. Further testing is planned to provide more detailed comparative analysis.
+**Current Status**: Pipeline mode optimization is in progress. Current limitations:
+- Batch processing implemented in IO thread (command parsing) and Executor thread
+- Further optimization needed for response batching and zero-copy networking
+- Target: Match or exceed Redis pipeline performance
 
 ### Historical Benchmarks (WSL2 Environment - Deprecated)
 

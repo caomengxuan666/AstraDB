@@ -35,8 +35,27 @@
 
 // Cluster support
 #include "astra/cluster/cluster_config.hpp"
+#include "astra/cluster/shard_manager.hpp"
+
+#ifdef __linux__
+#include <sched.h>
+#include <cstring>
+#endif
 
 namespace astra::server {
+
+// CPU affinity helper (Linux only)
+inline bool SetCpuAffinity(size_t cpu_id) {
+#ifdef __linux__
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu_id, &cpuset);
+  return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0;
+#else
+  (void)cpu_id;
+  return true;
+#endif
+}
 
 // Helper function to convert absl::Duration to std::chrono::duration for asio
 inline std::chrono::nanoseconds AbslToChronoNanoseconds(absl::Duration d) {
@@ -799,6 +818,7 @@ class Worker {
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
+      SetCpuAffinity(worker_id_);  // Bind to CPU core
       ASTRADB_LOG_DEBUG("Worker {}: IO thread started", worker_id_);
       DoAccept();
       ProcessResponseQueue();  // Start response queue processing
@@ -808,6 +828,7 @@ class Worker {
 
     // Start executor thread
     exec_thread_ = std::thread([this]() {
+      SetCpuAffinity(worker_id_);  // Bind to CPU core
       ASTRADB_LOG_DEBUG("Worker {}: Executor thread started", worker_id_);
       ExecutorLoop();
       ASTRADB_LOG_DEBUG("Worker {}: Executor thread exited", worker_id_);
@@ -1389,14 +1410,19 @@ class Worker {
     asio::io_context& io_context_;
   };
 
-  // Calculate which worker should handle this key (consistent hashing)
-  size_t RouteToWorker(const std::string& key) {
+  // Calculate which worker should handle this key (CRC16 with hash tag support)
+  size_t RouteToWorker(absl::string_view key) {
     if (key.empty()) {
       return worker_id_ % all_workers_.size();
     }
-    // Simple hash-based routing
-    uint64_t hash = std::hash<std::string>{}(key);
-    return hash % all_workers_.size();
+    // Use CRC16 with hash tag support (Redis compatible)
+    auto slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+    return slot % all_workers_.size();
+  }
+
+  // Calculate which worker should handle this key (overload for std::string)
+  size_t RouteToWorker(const std::string& key) {
+    return RouteToWorker(absl::string_view(key));
   }
 
   void ExecutorLoop() {
