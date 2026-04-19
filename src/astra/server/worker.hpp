@@ -37,7 +37,25 @@
 #include "astra/cluster/cluster_config.hpp"
 #include "astra/cluster/shard_manager.hpp"
 
+#ifdef __linux__
+#include <sched.h>
+#include <cstring>
+#endif
+
 namespace astra::server {
+
+// CPU affinity helper (Linux only)
+inline bool SetCpuAffinity(size_t cpu_id) {
+#ifdef __linux__
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu_id, &cpuset);
+  return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0;
+#else
+  (void)cpu_id;
+  return true;
+#endif
+}
 
 // Helper function to convert absl::Duration to std::chrono::duration for asio
 inline std::chrono::nanoseconds AbslToChronoNanoseconds(absl::Duration d) {
@@ -800,6 +818,7 @@ class Worker {
 
     // Start IO thread
     io_thread_ = std::thread([this]() {
+      SetCpuAffinity(worker_id_);  // Bind to CPU core
       ASTRADB_LOG_DEBUG("Worker {}: IO thread started", worker_id_);
       DoAccept();
       ProcessResponseQueue();  // Start response queue processing
@@ -809,6 +828,7 @@ class Worker {
 
     // Start executor thread
     exec_thread_ = std::thread([this]() {
+      SetCpuAffinity(worker_id_);  // Bind to CPU core
       ASTRADB_LOG_DEBUG("Worker {}: Executor thread started", worker_id_);
       ExecutorLoop();
       ASTRADB_LOG_DEBUG("Worker {}: Executor thread exited", worker_id_);
