@@ -1,0 +1,57 @@
+# AstraDB Benchmark Configuration
+# Optimized for maximum throughput testing
+# Disable all persistence and background tasks
+
+[server]
+host = "0.0.0.0"
+port = 6379
+max_connections = 10000
+thread_count = 2  # 2 workers for benchmark
+
+[database]
+num_databases = 16
+num_shards = 2  # Match thread count for best performance
+
+[logging]
+level = "error"  # Disable logging for benchmark
+file = "/dev/null"
+async = false
+
+[performance]
+enable_pipeline = true
+enable_compression = false
+
+[async]
+use_async_commands = true
+
+# Storage Configuration - Memory only mode (no persistence)
+[storage]
+mode = "redis"
+enable_rocksdb_cold_data = false
+enable_compression = false
+
+# Disable RDB and AOF
+[storage.redis_mode]
+rdb_enabled = false
+rdb_path = "./data/dump.rdb"
+rdb_auto_save = false
+rdb_save_interval = 300
+aof_enabled = false
+aof_path = "./data/aof/appendonly.aof"
+aof_sync_everysec = false
+
+[metrics]
+enabled = false
+
+[cluster]
+enabled = false
+
+[memory]
+max_memory = 0
+eviction_policy = "noeviction"
+
+[replication]
+enabled = false
+
+[acl]
+enabled = false
