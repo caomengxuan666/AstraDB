@@ -277,7 +277,7 @@ CommandResult HandleBitOp(const protocol::Command& command,
 
     // Store result in the worker that owns the destkey
     size_t dest_worker_id =
-        std::hash<std::string>{}(destkey) % all_workers.size();
+        cluster::HashSlotCalculator::CalculateWithTag(destkey) % all_workers.size();
     server::Worker* dest_worker = all_workers[dest_worker_id];
     std::string result_copy = result;
 

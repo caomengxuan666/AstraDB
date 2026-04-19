@@ -35,6 +35,7 @@
 
 // Cluster support
 #include "astra/cluster/cluster_config.hpp"
+#include "astra/cluster/shard_manager.hpp"
 
 namespace astra::server {
 
@@ -1389,14 +1390,19 @@ class Worker {
     asio::io_context& io_context_;
   };
 
-  // Calculate which worker should handle this key (consistent hashing)
-  size_t RouteToWorker(const std::string& key) {
+  // Calculate which worker should handle this key (CRC16 with hash tag support)
+  size_t RouteToWorker(absl::string_view key) {
     if (key.empty()) {
       return worker_id_ % all_workers_.size();
     }
-    // Simple hash-based routing
-    uint64_t hash = std::hash<std::string>{}(key);
-    return hash % all_workers_.size();
+    // Use CRC16 with hash tag support (Redis compatible)
+    auto slot = cluster::HashSlotCalculator::CalculateWithTag(key);
+    return slot % all_workers_.size();
+  }
+
+  // Calculate which worker should handle this key (overload for std::string)
+  size_t RouteToWorker(const std::string& key) {
+    return RouteToWorker(absl::string_view(key));
   }
 
   void ExecutorLoop() {
