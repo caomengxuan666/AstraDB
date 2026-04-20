@@ -1509,96 +1509,44 @@ class Worker {
   }
 
   void ExecutorLoop() {
+    static constexpr size_t kMaxLocalCommandsPerLoop = 256;
+    static constexpr size_t kCommandDequeueBatch = 64;
+    std::array<CommandWithConnId, kCommandDequeueBatch> cmd_batch;
+
     while (running_) {
       bool has_work = false;
       bool has_responses = false;
       absl::flat_hash_set<size_t> workers_to_notify;
 
       // Process local commands first
-      CommandWithConnId cmd;
       size_t local_cmd_count = 0;
-      static constexpr size_t kMaxLocalCommandsPerLoop = 256;
-      while (local_cmd_count < kMaxLocalCommandsPerLoop &&
-             cmd_queue_.try_dequeue(cmd)) {
+      while (local_cmd_count < kMaxLocalCommandsPerLoop) {
+        size_t remaining = kMaxLocalCommandsPerLoop - local_cmd_count;
+        size_t batch_size =
+            remaining < kCommandDequeueBatch ? remaining : kCommandDequeueBatch;
+        size_t dequeued = cmd_queue_.try_dequeue_bulk(cmd_batch.data(), batch_size);
+        if (dequeued == 0) {
+          break;
+        }
         has_work = true;
-        ++local_cmd_count;
-        ASTRADB_LOG_TRACE(
-            "Worker {}: Executor processing command: {} for conn {} "
-            "(forwarded={})",
-            worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
-        if (cmd.is_forwarded) {
-          // This is a forwarded command from another worker
-          // Execute directly and send response back to source worker
-          LocalCommandTimer timer(cmd.command.name, &local_stats_);
-          std::string response = data_shard_.Execute(cmd.command);
-
-          // Propagate command to slaves if this is a master (NO SHADING
-          // architecture) Even forwarded commands need to be propagated to
-          // slaves
-          if (replication_config_.enabled && replication_manager_ &&
-              replication_manager_->GetRole() ==
-                  replication::ReplicationRole::kMaster) {
-            auto* registry = data_shard_.GetCommandRegistry();
-            auto* info =
-                registry ? registry->GetInfo(cmd.command.name) : nullptr;
-            if (info && info->is_write) {
-              PropagateCommandToAllSlaves(cmd.command);
-            }
-          }
-
-          CrossWorkerResponse cross_resp{cmd.conn_id, response};
-          all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
-              std::move(cross_resp), false);
-          workers_to_notify.insert(cmd.source_worker_id);
-        } else {
-          // This is a new command from a client
-          // Determine if this command should be forwarded to another worker
-          // Check if command has a key argument
-          size_t target_worker = worker_id_;
-          auto routing_strategy =
-              data_shard_.GetCommandRegistry()->GetRoutingStrategy(
-                  cmd.command.name);
-
+        for (size_t i = 0; i < dequeued; ++i) {
+          auto& cmd = cmd_batch[i];
+          ++local_cmd_count;
           ASTRADB_LOG_TRACE(
-              "Worker {}: Command '{}' has routing strategy={}, args_count={}",
-              worker_id_, cmd.command.name, static_cast<int>(routing_strategy),
-              cmd.command.args.size());
+              "Worker {}: Executor processing command: {} for conn {} "
+              "(forwarded={})",
+              worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
-          // Only route if command supports routing and has key argument
-          if (routing_strategy != commands::RoutingStrategy::kNone &&
-              !cmd.command.args.empty() &&
-              (cmd.command.args[0].IsBulkString() ||
-               cmd.command.args[0].IsSimpleString())) {
-            const std::string& key = cmd.command.args[0].AsString();
-            target_worker = RouteToWorker(absl::string_view(key));
-            ASTRADB_LOG_TRACE(
-                "Worker {}: Command '{}' has key='{}', routing to worker {} "
-                "(current worker={})",
-                worker_id_, cmd.command.name, key, target_worker, worker_id_);
-          }
-
-          if (target_worker == worker_id_) {
-            // Handle locally
+          if (cmd.is_forwarded) {
+            // This is a forwarded command from another worker
+            // Execute directly and send response back to source worker
             LocalCommandTimer timer(cmd.command.name, &local_stats_);
-
-            // Set connection and connection ID in command context for blocking
-            // commands
-            auto conn_it = connections_.find(cmd.conn_id);
-            if (conn_it != connections_.end()) {
-              data_shard_.GetCommandContext()->SetConnection(
-                  conn_it->second.get());
-              data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
-              // Also set raw socket pointer for direct access (e.g.,
-              // replication)
-              data_shard_.GetCommandContext()->SetRawSocket(
-                  &conn_it->second->GetSocket());
-            }
-
             std::string response = data_shard_.Execute(cmd.command);
 
             // Propagate command to slaves if this is a master (NO SHADING
-            // architecture)
+            // architecture) Even forwarded commands need to be propagated to
+            // slaves
             if (replication_config_.enabled && replication_manager_ &&
                 replication_manager_->GetRole() ==
                     replication::ReplicationRole::kMaster) {
@@ -1610,20 +1558,84 @@ class Worker {
               }
             }
 
-            ResponseWithConnId resp{cmd.conn_id, response};
-            resp_queue_.enqueue(std::move(resp));
-            has_responses = true;
+            CrossWorkerResponse cross_resp{cmd.conn_id, response};
+            all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
+                std::move(cross_resp), false);
+            workers_to_notify.insert(cmd.source_worker_id);
           } else {
-            // Forward to target worker (enqueue to avoid blocking)
-            ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
-                              worker_id_, target_worker);
-            CrossWorkerRequest cross_req{worker_id_,  // source worker
-                                         cmd.conn_id, std::move(cmd.command)};
-            // Enqueue to target worker to avoid blocking this worker's
-            // ExecutorLoop
-            all_workers_[target_worker]->EnqueueCrossWorkerRequest(
-                std::move(cross_req), false);
-            workers_to_notify.insert(target_worker);
+            // This is a new command from a client
+            // Determine if this command should be forwarded to another worker
+            // Check if command has a key argument
+            size_t target_worker = worker_id_;
+            auto routing_strategy =
+                data_shard_.GetCommandRegistry()->GetRoutingStrategy(
+                    cmd.command.name);
+
+            ASTRADB_LOG_TRACE(
+                "Worker {}: Command '{}' has routing strategy={}, args_count={}",
+                worker_id_, cmd.command.name,
+                static_cast<int>(routing_strategy), cmd.command.args.size());
+
+            // Only route if command supports routing and has key argument
+            if (routing_strategy != commands::RoutingStrategy::kNone &&
+                !cmd.command.args.empty() &&
+                (cmd.command.args[0].IsBulkString() ||
+                 cmd.command.args[0].IsSimpleString())) {
+              const std::string& key = cmd.command.args[0].AsString();
+              target_worker = RouteToWorker(absl::string_view(key));
+              ASTRADB_LOG_TRACE(
+                  "Worker {}: Command '{}' has key='{}', routing to worker {} "
+                  "(current worker={})",
+                  worker_id_, cmd.command.name, key, target_worker, worker_id_);
+            }
+
+            if (target_worker == worker_id_) {
+              // Handle locally
+              LocalCommandTimer timer(cmd.command.name, &local_stats_);
+
+              // Set connection and connection ID in command context for
+              // blocking commands
+              auto conn_it = connections_.find(cmd.conn_id);
+              if (conn_it != connections_.end()) {
+                data_shard_.GetCommandContext()->SetConnection(
+                    conn_it->second.get());
+                data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
+                // Also set raw socket pointer for direct access (e.g.,
+                // replication)
+                data_shard_.GetCommandContext()->SetRawSocket(
+                    &conn_it->second->GetSocket());
+              }
+
+              std::string response = data_shard_.Execute(cmd.command);
+
+              // Propagate command to slaves if this is a master (NO SHADING
+              // architecture)
+              if (replication_config_.enabled && replication_manager_ &&
+                  replication_manager_->GetRole() ==
+                      replication::ReplicationRole::kMaster) {
+                auto* registry = data_shard_.GetCommandRegistry();
+                auto* info =
+                    registry ? registry->GetInfo(cmd.command.name) : nullptr;
+                if (info && info->is_write) {
+                  PropagateCommandToAllSlaves(cmd.command);
+                }
+              }
+
+              ResponseWithConnId resp{cmd.conn_id, response};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+            } else {
+              // Forward to target worker (enqueue to avoid blocking)
+              ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
+                                worker_id_, target_worker);
+              CrossWorkerRequest cross_req{worker_id_,  // source worker
+                                           cmd.conn_id, std::move(cmd.command)};
+              // Enqueue to target worker to avoid blocking this worker's
+              // ExecutorLoop
+              all_workers_[target_worker]->EnqueueCrossWorkerRequest(
+                  std::move(cross_req), false);
+              workers_to_notify.insert(target_worker);
+            }
           }
         }
       }
@@ -1741,17 +1753,24 @@ class Worker {
     // This increases batching opportunities (Dragonfly best practice)
     absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
     size_t total_responses = 0;
+    static constexpr size_t kMaxBatchSize = 1000;
+    static constexpr size_t kResponseDequeueBatch = 64;
+    std::array<ResponseWithConnId, kResponseDequeueBatch> resp_batch;
 
-    ResponseWithConnId resp;
-    while (resp_queue_.try_dequeue(resp)) {
-      conn_responses[resp.conn_id].push_back(std::move(resp.response));
-      ++total_responses;
-
-      // Limit total responses per batch to avoid memory bloat
-      static constexpr size_t kMaxBatchSize = 1000;
-      if (total_responses >= kMaxBatchSize) {
+    while (total_responses < kMaxBatchSize) {
+      size_t remaining = kMaxBatchSize - total_responses;
+      size_t batch_size =
+          remaining < kResponseDequeueBatch ? remaining : kResponseDequeueBatch;
+      size_t dequeued =
+          resp_queue_.try_dequeue_bulk(resp_batch.data(), batch_size);
+      if (dequeued == 0) {
         break;
       }
+      for (size_t i = 0; i < dequeued; ++i) {
+        auto& resp = resp_batch[i];
+        conn_responses[resp.conn_id].push_back(std::move(resp.response));
+      }
+      total_responses += dequeued;
     }
 
     // Send responses per connection (batched and merged)

@@ -348,21 +348,21 @@ int LuaScriptContext::LuaCall(lua_State* L) {
 
   for (int i = 2; i <= lua_gettop(L); ++i) {
     if (lua_isstring(L, i)) {
-      cmd.args.push_back(RespValue(std::string(lua_tostring(L, i))));
+      cmd.args.emplace_back(std::string(lua_tostring(L, i)));
     } else if (lua_isnumber(L, i)) {
       double num = lua_tonumber(L, i);
       if (num == static_cast<int64_t>(num)) {
-        cmd.args.push_back(RespValue(static_cast<int64_t>(num)));
+        cmd.args.emplace_back(static_cast<int64_t>(num));
       } else {
-        cmd.args.push_back(RespValue(num));
+        cmd.args.emplace_back(std::to_string(num));
       }
     } else if (lua_isboolean(L, i)) {
-      cmd.args.push_back(
-          RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
+      cmd.args.emplace_back(
+          static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0));
     } else if (lua_isnil(L, i)) {
-      cmd.args.push_back(RespValue(RespType::kNullBulkString));
+      cmd.args.emplace_back(RespType::kNullBulkString);
     } else {
-      cmd.args.push_back(RespValue(""));  // Unknown type -> empty string
+      cmd.args.emplace_back("");  // Unknown type -> empty string
     }
   }
 
@@ -461,21 +461,21 @@ int LuaScriptContext::LuaPcall(lua_State* L) {
 
   for (int i = 2; i <= lua_gettop(L); ++i) {
     if (lua_isstring(L, i)) {
-      cmd.args.push_back(RespValue(std::string(lua_tostring(L, i))));
+      cmd.args.emplace_back(std::string(lua_tostring(L, i)));
     } else if (lua_isnumber(L, i)) {
       double num = lua_tonumber(L, i);
       if (num == static_cast<int64_t>(num)) {
-        cmd.args.push_back(RespValue(static_cast<int64_t>(num)));
+        cmd.args.emplace_back(static_cast<int64_t>(num));
       } else {
-        cmd.args.push_back(RespValue(num));
+        cmd.args.emplace_back(std::to_string(num));
       }
     } else if (lua_isboolean(L, i)) {
-      cmd.args.push_back(
-          RespValue(static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0)));
+      cmd.args.emplace_back(
+          static_cast<int64_t>(lua_toboolean(L, i) ? 1 : 0));
     } else if (lua_isnil(L, i)) {
-      cmd.args.push_back(RespValue(RespType::kNullBulkString));
+      cmd.args.emplace_back(RespType::kNullBulkString);
     } else {
-      cmd.args.push_back(RespValue(""));  // Unknown type -> empty string
+      cmd.args.emplace_back("");  // Unknown type -> empty string
     }
   }
 

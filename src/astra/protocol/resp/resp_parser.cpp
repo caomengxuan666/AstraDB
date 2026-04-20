@@ -13,6 +13,43 @@
 
 namespace astra::protocol {
 
+namespace {
+
+std::optional<CommandArg> ToCommandArg(RespValue&& value) {
+  if (value.IsBulkString()) {
+    return CommandArg(std::move(value.MutableString()), RespType::kBulkString);
+  }
+  if (value.IsSimpleString()) {
+    return CommandArg(std::move(value.MutableString()),
+                      RespType::kSimpleString);
+  }
+  if (value.IsInteger()) {
+    return CommandArg(value.AsInteger());
+  }
+  if (value.IsNull()) {
+    return CommandArg(RespType::kNullBulkString);
+  }
+  return std::nullopt;
+}
+
+std::optional<CommandArg> ToCommandArg(const RespValue& value) {
+  if (value.IsBulkString()) {
+    return CommandArg(value.AsString(), RespType::kBulkString);
+  }
+  if (value.IsSimpleString()) {
+    return CommandArg(value.AsString(), RespType::kSimpleString);
+  }
+  if (value.IsInteger()) {
+    return CommandArg(value.AsInteger());
+  }
+  if (value.IsNull()) {
+    return CommandArg(RespType::kNullBulkString);
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
 std::optional<RespValue> RespParser::Parse(std::string_view& data) {
   if (data.empty()) {
     return std::nullopt;
@@ -60,7 +97,11 @@ std::optional<Command> RespParser::ParseCommand(const RespValue& value) {
 
   // Rest are arguments
   for (size_t i = 1; i < arr.size(); ++i) {
-    cmd.args.push_back(arr[i]);
+    auto arg = ToCommandArg(arr[i]);
+    if (!arg.has_value()) {
+      return std::nullopt;
+    }
+    cmd.args.push_back(std::move(*arg));
   }
 
   return cmd;
@@ -84,7 +125,11 @@ std::optional<Command> RespParser::ParseCommand(RespValue&& value) {
   // Rest are arguments
   cmd.args.reserve(arr.size() - 1);
   for (size_t i = 1; i < arr.size(); ++i) {
-    cmd.args.push_back(std::move(arr[i]));
+    auto arg = ToCommandArg(std::move(arr[i]));
+    if (!arg.has_value()) {
+      return std::nullopt;
+    }
+    cmd.args.push_back(std::move(*arg));
   }
 
   return cmd;
@@ -183,7 +228,11 @@ std::optional<Command> RespParser::ParseCommandFromArray(
       }
       cmd.name = std::move(value->MutableString());
     } else {
-      cmd.args.push_back(std::move(*value));
+      auto arg = ToCommandArg(std::move(*value));
+      if (!arg.has_value()) {
+        return std::nullopt;
+      }
+      cmd.args.push_back(std::move(*arg));
     }
   }
 
