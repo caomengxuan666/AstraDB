@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
+#include "absl/strings/match.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "astra/base/concurrentqueue_wrapper.hpp"
@@ -31,6 +33,7 @@
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/replication/replication_manager.hpp"
+#include "astra/server/transaction_state.hpp"
 #include "managers.hpp"
 
 // Cluster support
@@ -190,6 +193,54 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     connection_id_ = connection_id;
   }
 
+  // ============== Transaction Support (per connection) ==============
+  bool IsInTransaction() const override {
+    return transaction_state_store_.IsInTransaction(connection_id_);
+  }
+
+  void BeginTransaction() override {
+    transaction_state_store_.BeginTransaction(connection_id_);
+  }
+
+  void QueueCommand(const protocol::Command& cmd) override {
+    transaction_state_store_.QueueCommand(connection_id_, cmd);
+  }
+
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override {
+    return transaction_state_store_.GetQueuedCommands(connection_id_);
+  }
+
+  void ClearQueuedCommands() override {
+    transaction_state_store_.ClearQueuedCommands(connection_id_);
+  }
+
+  void DiscardTransaction() override {
+    transaction_state_store_.DiscardTransaction(connection_id_);
+  }
+
+  void WatchKey(const std::string& key, uint64_t version) override {
+    transaction_state_store_.WatchKey(connection_id_, key, version);
+  }
+
+  const absl::flat_hash_set<std::string>& GetWatchedKeys() const override {
+    return transaction_state_store_.GetWatchedKeys(connection_id_);
+  }
+
+  bool IsWatchedKeyModified(
+      const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version)
+      const override {
+    return transaction_state_store_.IsWatchedKeyModified(connection_id_,
+                                                         get_version);
+  }
+
+  void ClearWatchedKeys() override {
+    transaction_state_store_.ClearWatchedKeys(connection_id_);
+  }
+
+  void ClearConnectionState(uint64_t connection_id) {
+    transaction_state_store_.ClearConnectionState(connection_id);
+  }
+
   // Set AOF callback (for persistence)
   void SetAofCallbackString(std::function<void(const std::string&)> callback) {
     aof_callback_ = std::move(callback);
@@ -310,6 +361,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // Authentication state
   bool authenticated_ = false;
   std::string authenticated_user_;
+  mutable TransactionStateStore transaction_state_store_;
 
   // Callback to update cluster state for all workers (set by Server)
   // Uses WorkerScheduler::DispatchOnAll to avoid deadlock
@@ -773,12 +825,16 @@ class Worker {
     std::string role_lower = replication_config_.role;
     std::transform(role_lower.begin(), role_lower.end(), role_lower.begin(),
                    ::tolower);
-    if (role_lower == "master") {
-      repl_config.role = replication::ReplicationRole::kMaster;
-    } else if (role_lower == "slave") {
-      repl_config.role = replication::ReplicationRole::kSlave;
-    } else {
+    if (!replication_config_.enabled) {
       repl_config.role = replication::ReplicationRole::kNone;
+    } else {
+      if (role_lower == "master") {
+        repl_config.role = replication::ReplicationRole::kMaster;
+      } else if (role_lower == "slave") {
+        repl_config.role = replication::ReplicationRole::kSlave;
+      } else {
+        repl_config.role = replication::ReplicationRole::kNone;
+      }
     }
     repl_config.master_host = replication_config_.master_host;
     repl_config.master_port = replication_config_.master_port;
@@ -921,7 +977,7 @@ class Worker {
   const DataShard& GetDataShard() const { return data_shard_; }
 
   // Enqueue a client info response
-  void EnqueueClientInfoResponse(const ClientInfoResponse& resp);
+  void EnqueueClientInfoResponse(ClientInfoResponse resp);
 
   // Enqueue a pubsub message (for receiving PUBLISH from other workers)
   void EnqueuePubSubMessage(const PubSubMessage& msg) {
@@ -1066,25 +1122,31 @@ class Worker {
 
     // Send response back to source worker
     if (req.source_worker_id < all_workers_.size()) {
-      CrossWorkerResponse cross_resp{req.conn_id, response};
+      CrossWorkerResponse cross_resp{req.conn_id, std::move(response)};
       all_workers_[req.source_worker_id]->EnqueueCrossWorkerResponse(
-          cross_resp);
+          std::move(cross_resp));
     }
   }
 
   // Enqueue a cross-worker response (called by other workers)
-  void EnqueueCrossWorkerResponse(const CrossWorkerResponse& resp) {
-    cross_worker_resp_queue_.enqueue(resp);
-    NotifyExecutorLoop();
+  void EnqueueCrossWorkerResponse(CrossWorkerResponse resp,
+                                  bool notify = true) {
+    cross_worker_resp_queue_.enqueue(std::move(resp));
+    if (notify) {
+      NotifyExecutorLoop();
+    }
   }
 
   // Enqueue a cross-worker request (called by other workers)
-  void EnqueueCrossWorkerRequest(const CrossWorkerRequest& req) {
+  void EnqueueCrossWorkerRequest(CrossWorkerRequest req,
+                                 bool notify = true) {
     // Create a command with connection ID for the request
-    CommandWithConnId cmd{req.conn_id, req.command, true,
+    CommandWithConnId cmd{req.conn_id, std::move(req.command), true,
                           req.source_worker_id};  // Mark as forwarded
-    cmd_queue_.enqueue(cmd);
-    NotifyExecutorLoop();
+    cmd_queue_.enqueue(std::move(cmd));
+    if (notify) {
+      NotifyExecutorLoop();
+    }
   }
 
   // Send batch request to multiple workers (for multi-key commands)
@@ -1093,8 +1155,8 @@ class Worker {
       const std::vector<std::string>& args = {});
 
   // Enqueue batch response
-  void EnqueueBatchResponse(const BatchCrossWorkerResponse& resp) {
-    batch_resp_queue_.enqueue(resp);
+  void EnqueueBatchResponse(BatchCrossWorkerResponse resp) {
+    batch_resp_queue_.enqueue(std::move(resp));
     NotifyExecutorLoop();
   }
 
@@ -1103,8 +1165,8 @@ class Worker {
   void PropagateCommandToAllSlaves(const astra::protocol::Command& cmd);
 
   // Enqueue batch request (called by other workers)
-  void EnqueueBatchRequest(const BatchCrossWorkerRequest& req) {
-    batch_req_queue_.enqueue(req);
+  void EnqueueBatchRequest(BatchCrossWorkerRequest req) {
+    batch_req_queue_.enqueue(std::move(req));
     NotifyExecutorLoop();
   }
 
@@ -1167,6 +1229,11 @@ class Worker {
                   // Remove connection from map when it's closed
                   std::lock_guard<std::mutex> lock(connections_mutex_);
                   connections_.erase(conn_id);
+                  task_queue_.enqueue([this, conn_id]() {
+                    data_shard_.GetCommandContext()->ClearConnectionState(
+                        conn_id);
+                  });
+                  NotifyExecutorLoop();
                   ASTRADB_LOG_DEBUG(
                       "Worker {}: Connection {} removed, total connections: {}",
                       worker_id_, conn_id, connections_.size());
@@ -1257,6 +1324,30 @@ class Worker {
       }
     }
 
+    asio::awaitable<void> SendBatch(std::vector<std::string> responses) {
+      if (responses.empty()) {
+        co_return;
+      }
+
+      std::vector<asio::const_buffer> buffers;
+      buffers.reserve(responses.size());
+      for (const auto& response : responses) {
+        buffers.emplace_back(asio::buffer(response));
+      }
+
+      asio::error_code ec;
+      size_t bytes_written = co_await asio::async_write(
+          socket_, buffers, asio::redirect_error(asio::use_awaitable, ec));
+
+      if (!ec) {
+        astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
+            bytes_written);
+      } else {
+        ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
+                          worker_id_, conn_id_, ec.message());
+      }
+    }
+
     void Close() {
       asio::error_code ec;
       socket_.close(ec);
@@ -1325,6 +1416,17 @@ class Worker {
         ASTRADB_LOG_TRACE("Worker {}: Connection {} received {} bytes",
                           worker_id_, conn_id_, bytes_transferred);
 
+        // Compact consumed prefix lazily to avoid frequent memmove() on
+        // front-erase for pipelined payloads.
+        if (receive_buffer_offset_ == receive_buffer_.size()) {
+          receive_buffer_.clear();
+          receive_buffer_offset_ = 0;
+        } else if (receive_buffer_offset_ >= kReceiveBufferCompactThreshold &&
+                   receive_buffer_offset_ * 2 >= receive_buffer_.size()) {
+          receive_buffer_.erase(0, receive_buffer_offset_);
+          receive_buffer_offset_ = 0;
+        }
+
         // Append to receive buffer
         receive_buffer_.append(buffer_.data(), bytes_transferred);
 
@@ -1345,55 +1447,90 @@ class Worker {
     }
 
     void ProcessCommands() {
-      while (true) {
-        // Check if we have a complete RESP value
-        if (!astra::protocol::RespParser::HasCompleteValue(receive_buffer_)) {
-          break;
-        }
+      if (receive_buffer_offset_ >= receive_buffer_.size()) {
+        receive_buffer_.clear();
+        receive_buffer_offset_ = 0;
+        return;
+      }
 
-        // Parse the command
-        std::string_view data_view(receive_buffer_);
-        auto value_opt = astra::protocol::RespParser::Parse(data_view);
+      bool enqueued_commands = false;
+      bool protocol_error = false;
+      size_t total_consumed = 0;
 
-        if (!value_opt) {
-          ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse RESP",
-                            worker_id_, conn_id_);
-          astra::metrics::AstraMetrics::Instance().RecordError("protocol");
-          // Send error via response queue
-          SendResponseViaQueue("ERR invalid RESP protocol");
-          break;
-        }
-
-        // Calculate how many bytes were consumed
-        size_t consumed = receive_buffer_.size() - data_view.size();
-        receive_buffer_.erase(0, consumed);
-
-        // Parse command from RESP value
+      std::string_view remaining(receive_buffer_.data() + receive_buffer_offset_,
+                                 receive_buffer_.size() - receive_buffer_offset_);
+      while (!remaining.empty()) {
+        std::string_view parse_view = remaining;
         auto command_opt =
-            astra::protocol::RespParser::ParseCommand(*value_opt);
+            astra::protocol::RespParser::ParseCommandFromArray(parse_view);
+
+        // Slow-path fallback for non-standard payloads, used for compatibility.
         if (!command_opt) {
-          ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse command",
-                            worker_id_, conn_id_);
-          astra::metrics::AstraMetrics::Instance().RecordError("syntax");
-          SendResponseViaQueue("ERR invalid command format");
-          continue;
+          std::string_view slow_view = remaining;
+          auto value_opt = astra::protocol::RespParser::Parse(slow_view);
+
+          if (!value_opt) {
+            // Most failures are incomplete pipelined payloads. Only report
+            // protocol error if parser confirms a complete but invalid value.
+            if (astra::protocol::RespParser::HasCompleteValue(remaining)) {
+              ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse RESP",
+                                worker_id_, conn_id_);
+              astra::metrics::AstraMetrics::Instance().RecordError("protocol");
+              SendResponseViaQueue("ERR invalid RESP protocol");
+              protocol_error = true;
+            }
+            break;
+          }
+
+          command_opt =
+              astra::protocol::RespParser::ParseCommand(std::move(*value_opt));
+          parse_view = slow_view;
+          if (!command_opt) {
+            ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse command",
+                              worker_id_, conn_id_);
+            astra::metrics::AstraMetrics::Instance().RecordError("syntax");
+            SendResponseViaQueue("ERR invalid command format");
+            total_consumed += remaining.size() - parse_view.size();
+            remaining = parse_view;
+            continue;
+          }
         }
+
+        total_consumed += remaining.size() - parse_view.size();
+        remaining = parse_view;
 
         // Enqueue command to executor thread (within same worker!)
-        CommandWithConnId cmd{conn_id_, *command_opt, false,
+        CommandWithConnId cmd{conn_id_, std::move(*command_opt), false,
                               worker_id_};  // Not forwarded, source is self
-        cmd_queue_->enqueue(cmd);
-        // Notify ExecutorLoop that there's work to do
-        if (notify_callback_) {
-          notify_callback_();
-        }
+        cmd_queue_->enqueue(std::move(cmd));
+        enqueued_commands = true;
+      }
+
+      if (total_consumed > 0) {
+        receive_buffer_offset_ += total_consumed;
+      }
+      if (protocol_error) {
+        receive_buffer_.clear();
+        receive_buffer_offset_ = 0;
+      } else if (receive_buffer_offset_ == receive_buffer_.size()) {
+        receive_buffer_.clear();
+        receive_buffer_offset_ = 0;
+      } else if (receive_buffer_offset_ >= kReceiveBufferCompactThreshold &&
+                 receive_buffer_offset_ * 2 >= receive_buffer_.size()) {
+        receive_buffer_.erase(0, receive_buffer_offset_);
+        receive_buffer_offset_ = 0;
+      }
+
+      // Notify ExecutorLoop once per receive batch.
+      if (enqueued_commands && notify_callback_) {
+        notify_callback_();
       }
     }
 
-    void SendResponseViaQueue(const std::string& response) {
+    void SendResponseViaQueue(std::string response) {
       // Send response via response queue (from IO thread)
-      ResponseWithConnId resp{conn_id_, response};
-      resp_queue_->enqueue(resp);
+      ResponseWithConnId resp{conn_id_, std::move(response)};
+      resp_queue_->enqueue(std::move(resp));
     }
 
     size_t worker_id_;
@@ -1404,8 +1541,10 @@ class Worker {
     std::function<void()> notify_callback_;
     std::function<void(uint64_t)> on_close_callback_;
 
-    std::array<char, 1024> buffer_;
+    std::array<char, 16 * 1024> buffer_;
+    static constexpr size_t kReceiveBufferCompactThreshold = 8 * 1024;
     std::string receive_buffer_;
+    size_t receive_buffer_offset_ = 0;
     std::string client_name_;
     asio::io_context& io_context_;
   };
@@ -1426,90 +1565,96 @@ class Worker {
   }
 
   void ExecutorLoop() {
+    static constexpr size_t kMaxLocalCommandsPerLoop = 256;
+    static constexpr size_t kCommandDequeueBatch = 64;
+    std::array<CommandWithConnId, kCommandDequeueBatch> cmd_batch;
+    auto is_command_name = [](absl::string_view actual,
+                              absl::string_view expected) {
+      return absl::EqualsIgnoreCase(actual, expected);
+    };
+    auto is_transaction_control = [&](absl::string_view cmd_name) {
+      return is_command_name(cmd_name, "MULTI") ||
+             is_command_name(cmd_name, "EXEC") ||
+             is_command_name(cmd_name, "DISCARD") ||
+             is_command_name(cmd_name, "WATCH") ||
+             is_command_name(cmd_name, "UNWATCH");
+    };
+    auto build_exec_array_response =
+        [](const absl::InlinedVector<std::string, 16>& items) {
+          std::string out;
+          out.reserve(16 + items.size() * 16);
+          out += "*";
+          out += std::to_string(items.size());
+          out += "\r\n";
+          for (const auto& item : items) {
+            out += item;
+          }
+          return out;
+        };
+    auto is_first_key_local = [&](const astra::protocol::Command& command) {
+      auto routing_strategy =
+          data_shard_.GetCommandRegistry()->GetRoutingStrategy(command.name);
+      if (routing_strategy == commands::RoutingStrategy::kNone ||
+          command.args.empty()) {
+        return true;
+      }
+      if (!command.args[0].IsBulkString() && !command.args[0].IsSimpleString()) {
+        return true;
+      }
+      return RouteToWorker(absl::string_view(command.args[0].AsString())) ==
+             worker_id_;
+    };
+    auto are_watch_keys_local = [&](const astra::protocol::Command& command) {
+      if (!is_command_name(command.name, "WATCH")) {
+        return true;
+      }
+      for (size_t arg_idx = 0; arg_idx < command.ArgCount(); ++arg_idx) {
+        const auto& arg = command[arg_idx];
+        if (!arg.IsBulkString() && !arg.IsSimpleString()) {
+          continue;
+        }
+        if (RouteToWorker(absl::string_view(arg.AsString())) != worker_id_) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     while (running_) {
       bool has_work = false;
+      bool has_responses = false;
+      absl::flat_hash_set<size_t> workers_to_notify;
 
       // Process local commands first
-      CommandWithConnId cmd;
-      if (cmd_queue_.try_dequeue(cmd)) {
+      size_t local_cmd_count = 0;
+      while (local_cmd_count < kMaxLocalCommandsPerLoop) {
+        size_t remaining = kMaxLocalCommandsPerLoop - local_cmd_count;
+        size_t batch_size =
+            remaining < kCommandDequeueBatch ? remaining : kCommandDequeueBatch;
+        size_t dequeued = cmd_queue_.try_dequeue_bulk(cmd_batch.data(), batch_size);
+        if (dequeued == 0) {
+          break;
+        }
         has_work = true;
-        ASTRADB_LOG_TRACE(
-            "Worker {}: Executor processing command: {} for conn {} "
-            "(forwarded={})",
-            worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
-        if (cmd.is_forwarded) {
-          // This is a forwarded command from another worker
-          // Execute directly and send response back to source worker
-          LocalCommandTimer timer(cmd.command.name, &local_stats_);
-          std::string response = data_shard_.Execute(cmd.command);
-
-          // Propagate command to slaves if this is a master (NO SHADING
-          // architecture) Even forwarded commands need to be propagated to
-          // slaves
-          if (replication_manager_ &&
-              replication_manager_->GetRole() ==
-                  replication::ReplicationRole::kMaster) {
-            auto* registry = data_shard_.GetCommandRegistry();
-            auto* info =
-                registry ? registry->GetInfo(cmd.command.name) : nullptr;
-            if (info && info->is_write) {
-              PropagateCommandToAllSlaves(cmd.command);
-            }
-          }
-
-          CrossWorkerResponse cross_resp{cmd.conn_id, response};
-          all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
-              cross_resp);
-        } else {
-          // This is a new command from a client
-          // Determine if this command should be forwarded to another worker
-          // Check if command has a key argument
-          size_t target_worker = worker_id_;
-          auto routing_strategy =
-              data_shard_.GetCommandRegistry()->GetRoutingStrategy(
-                  cmd.command.name);
-
+        for (size_t i = 0; i < dequeued; ++i) {
+          auto& cmd = cmd_batch[i];
+          ++local_cmd_count;
           ASTRADB_LOG_TRACE(
-              "Worker {}: Command '{}' has routing strategy={}, args_count={}",
-              worker_id_, cmd.command.name, static_cast<int>(routing_strategy),
-              cmd.command.args.size());
+              "Worker {}: Executor processing command: {} for conn {} "
+              "(forwarded={})",
+              worker_id_, cmd.command.name, cmd.conn_id, cmd.is_forwarded);
 
-          // Only route if command supports routing and has key argument
-          if (routing_strategy != commands::RoutingStrategy::kNone &&
-              !cmd.command.args.empty() &&
-              (cmd.command.args[0].IsBulkString() ||
-               cmd.command.args[0].IsSimpleString())) {
-            std::string key = cmd.command.args[0].AsString();
-            target_worker = RouteToWorker(key);
-            ASTRADB_LOG_TRACE(
-                "Worker {}: Command '{}' has key='{}', routing to worker {} "
-                "(current worker={})",
-                worker_id_, cmd.command.name, key, target_worker, worker_id_);
-          }
-
-          if (target_worker == worker_id_) {
-            // Handle locally
+          if (cmd.is_forwarded) {
+            // This is a forwarded command from another worker
+            // Execute directly and send response back to source worker
             LocalCommandTimer timer(cmd.command.name, &local_stats_);
-
-            // Set connection and connection ID in command context for blocking
-            // commands
-            auto conn_it = connections_.find(cmd.conn_id);
-            if (conn_it != connections_.end()) {
-              data_shard_.GetCommandContext()->SetConnection(
-                  conn_it->second.get());
-              data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
-              // Also set raw socket pointer for direct access (e.g.,
-              // replication)
-              data_shard_.GetCommandContext()->SetRawSocket(
-                  &conn_it->second->GetSocket());
-            }
-
             std::string response = data_shard_.Execute(cmd.command);
 
             // Propagate command to slaves if this is a master (NO SHADING
-            // architecture)
-            if (replication_manager_ &&
+            // architecture) Even forwarded commands need to be propagated to
+            // slaves
+            if (replication_config_.enabled && replication_manager_ &&
                 replication_manager_->GetRole() ==
                     replication::ReplicationRole::kMaster) {
               auto* registry = data_shard_.GetCommandRegistry();
@@ -1520,35 +1665,179 @@ class Worker {
               }
             }
 
-            ResponseWithConnId resp{cmd.conn_id, response};
-            resp_queue_.enqueue(resp);
-
-            // OPTIMIZATION: Trigger immediate response processing for low
-            // latency This is especially important for single-connection
-            // scenarios
-            NotifyResponseQueue();
+            CrossWorkerResponse cross_resp{cmd.conn_id, response};
+            all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
+                std::move(cross_resp), false);
+            workers_to_notify.insert(cmd.source_worker_id);
           } else {
-            // Forward to target worker (enqueue to avoid blocking)
-            ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
-                              worker_id_, target_worker);
-            CrossWorkerRequest cross_req{worker_id_,  // source worker
-                                         cmd.conn_id, cmd.command};
-            // Enqueue to target worker to avoid blocking this worker's
-            // ExecutorLoop
-            all_workers_[target_worker]->EnqueueCrossWorkerRequest(cross_req);
+            // This is a new command from a client
+            auto* context = data_shard_.GetCommandContext();
+            context->SetConnectionId(cmd.conn_id);
+
+            auto conn_it = connections_.find(cmd.conn_id);
+            if (conn_it != connections_.end()) {
+              context->SetConnection(conn_it->second.get());
+              context->SetRawSocket(&conn_it->second->GetSocket());
+            } else {
+              context->SetConnection(nullptr);
+              context->SetRawSocket(nullptr);
+            }
+
+            const bool is_exec = is_command_name(cmd.command.name, "EXEC");
+            const bool in_transaction = context->IsInTransaction();
+            const bool is_control = is_transaction_control(cmd.command.name);
+
+            if (in_transaction && !is_control) {
+              if (!is_first_key_local(cmd.command)) {
+                ResponseWithConnId resp{
+                    cmd.conn_id,
+                    astra::protocol::RespBuilder::BuildError(
+                        "CROSSSLOT transaction commands must stay on one "
+                        "worker")};
+                resp_queue_.enqueue(std::move(resp));
+              } else {
+                context->QueueCommand(cmd.command);
+                ResponseWithConnId resp{
+                    cmd.conn_id,
+                    astra::protocol::RespBuilder::BuildSimpleString("QUEUED")};
+                resp_queue_.enqueue(std::move(resp));
+              }
+              has_responses = true;
+              continue;
+            }
+
+            if (is_command_name(cmd.command.name, "WATCH") &&
+                !are_watch_keys_local(cmd.command)) {
+              ResponseWithConnId resp{
+                  cmd.conn_id,
+                  astra::protocol::RespBuilder::BuildError(
+                      "CROSSSLOT WATCH keys must stay on one worker")};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+              continue;
+            }
+
+            // Handle EXEC in worker path. transaction_commands.cpp assumes
+            // this special handling is performed by the server runtime.
+            if (is_exec && in_transaction) {
+              LocalCommandTimer timer(cmd.command.name, &local_stats_);
+
+              auto& db = data_shard_.GetDatabase();
+              if (context->IsWatchedKeyModified([&db](const std::string& key) {
+                    return db.GetKeyVersion(key);
+                  })) {
+                context->DiscardTransaction();
+                ResponseWithConnId resp{
+                    cmd.conn_id, astra::protocol::RespBuilder::BuildNullArray()};
+                resp_queue_.enqueue(std::move(resp));
+                has_responses = true;
+                continue;
+              }
+
+              auto queued = context->GetQueuedCommands();
+              context->DiscardTransaction();
+
+              absl::InlinedVector<std::string, 16> exec_items;
+              exec_items.reserve(queued.size());
+              for (const auto& queued_cmd : queued) {
+                LocalCommandTimer inner_timer(queued_cmd.name, &local_stats_);
+
+                if (!is_first_key_local(queued_cmd)) {
+                  exec_items.push_back(astra::protocol::RespBuilder::BuildError(
+                      "CROSSSLOT transaction commands must stay on one "
+                      "worker"));
+                  continue;
+                }
+
+                std::string item_response = data_shard_.Execute(queued_cmd);
+                exec_items.push_back(std::move(item_response));
+
+                if (replication_config_.enabled && replication_manager_ &&
+                    replication_manager_->GetRole() ==
+                        replication::ReplicationRole::kMaster) {
+                  auto* registry = data_shard_.GetCommandRegistry();
+                  auto* info =
+                      registry ? registry->GetInfo(queued_cmd.name) : nullptr;
+                  if (info && info->is_write) {
+                    PropagateCommandToAllSlaves(queued_cmd);
+                  }
+                }
+              }
+
+              ResponseWithConnId resp{cmd.conn_id,
+                                      build_exec_array_response(exec_items)};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+              continue;
+            }
+
+            // Determine if this command should be forwarded to another worker
+            // based on first key routing.
+            size_t target_worker = worker_id_;
+            auto routing_strategy =
+                data_shard_.GetCommandRegistry()->GetRoutingStrategy(
+                    cmd.command.name);
+
+            ASTRADB_LOG_TRACE(
+                "Worker {}: Command '{}' has routing strategy={}, args_count={}",
+                worker_id_, cmd.command.name,
+                static_cast<int>(routing_strategy), cmd.command.args.size());
+
+            if (routing_strategy != commands::RoutingStrategy::kNone &&
+                !cmd.command.args.empty() &&
+                (cmd.command.args[0].IsBulkString() ||
+                 cmd.command.args[0].IsSimpleString())) {
+              const std::string& key = cmd.command.args[0].AsString();
+              target_worker = RouteToWorker(absl::string_view(key));
+              ASTRADB_LOG_TRACE(
+                  "Worker {}: Command '{}' has key='{}', routing to worker {} "
+                  "(current worker={})",
+                  worker_id_, cmd.command.name, key, target_worker, worker_id_);
+            }
+
+            if (target_worker == worker_id_) {
+              LocalCommandTimer timer(cmd.command.name, &local_stats_);
+              std::string response = data_shard_.Execute(cmd.command);
+
+              if (replication_config_.enabled && replication_manager_ &&
+                  replication_manager_->GetRole() ==
+                      replication::ReplicationRole::kMaster) {
+                auto* registry = data_shard_.GetCommandRegistry();
+                auto* info =
+                    registry ? registry->GetInfo(cmd.command.name) : nullptr;
+                if (info && info->is_write) {
+                  PropagateCommandToAllSlaves(cmd.command);
+                }
+              }
+
+              ResponseWithConnId resp{cmd.conn_id, response};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+            } else {
+              ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
+                                worker_id_, target_worker);
+              CrossWorkerRequest cross_req{worker_id_,  // source worker
+                                           cmd.conn_id, std::move(cmd.command)};
+              all_workers_[target_worker]->EnqueueCrossWorkerRequest(
+                  std::move(cross_req), false);
+              workers_to_notify.insert(target_worker);
+            }
           }
         }
+      }
+
+      for (size_t target_worker : workers_to_notify) {
+        all_workers_[target_worker]->NotifyTaskProcessing();
       }
 
       // Process cross-worker responses
       CrossWorkerResponse cross_resp;
       while (cross_worker_resp_queue_.try_dequeue(cross_resp)) {
         has_work = true;
-        ResponseWithConnId resp{cross_resp.conn_id, cross_resp.response};
-        resp_queue_.enqueue(resp);
-
-        // OPTIMIZATION: Trigger immediate response processing
-        NotifyResponseQueue();
+        ResponseWithConnId resp{cross_resp.conn_id,
+                                std::move(cross_resp.response)};
+        resp_queue_.enqueue(std::move(resp));
+        has_responses = true;
       }
 
       // Process client info responses (for CLIENT LIST command)
@@ -1600,6 +1889,10 @@ class Worker {
         ProcessClientInfoRequest(client_info_req);
       }
 
+      if (has_responses) {
+        NotifyResponseQueue();
+      }
+
       // Wait if no work (using absl condition variable for best performance)
       // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might
       // be missed This provides a balance between:
@@ -1618,7 +1911,23 @@ class Worker {
   // This eliminates timer delays and follows asio best practices
   // ProcessResponseQueue() will run in the io_context_ thread
   void NotifyResponseQueue() {
-    asio::post(io_context_, [this]() { ProcessResponseQueue(); });
+    bool expected = false;
+    if (!response_queue_scheduled_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel,
+            std::memory_order_relaxed)) {
+      return;
+    }
+
+    asio::post(io_context_, [this]() {
+      ProcessResponseQueue();
+      response_queue_scheduled_.store(false, std::memory_order_release);
+
+      // Handle races: if new responses arrived after queue drain, schedule one
+      // more run.
+      if (running_ && resp_queue_.size_approx() > 0) {
+        NotifyResponseQueue();
+      }
+    });
   }
 
   void ProcessResponseQueue() {
@@ -1629,43 +1938,36 @@ class Worker {
     // Collect all available responses (not limited to 100)
     // This increases batching opportunities (Dragonfly best practice)
     absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
+    size_t total_responses = 0;
+    static constexpr size_t kMaxBatchSize = 1000;
+    static constexpr size_t kResponseDequeueBatch = 64;
+    std::array<ResponseWithConnId, kResponseDequeueBatch> resp_batch;
 
-    ResponseWithConnId resp;
-    while (resp_queue_.try_dequeue(resp)) {
-      conn_responses[resp.conn_id].push_back(std::move(resp.response));
-
-      // Limit total responses per batch to avoid memory bloat
-      static constexpr size_t kMaxBatchSize = 1000;
-      if (conn_responses.size() > kMaxBatchSize) {
+    while (total_responses < kMaxBatchSize) {
+      size_t remaining = kMaxBatchSize - total_responses;
+      size_t batch_size =
+          remaining < kResponseDequeueBatch ? remaining : kResponseDequeueBatch;
+      size_t dequeued =
+          resp_queue_.try_dequeue_bulk(resp_batch.data(), batch_size);
+      if (dequeued == 0) {
         break;
       }
+      for (size_t i = 0; i < dequeued; ++i) {
+        auto& resp = resp_batch[i];
+        conn_responses[resp.conn_id].push_back(std::move(resp.response));
+      }
+      total_responses += dequeued;
     }
 
     // Send responses per connection (batched and merged)
-    for (const auto& [conn_id, responses] : conn_responses) {
+    for (auto& [conn_id, responses] : conn_responses) {
       auto it = connections_.find(conn_id);
       if (it != connections_.end() && !responses.empty()) {
-        // Merge all responses into a single buffer for true batch sending
         asio::co_spawn(
             it->second->GetSocket().get_executor(),
             [conn = it->second,
              responses = std::move(responses)]() -> asio::awaitable<void> {
-              // Calculate total size and pre-allocate
-              size_t total_size = 0;
-              for (const auto& response : responses) {
-                total_size += response.size();
-              }
-
-              std::string batch;
-              batch.reserve(total_size);
-
-              // Merge all responses (use append to avoid reallocations)
-              for (const auto& response : responses) {
-                batch.append(response);
-              }
-
-              // Send all responses in a single system call
-              co_await conn->Send(batch);
+              co_await conn->SendBatch(std::move(responses));
             },
             asio::detached);
       }
@@ -1717,6 +2019,7 @@ class Worker {
   std::thread io_thread_;
   std::thread exec_thread_;
   std::atomic<bool> running_{false};
+  std::atomic<bool> response_queue_scheduled_{false};
   std::atomic<uint64_t> next_conn_id_{0};
   std::mutex batch_mutex_;  // For pending_batch_reqs_ access
 
@@ -2144,8 +2447,8 @@ inline bool Worker::ProcessBatchResponses() {
 }
 
 // Enqueue a client info response
-inline void Worker::EnqueueClientInfoResponse(const ClientInfoResponse& resp) {
-  client_info_resp_queue_.enqueue(resp);
+inline void Worker::EnqueueClientInfoResponse(ClientInfoResponse resp) {
+  client_info_resp_queue_.enqueue(std::move(resp));
   NotifyExecutorLoop();
 }
 
@@ -2253,7 +2556,8 @@ inline void Worker::ProcessClientInfoRequest(const ClientInfoRequest& req) {
 
   // Send response back to source worker
   if (req.source_worker_id < all_workers_.size()) {
-    all_workers_[req.source_worker_id]->EnqueueClientInfoResponse(resp);
+    all_workers_[req.source_worker_id]->EnqueueClientInfoResponse(
+        std::move(resp));
   }
 }
 
@@ -2377,7 +2681,7 @@ inline size_t PubSubManager::Publish(const std::string& channel,
       for (uint64_t conn_id : it->second) {
         // Send via worker's response queue
         ResponseWithConnId resp{conn_id, resp_msg};
-        worker_->resp_queue_.enqueue(resp);
+        worker_->resp_queue_.enqueue(std::move(resp));
         subscriber_count++;
       }
     }
@@ -2401,7 +2705,7 @@ inline size_t PubSubManager::Publish(const std::string& channel,
 
         for (uint64_t conn_id : subscribers) {
           ResponseWithConnId resp{conn_id, pmsg};
-          worker_->resp_queue_.enqueue(resp);
+          worker_->resp_queue_.enqueue(std::move(resp));
           subscriber_count++;
         }
       }
@@ -2436,7 +2740,7 @@ inline void PubSubManager::ProcessPubSubMessage(const PubSubMessage& msg) {
 
       for (uint64_t conn_id : it->second) {
         ResponseWithConnId resp{conn_id, resp_msg};
-        worker_->resp_queue_.enqueue(resp);
+        worker_->resp_queue_.enqueue(std::move(resp));
       }
     }
   }
@@ -2459,7 +2763,7 @@ inline void PubSubManager::ProcessPubSubMessage(const PubSubMessage& msg) {
 
         for (uint64_t conn_id : subscribers) {
           ResponseWithConnId resp{conn_id, pmsg};
-          worker_->resp_queue_.enqueue(resp);
+          worker_->resp_queue_.enqueue(std::move(resp));
         }
       }
     }
@@ -2562,7 +2866,7 @@ inline void PubSubManager::SendSubscribeReply(uint64_t conn_id,
   reply += ":" + std::to_string(count) + "\r\n";
 
   ResponseWithConnId resp{conn_id, reply};
-  worker_->resp_queue_.enqueue(resp);
+  worker_->resp_queue_.enqueue(std::move(resp));
 }
 
 inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id,
@@ -2576,7 +2880,7 @@ inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id,
   reply += ":" + std::to_string(count) + "\r\n";
 
   ResponseWithConnId resp{conn_id, reply};
-  worker_->resp_queue_.enqueue(resp);
+  worker_->resp_queue_.enqueue(std::move(resp));
 }
 
 }  // namespace astra::server

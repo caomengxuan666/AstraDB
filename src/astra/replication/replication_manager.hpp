@@ -924,7 +924,7 @@ class ReplicationManager {
       if (value_opt) {
         // Parse command from RESP value
         auto command_opt =
-            astra::protocol::RespParser::ParseCommand(*value_opt);
+            astra::protocol::RespParser::ParseCommand(std::move(*value_opt));
         if (command_opt) {
           // Execute command
           command_callback_(*command_opt);

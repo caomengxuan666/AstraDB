@@ -125,14 +125,14 @@ CommandResult HandleClient(const protocol::Command& command,
   } else if (sub == "SETNAME") {
     // Handle SETNAME directly with the remaining arguments
     // Create a new command with only the arguments (skip the subcommand)
-    std::vector<RespValue> new_args;
+    std::vector<protocol::CommandArg> new_args;
     for (size_t i = 1; i < command.ArgCount(); ++i) {
       new_args.push_back(command[i]);
     }
     protocol::Command new_command;
     new_command.name = "SETNAME";
-    new_command.args =
-        absl::InlinedVector<RespValue, 4>(new_args.begin(), new_args.end());
+    new_command.args = absl::InlinedVector<protocol::CommandArg, 4>(
+        new_args.begin(), new_args.end());
     return HandleClientSetName(new_command, context);
   } else if (sub == "GETNAME") {
     return HandleClientGetName(command, context);

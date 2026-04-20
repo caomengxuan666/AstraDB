@@ -7,6 +7,7 @@
 #include <absl/container/inlined_vector.h>
 #include <absl/types/variant.h>
 
+#include <charconv>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -87,6 +88,14 @@ class RespValue {
     return absl::get<std::string>(value_);
   }
 
+  std::string& MutableString() noexcept {
+    if (!std::holds_alternative<std::string>(value_)) {
+      static std::string empty_str;
+      return empty_str;
+    }
+    return absl::get<std::string>(value_);
+  }
+
   int64_t AsInteger() const noexcept {
     if (!std::holds_alternative<int64_t>(value_)) {
       return 0;
@@ -111,6 +120,14 @@ class RespValue {
   const std::vector<RespValue>& AsArray() const noexcept {
     if (!std::holds_alternative<std::vector<RespValue>>(value_)) {
       static const std::vector<RespValue> empty_arr;
+      return empty_arr;
+    }
+    return absl::get<std::vector<RespValue>>(value_);
+  }
+
+  std::vector<RespValue>& MutableArray() noexcept {
+    if (!std::holds_alternative<std::vector<RespValue>>(value_)) {
+      static std::vector<RespValue> empty_arr;
       return empty_arr;
     }
     return absl::get<std::vector<RespValue>>(value_);
@@ -163,14 +180,76 @@ class RespValue {
       value_;
 };
 
+// Lightweight command argument optimized for the command execution hot path.
+class CommandArg {
+ public:
+  CommandArg() : type_(RespType::kNullBulkString) {}
+
+  explicit CommandArg(RespType type) : type_(type) {
+    if (type == RespType::kInteger) {
+      value_ = "0";
+    }
+  }
+
+  explicit CommandArg(std::string str,
+                      RespType type = RespType::kBulkString) noexcept
+      : type_(type), value_(std::move(str)) {}
+
+  explicit CommandArg(int64_t num) : type_(RespType::kInteger) {
+    value_ = std::to_string(num);
+  }
+
+  RespType GetType() const noexcept { return type_; }
+
+  bool IsNull() const noexcept {
+    return type_ == RespType::kNull || type_ == RespType::kNullBulkString ||
+           type_ == RespType::kNullArray;
+  }
+  bool IsSimpleString() const noexcept {
+    return type_ == RespType::kSimpleString;
+  }
+  bool IsError() const noexcept { return type_ == RespType::kError; }
+  bool IsBulkString() const noexcept { return type_ == RespType::kBulkString; }
+  bool IsInteger() const noexcept {
+    if (type_ == RespType::kInteger) {
+      return true;
+    }
+    if (value_.empty()) {
+      return false;
+    }
+    int64_t tmp = 0;
+    auto [ptr, ec] = std::from_chars(value_.data(), value_.data() + value_.size(),
+                                     tmp);
+    return ec == std::errc() && ptr == value_.data() + value_.size();
+  }
+
+  const std::string& AsString() const noexcept { return value_; }
+
+  int64_t AsInteger() const noexcept {
+    int64_t result = 0;
+    auto [ptr, ec] = std::from_chars(value_.data(), value_.data() + value_.size(),
+                                     result);
+    if (ec != std::errc() || ptr != value_.data() + value_.size()) {
+      return 0;
+    }
+    return result;
+  }
+
+  bool IsEmpty() const noexcept { return value_.empty(); }
+
+ private:
+  RespType type_;
+  std::string value_;
+};
+
 // Command: Parsed command with arguments
 struct Command {
   std::string name;
-  absl::InlinedVector<RespValue, 4> args;
+  absl::InlinedVector<CommandArg, 4> args;
 
   size_t ArgCount() const { return args.size(); }
 
-  const RespValue& operator[](size_t index) const { return args[index]; }
+  const CommandArg& operator[](size_t index) const { return args[index]; }
 };
 
 }  // namespace astra::protocol

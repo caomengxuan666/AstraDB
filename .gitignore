@@ -102,3 +102,6 @@ include/astra/base/version.hpp
 
 # Development configuration (not tracked in version control)
 astradb-dev.toml
+
+# some Ai config and environment
+.codex
