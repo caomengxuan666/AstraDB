@@ -330,7 +330,7 @@ void Connection::ProcessData() {
 
       // If it's an array, parse as command
       if (value->IsArray()) {
-        auto cmd = protocol::RespParser::ParseCommand(*value);
+        auto cmd = protocol::RespParser::ParseCommand(std::move(*value));
         if (cmd.has_value()) {
           ASTRADB_LOG_TRACE("ProcessData: id={}, batching command: {}, args={}",
                             id_, cmd->name, cmd->ArgCount());
@@ -376,7 +376,7 @@ void Connection::ProcessData() {
 
       // If it's an array, parse as command
       if (value->IsArray()) {
-        auto cmd = protocol::RespParser::ParseCommand(*value);
+        auto cmd = protocol::RespParser::ParseCommand(std::move(*value));
         if (cmd.has_value() && command_callback_) {
           ASTRADB_LOG_TRACE(
               "ProcessData: id={}, processing command: {}, args={}", id_,

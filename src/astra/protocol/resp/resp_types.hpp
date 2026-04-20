@@ -87,6 +87,14 @@ class RespValue {
     return absl::get<std::string>(value_);
   }
 
+  std::string& MutableString() noexcept {
+    if (!std::holds_alternative<std::string>(value_)) {
+      static std::string empty_str;
+      return empty_str;
+    }
+    return absl::get<std::string>(value_);
+  }
+
   int64_t AsInteger() const noexcept {
     if (!std::holds_alternative<int64_t>(value_)) {
       return 0;
@@ -111,6 +119,14 @@ class RespValue {
   const std::vector<RespValue>& AsArray() const noexcept {
     if (!std::holds_alternative<std::vector<RespValue>>(value_)) {
       static const std::vector<RespValue> empty_arr;
+      return empty_arr;
+    }
+    return absl::get<std::vector<RespValue>>(value_);
+  }
+
+  std::vector<RespValue>& MutableArray() noexcept {
+    if (!std::holds_alternative<std::vector<RespValue>>(value_)) {
+      static std::vector<RespValue> empty_arr;
       return empty_arr;
     }
     return absl::get<std::vector<RespValue>>(value_);

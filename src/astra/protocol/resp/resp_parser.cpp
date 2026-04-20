@@ -66,6 +66,131 @@ std::optional<Command> RespParser::ParseCommand(const RespValue& value) {
   return cmd;
 }
 
+std::optional<Command> RespParser::ParseCommand(RespValue&& value) {
+  if (!value.IsArray() || value.ArraySize() == 0) {
+    return std::nullopt;
+  }
+
+  auto& arr = value.MutableArray();
+
+  // First element is the command name
+  if (!arr[0].IsBulkString()) {
+    return std::nullopt;
+  }
+
+  Command cmd;
+  cmd.name = std::move(arr[0].MutableString());
+
+  // Rest are arguments
+  cmd.args.reserve(arr.size() - 1);
+  for (size_t i = 1; i < arr.size(); ++i) {
+    cmd.args.push_back(std::move(arr[i]));
+  }
+
+  return cmd;
+}
+
+std::optional<Command> RespParser::ParseCommandFromArray(
+    std::string_view& data) {
+  if (data.empty() || data[0] != '*') {
+    return std::nullopt;
+  }
+
+  std::string_view working = data;
+  working.remove_prefix(1);  // Remove array type byte
+
+  auto line = ReadUntilCRLF(working);
+  if (!line.has_value()) {
+    return std::nullopt;
+  }
+
+  auto count = ParseInt(*line);
+  if (!count.has_value() || *count <= 0) {
+    return std::nullopt;
+  }
+
+  Command cmd;
+  cmd.args.reserve(static_cast<size_t>(*count > 1 ? *count - 1 : 0));
+
+  auto parse_bulk_inline = [](std::string_view& input, std::string& out,
+                              bool& is_null_bulk) -> bool {
+    if (input.empty() || input[0] != '$') {
+      return false;
+    }
+
+    input.remove_prefix(1);  // Remove bulk-string type byte
+    auto len_line = ReadUntilCRLF(input);
+    if (!len_line.has_value()) {
+      return false;
+    }
+
+    auto len = ParseInt(*len_line);
+    if (!len.has_value()) {
+      return false;
+    }
+
+    if (*len == -1) {
+      is_null_bulk = true;
+      out.clear();
+      return true;
+    }
+
+    if (*len < 0) {
+      return false;
+    }
+
+    const size_t bulk_len = static_cast<size_t>(*len);
+    if (input.size() < bulk_len + 2) {
+      return false;
+    }
+
+    is_null_bulk = false;
+    out.assign(input.data(), bulk_len);
+    input.remove_prefix(bulk_len + 2);  // Remove payload + CRLF
+    return true;
+  };
+
+  for (int i = 0; i < *count; ++i) {
+    // Fast path: benchmark workloads are overwhelmingly bulk-string arrays.
+    if (!working.empty() && working[0] == '$') {
+      std::string bulk_str;
+      bool is_null_bulk = false;
+      if (!parse_bulk_inline(working, bulk_str, is_null_bulk)) {
+        return std::nullopt;
+      }
+
+      if (i == 0) {
+        if (is_null_bulk) {
+          return std::nullopt;
+        }
+        cmd.name = std::move(bulk_str);
+      } else if (is_null_bulk) {
+        cmd.args.emplace_back(RespType::kNullBulkString);
+      } else {
+        cmd.args.emplace_back(std::move(bulk_str));
+      }
+      continue;
+    }
+
+    auto value = Parse(working);
+    if (!value.has_value()) {
+      return std::nullopt;
+    }
+
+    if (i == 0) {
+      if (!value->IsBulkString()) {
+        return std::nullopt;
+      }
+      cmd.name = std::move(value->MutableString());
+    } else {
+      cmd.args.push_back(std::move(*value));
+    }
+  }
+
+  data = working;
+  return cmd;
+}
+
 bool RespParser::HasCompleteValue(std::string_view data) {
   std::string_view copy = data;
   return Parse(copy).has_value();

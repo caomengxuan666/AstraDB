@@ -24,6 +24,12 @@ class RespParser {
   // Parse a command from an array (RESP array format)
   // The first element is the command name, rest are arguments
   static std::optional<Command> ParseCommand(const RespValue& value);
+  static std::optional<Command> ParseCommand(RespValue&& value);
+
+  // Fast path: parse a command directly from RESP array bytes.
+  // Returns nullopt for incomplete/invalid payload and only advances `data`
+  // on success.
+  static std::optional<Command> ParseCommandFromArray(std::string_view& data);
 
   // Check if data contains a complete RESP value
   static bool HasCompleteValue(std::string_view data);
