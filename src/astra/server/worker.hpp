@@ -14,6 +14,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
+#include "absl/strings/match.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "astra/base/concurrentqueue_wrapper.hpp"
@@ -32,6 +33,7 @@
 #include "astra/protocol/resp/resp_parser.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/replication/replication_manager.hpp"
+#include "astra/server/transaction_state.hpp"
 #include "managers.hpp"
 
 // Cluster support
@@ -191,6 +193,54 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     connection_id_ = connection_id;
   }
 
+  // ============== Transaction Support (per connection) ==============
+  bool IsInTransaction() const override {
+    return transaction_state_store_.IsInTransaction(connection_id_);
+  }
+
+  void BeginTransaction() override {
+    transaction_state_store_.BeginTransaction(connection_id_);
+  }
+
+  void QueueCommand(const protocol::Command& cmd) override {
+    transaction_state_store_.QueueCommand(connection_id_, cmd);
+  }
+
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override {
+    return transaction_state_store_.GetQueuedCommands(connection_id_);
+  }
+
+  void ClearQueuedCommands() override {
+    transaction_state_store_.ClearQueuedCommands(connection_id_);
+  }
+
+  void DiscardTransaction() override {
+    transaction_state_store_.DiscardTransaction(connection_id_);
+  }
+
+  void WatchKey(const std::string& key, uint64_t version) override {
+    transaction_state_store_.WatchKey(connection_id_, key, version);
+  }
+
+  const absl::flat_hash_set<std::string>& GetWatchedKeys() const override {
+    return transaction_state_store_.GetWatchedKeys(connection_id_);
+  }
+
+  bool IsWatchedKeyModified(
+      const absl::AnyInvocable<uint64_t(const std::string&) const>& get_version)
+      const override {
+    return transaction_state_store_.IsWatchedKeyModified(connection_id_,
+                                                         get_version);
+  }
+
+  void ClearWatchedKeys() override {
+    transaction_state_store_.ClearWatchedKeys(connection_id_);
+  }
+
+  void ClearConnectionState(uint64_t connection_id) {
+    transaction_state_store_.ClearConnectionState(connection_id);
+  }
+
   // Set AOF callback (for persistence)
   void SetAofCallbackString(std::function<void(const std::string&)> callback) {
     aof_callback_ = std::move(callback);
@@ -311,6 +361,7 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   // Authentication state
   bool authenticated_ = false;
   std::string authenticated_user_;
+  mutable TransactionStateStore transaction_state_store_;
 
   // Callback to update cluster state for all workers (set by Server)
   // Uses WorkerScheduler::DispatchOnAll to avoid deadlock
@@ -1178,6 +1229,11 @@ class Worker {
                   // Remove connection from map when it's closed
                   std::lock_guard<std::mutex> lock(connections_mutex_);
                   connections_.erase(conn_id);
+                  task_queue_.enqueue([this, conn_id]() {
+                    data_shard_.GetCommandContext()->ClearConnectionState(
+                        conn_id);
+                  });
+                  NotifyExecutorLoop();
                   ASTRADB_LOG_DEBUG(
                       "Worker {}: Connection {} removed, total connections: {}",
                       worker_id_, conn_id, connections_.size());
@@ -1512,6 +1568,57 @@ class Worker {
     static constexpr size_t kMaxLocalCommandsPerLoop = 256;
     static constexpr size_t kCommandDequeueBatch = 64;
     std::array<CommandWithConnId, kCommandDequeueBatch> cmd_batch;
+    auto is_command_name = [](absl::string_view actual,
+                              absl::string_view expected) {
+      return absl::EqualsIgnoreCase(actual, expected);
+    };
+    auto is_transaction_control = [&](absl::string_view cmd_name) {
+      return is_command_name(cmd_name, "MULTI") ||
+             is_command_name(cmd_name, "EXEC") ||
+             is_command_name(cmd_name, "DISCARD") ||
+             is_command_name(cmd_name, "WATCH") ||
+             is_command_name(cmd_name, "UNWATCH");
+    };
+    auto build_exec_array_response =
+        [](const absl::InlinedVector<std::string, 16>& items) {
+          std::string out;
+          out.reserve(16 + items.size() * 16);
+          out += "*";
+          out += std::to_string(items.size());
+          out += "\r\n";
+          for (const auto& item : items) {
+            out += item;
+          }
+          return out;
+        };
+    auto is_first_key_local = [&](const astra::protocol::Command& command) {
+      auto routing_strategy =
+          data_shard_.GetCommandRegistry()->GetRoutingStrategy(command.name);
+      if (routing_strategy == commands::RoutingStrategy::kNone ||
+          command.args.empty()) {
+        return true;
+      }
+      if (!command.args[0].IsBulkString() && !command.args[0].IsSimpleString()) {
+        return true;
+      }
+      return RouteToWorker(absl::string_view(command.args[0].AsString())) ==
+             worker_id_;
+    };
+    auto are_watch_keys_local = [&](const astra::protocol::Command& command) {
+      if (!is_command_name(command.name, "WATCH")) {
+        return true;
+      }
+      for (size_t arg_idx = 0; arg_idx < command.ArgCount(); ++arg_idx) {
+        const auto& arg = command[arg_idx];
+        if (!arg.IsBulkString() && !arg.IsSimpleString()) {
+          continue;
+        }
+        if (RouteToWorker(absl::string_view(arg.AsString())) != worker_id_) {
+          return false;
+        }
+      }
+      return true;
+    };
 
     while (running_) {
       bool has_work = false;
@@ -1564,8 +1671,108 @@ class Worker {
             workers_to_notify.insert(cmd.source_worker_id);
           } else {
             // This is a new command from a client
+            auto* context = data_shard_.GetCommandContext();
+            context->SetConnectionId(cmd.conn_id);
+
+            auto conn_it = connections_.find(cmd.conn_id);
+            if (conn_it != connections_.end()) {
+              context->SetConnection(conn_it->second.get());
+              context->SetRawSocket(&conn_it->second->GetSocket());
+            } else {
+              context->SetConnection(nullptr);
+              context->SetRawSocket(nullptr);
+            }
+
+            const bool is_exec = is_command_name(cmd.command.name, "EXEC");
+            const bool in_transaction = context->IsInTransaction();
+            const bool is_control = is_transaction_control(cmd.command.name);
+
+            if (in_transaction && !is_control) {
+              if (!is_first_key_local(cmd.command)) {
+                ResponseWithConnId resp{
+                    cmd.conn_id,
+                    astra::protocol::RespBuilder::BuildError(
+                        "CROSSSLOT transaction commands must stay on one "
+                        "worker")};
+                resp_queue_.enqueue(std::move(resp));
+              } else {
+                context->QueueCommand(cmd.command);
+                ResponseWithConnId resp{
+                    cmd.conn_id,
+                    astra::protocol::RespBuilder::BuildSimpleString("QUEUED")};
+                resp_queue_.enqueue(std::move(resp));
+              }
+              has_responses = true;
+              continue;
+            }
+
+            if (is_command_name(cmd.command.name, "WATCH") &&
+                !are_watch_keys_local(cmd.command)) {
+              ResponseWithConnId resp{
+                  cmd.conn_id,
+                  astra::protocol::RespBuilder::BuildError(
+                      "CROSSSLOT WATCH keys must stay on one worker")};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+              continue;
+            }
+
+            // Handle EXEC in worker path. transaction_commands.cpp assumes
+            // this special handling is performed by the server runtime.
+            if (is_exec && in_transaction) {
+              LocalCommandTimer timer(cmd.command.name, &local_stats_);
+
+              auto& db = data_shard_.GetDatabase();
+              if (context->IsWatchedKeyModified([&db](const std::string& key) {
+                    return db.GetKeyVersion(key);
+                  })) {
+                context->DiscardTransaction();
+                ResponseWithConnId resp{
+                    cmd.conn_id, astra::protocol::RespBuilder::BuildNullArray()};
+                resp_queue_.enqueue(std::move(resp));
+                has_responses = true;
+                continue;
+              }
+
+              auto queued = context->GetQueuedCommands();
+              context->DiscardTransaction();
+
+              absl::InlinedVector<std::string, 16> exec_items;
+              exec_items.reserve(queued.size());
+              for (const auto& queued_cmd : queued) {
+                LocalCommandTimer inner_timer(queued_cmd.name, &local_stats_);
+
+                if (!is_first_key_local(queued_cmd)) {
+                  exec_items.push_back(astra::protocol::RespBuilder::BuildError(
+                      "CROSSSLOT transaction commands must stay on one "
+                      "worker"));
+                  continue;
+                }
+
+                std::string item_response = data_shard_.Execute(queued_cmd);
+                exec_items.push_back(std::move(item_response));
+
+                if (replication_config_.enabled && replication_manager_ &&
+                    replication_manager_->GetRole() ==
+                        replication::ReplicationRole::kMaster) {
+                  auto* registry = data_shard_.GetCommandRegistry();
+                  auto* info =
+                      registry ? registry->GetInfo(queued_cmd.name) : nullptr;
+                  if (info && info->is_write) {
+                    PropagateCommandToAllSlaves(queued_cmd);
+                  }
+                }
+              }
+
+              ResponseWithConnId resp{cmd.conn_id,
+                                      build_exec_array_response(exec_items)};
+              resp_queue_.enqueue(std::move(resp));
+              has_responses = true;
+              continue;
+            }
+
             // Determine if this command should be forwarded to another worker
-            // Check if command has a key argument
+            // based on first key routing.
             size_t target_worker = worker_id_;
             auto routing_strategy =
                 data_shard_.GetCommandRegistry()->GetRoutingStrategy(
@@ -1576,7 +1783,6 @@ class Worker {
                 worker_id_, cmd.command.name,
                 static_cast<int>(routing_strategy), cmd.command.args.size());
 
-            // Only route if command supports routing and has key argument
             if (routing_strategy != commands::RoutingStrategy::kNone &&
                 !cmd.command.args.empty() &&
                 (cmd.command.args[0].IsBulkString() ||
@@ -1590,26 +1796,9 @@ class Worker {
             }
 
             if (target_worker == worker_id_) {
-              // Handle locally
               LocalCommandTimer timer(cmd.command.name, &local_stats_);
-
-              // Set connection and connection ID in command context for
-              // blocking commands
-              auto conn_it = connections_.find(cmd.conn_id);
-              if (conn_it != connections_.end()) {
-                data_shard_.GetCommandContext()->SetConnection(
-                    conn_it->second.get());
-                data_shard_.GetCommandContext()->SetConnectionId(cmd.conn_id);
-                // Also set raw socket pointer for direct access (e.g.,
-                // replication)
-                data_shard_.GetCommandContext()->SetRawSocket(
-                    &conn_it->second->GetSocket());
-              }
-
               std::string response = data_shard_.Execute(cmd.command);
 
-              // Propagate command to slaves if this is a master (NO SHADING
-              // architecture)
               if (replication_config_.enabled && replication_manager_ &&
                   replication_manager_->GetRole() ==
                       replication::ReplicationRole::kMaster) {
@@ -1625,13 +1814,10 @@ class Worker {
               resp_queue_.enqueue(std::move(resp));
               has_responses = true;
             } else {
-              // Forward to target worker (enqueue to avoid blocking)
               ASTRADB_LOG_DEBUG("Worker {}: Forwarding command to Worker {}",
                                 worker_id_, target_worker);
               CrossWorkerRequest cross_req{worker_id_,  // source worker
                                            cmd.conn_id, std::move(cmd.command)};
-              // Enqueue to target worker to avoid blocking this worker's
-              // ExecutorLoop
               all_workers_[target_worker]->EnqueueCrossWorkerRequest(
                   std::move(cross_req), false);
               workers_to_notify.insert(target_worker);
