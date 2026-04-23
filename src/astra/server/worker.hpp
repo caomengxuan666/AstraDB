@@ -733,6 +733,8 @@ class Worker {
         data_shard_(worker_id),
         all_workers_(std::move(all_workers)),
         running_(false) {
+    RecomputeWorkerRoutingParams();
+
     // Copy replication config
     replication_config_.role = replication_config.role;
     replication_config_.enabled = replication_config.enabled;
@@ -1018,6 +1020,7 @@ class Worker {
   // Set all workers reference (called by Server after all workers are created)
   void SetAllWorkers(const std::vector<Worker*>& all_workers) {
     all_workers_ = all_workers;
+    RecomputeWorkerRoutingParams();
   }
 
   // Set persistence manager (called by Server after persistence is initialized)
@@ -1329,7 +1332,23 @@ class Worker {
         co_return;
       }
 
-      std::vector<asio::const_buffer> buffers;
+      if (responses.size() == 1) {
+        asio::error_code ec;
+        size_t bytes_written = co_await asio::async_write(
+            socket_, asio::buffer(responses.front()),
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (!ec) {
+          astra::metrics::AstraMetrics::Instance().RecordNetworkOutput(
+              bytes_written);
+        } else {
+          ASTRADB_LOG_ERROR("Worker {}: Connection {} write error: {}",
+                            worker_id_, conn_id_, ec.message());
+        }
+        co_return;
+      }
+
+      absl::InlinedVector<asio::const_buffer, 64> buffers;
       buffers.reserve(responses.size());
       for (const auto& response : responses) {
         buffers.emplace_back(asio::buffer(response));
@@ -1552,11 +1571,15 @@ class Worker {
   // Calculate which worker should handle this key (CRC16 with hash tag support)
   size_t RouteToWorker(absl::string_view key) {
     if (key.empty()) {
-      return worker_id_ % all_workers_.size();
+      return worker_id_ % worker_count_;
     }
     // Use CRC16 with hash tag support (Redis compatible)
-    auto slot = cluster::HashSlotCalculator::CalculateWithTag(key);
-    return slot % all_workers_.size();
+    const auto slot = static_cast<size_t>(
+        cluster::HashSlotCalculator::CalculateWithTag(key));
+    if (worker_count_is_pow2_) {
+      return slot & worker_count_mask_;
+    }
+    return slot % worker_count_;
   }
 
   // Calculate which worker should handle this key (overload for std::string)
@@ -1591,9 +1614,22 @@ class Worker {
           }
           return out;
         };
+    std::string last_routing_cmd;
+    commands::RoutingStrategy last_routing =
+        commands::RoutingStrategy::kNone;
+    bool has_last_routing = false;
+    auto get_routing_strategy = [&](const std::string& cmd_name) {
+      if (has_last_routing && cmd_name == last_routing_cmd) {
+        return last_routing;
+      }
+      last_routing =
+          data_shard_.GetCommandRegistry()->GetRoutingStrategy(cmd_name);
+      last_routing_cmd = cmd_name;
+      has_last_routing = true;
+      return last_routing;
+    };
     auto is_first_key_local = [&](const astra::protocol::Command& command) {
-      auto routing_strategy =
-          data_shard_.GetCommandRegistry()->GetRoutingStrategy(command.name);
+      auto routing_strategy = get_routing_strategy(command.name);
       if (routing_strategy == commands::RoutingStrategy::kNone ||
           command.args.empty()) {
         return true;
@@ -1665,7 +1701,7 @@ class Worker {
               }
             }
 
-            CrossWorkerResponse cross_resp{cmd.conn_id, response};
+            CrossWorkerResponse cross_resp{cmd.conn_id, std::move(response)};
             all_workers_[cmd.source_worker_id]->EnqueueCrossWorkerResponse(
                 std::move(cross_resp), false);
             workers_to_notify.insert(cmd.source_worker_id);
@@ -1774,9 +1810,7 @@ class Worker {
             // Determine if this command should be forwarded to another worker
             // based on first key routing.
             size_t target_worker = worker_id_;
-            auto routing_strategy =
-                data_shard_.GetCommandRegistry()->GetRoutingStrategy(
-                    cmd.command.name);
+            auto routing_strategy = get_routing_strategy(cmd.command.name);
 
             ASTRADB_LOG_TRACE(
                 "Worker {}: Command '{}' has routing strategy={}, args_count={}",
@@ -1810,7 +1844,7 @@ class Worker {
                 }
               }
 
-              ResponseWithConnId resp{cmd.conn_id, response};
+              ResponseWithConnId resp{cmd.conn_id, std::move(response)};
               resp_queue_.enqueue(std::move(resp));
               has_responses = true;
             } else {
@@ -1939,8 +1973,8 @@ class Worker {
     // This increases batching opportunities (Dragonfly best practice)
     absl::flat_hash_map<uint64_t, std::vector<std::string>> conn_responses;
     size_t total_responses = 0;
-    static constexpr size_t kMaxBatchSize = 1000;
-    static constexpr size_t kResponseDequeueBatch = 64;
+    static constexpr size_t kMaxBatchSize = 8192;
+    static constexpr size_t kResponseDequeueBatch = 256;
     std::array<ResponseWithConnId, kResponseDequeueBatch> resp_batch;
 
     while (total_responses < kMaxBatchSize) {
@@ -2015,6 +2049,9 @@ class Worker {
 
   // Reference to all workers for cross-worker communication
   std::vector<Worker*> all_workers_;
+  size_t worker_count_{1};
+  size_t worker_count_mask_{0};
+  bool worker_count_is_pow2_{true};
 
   std::thread io_thread_;
   std::thread exec_thread_;
@@ -2038,6 +2075,12 @@ class Worker {
   inline void NotifyExecutorLoop() {
     absl::MutexLock lock(&executor_mutex_);
     executor_cv_.Signal();
+  }
+
+  inline void RecomputeWorkerRoutingParams() {
+    worker_count_ = all_workers_.empty() ? 1 : all_workers_.size();
+    worker_count_is_pow2_ = (worker_count_ & (worker_count_ - 1)) == 0;
+    worker_count_mask_ = worker_count_ - 1;
   }
 
   // Notify that a batch response is ready
@@ -2086,22 +2129,27 @@ class Worker {
   // stats)
   class LocalCommandTimer {
    public:
-    explicit LocalCommandTimer(absl::string_view command, ServerStats* stats)
-        : command_(command), start_(absl::Now()), stats_(stats) {}
+    explicit LocalCommandTimer(const std::string& command, ServerStats* stats)
+        : command_(&command),
+          start_nanos_(absl::GetCurrentTimeNanos()),
+          stats_(stats) {}
 
     ~LocalCommandTimer() {
-      if (!stats_) return;
-      auto duration = absl::Now() - start_;
-      double seconds = absl::ToDoubleSeconds(duration);
-      uint64_t usec = static_cast<uint64_t>(seconds * 1000000);
-      stats_->RecordCommand(command_, success_, usec);
+      if (!stats_ || !command_) return;
+      const int64_t end_nanos = absl::GetCurrentTimeNanos();
+      const uint64_t usec = end_nanos > start_nanos_
+                                ? static_cast<uint64_t>(end_nanos -
+                                                        start_nanos_) /
+                                      1000
+                                : 0;
+      stats_->RecordCommand(*command_, success_, usec);
     }
 
     void SetError() { success_ = false; }
 
    private:
-    std::string command_;
-    absl::Time start_;
+    const std::string* command_ = nullptr;
+    int64_t start_nanos_ = 0;
     bool success_ = true;
     ServerStats* stats_;
   };
@@ -2865,7 +2913,7 @@ inline void PubSubManager::SendSubscribeReply(uint64_t conn_id,
   reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
   reply += ":" + std::to_string(count) + "\r\n";
 
-  ResponseWithConnId resp{conn_id, reply};
+  ResponseWithConnId resp{conn_id, std::move(reply)};
   worker_->resp_queue_.enqueue(std::move(resp));
 }
 
@@ -2879,7 +2927,7 @@ inline void PubSubManager::SendUnsubscribeReply(uint64_t conn_id,
   reply += "$" + std::to_string(channel.size()) + "\r\n" + channel + "\r\n";
   reply += ":" + std::to_string(count) + "\r\n";
 
-  ResponseWithConnId resp{conn_id, reply};
+  ResponseWithConnId resp{conn_id, std::move(reply)};
   worker_->resp_queue_.enqueue(std::move(resp));
 }
 

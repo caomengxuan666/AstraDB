@@ -59,81 +59,28 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 
 ## 📊 Performance
 
-### Current Performance (Native Ubuntu 25.04)
+### Current Baseline (2026-04-23)
 
-**Environment:**
-- **OS**: Ubuntu 25.04 (native Linux, persistence disabled)
-- **CPU**: Multi-core (2 workers configured)
-- **Compiler**: Clang 19.1 with C++23, -O2 optimization
-- **Build Type**: RelWithDebInfo
-- **Architecture**: 
-  - AstraDB: Single-threaded
-  - Dragonfly: Single-threaded
-  - Redis 7.4.2: Multi-threaded network I/O (default)
+All numbers below are from a single mixed benchmark mode (`-t set,get`) to avoid split-test bias.
 
-### Non-Pipeline Mode Performance (Latest)
+**Test setup:**
+- **Binary**: `build-linux-release-debuginfo-noasan/bin/astradb`
+- **Config**: `config/astradb-benchmark.toml` (2 workers, 2 shards, persistence disabled)
+- **Client**: `redis-benchmark`
+- **Command mix**: `-t set,get`
+- **Run shape**: `-n 1000000 -c 256 -P <pipeline>`
 
-| Metric | AstraDB | Dragonfly | Redis 7.4.2 | Comparison |
-|--------|---------|-----------|--------------|------------|
-| **SET QPS** | ~220k+ | ~220k+ | ~180k-190k | **+16-22% vs Redis** |
-| **GET QPS** | ~220k+ | ~220k+ | ~180k-190k | **+16-22% vs Redis** |
+| Pipeline (`-P`) | SET QPS | GET QPS |
+|-----------------|---------|---------|
+| **1** | 209,424.08 | 209,117.52 |
+| **16** | 1,381,215.50 | 1,805,054.12 |
+| **64** | 1,612,903.25 | 2,145,922.75 |
 
-**Key Achievements:**
-- ✅ **Performance parity with DragonflyDB** in native Linux
-- ✅ **Outperforms Redis by 16-22%** despite using single-threaded architecture
-- ✅ **Single-threaded beats multi-threaded Redis**
-- ✅ Native Linux environment eliminates virtualization overhead
+**Repeatability checks (same machine, same config):**
+- `P=1`: SET `210,837.02`, GET `209,511.84`
+- `P=64`: SET `1,600,000.00`, GET `2,127,659.50`
 
-### Pipeline Mode Performance
-
-| Metric | AstraDB | Dragonfly | Redis 7.4.2 | Notes |
-|--------|---------|-----------|--------------|-------|
-| **Pipeline QPS** | ~several million | ~several million | ~several million | All achieve high QPS |
-| **Device Variance** | Significant | Significant | Significant | Varies by hardware |
-
-**Note**: Pipeline mode performance varies significantly across different hardware configurations. Further testing is planned for detailed comparative analysis.
-
-### Historical Performance (WSL2 - Deprecated)
-
-> **Note**: The following benchmarks were conducted in WSL2 environments and are now deprecated. WSL2 virtualization overhead significantly impacts performance. For accurate performance metrics, use the native Ubuntu 25.04 results above.
-
-**Environment (Historical):**
-- CPU: Linux 6.8.0-53-generic
-- Compiler: GCC 13.3.0
-- C++ Standard: C++23
-- Build Type: Release with LTO enabled
-- Threads: 16 shards distributed across 2 IO contexts
-
-### SET Operations (WSL2 - Historical)
-
-| Metric | AstraDB | Redis | Improvement |
-|--------|---------|-------|-------------|
-| QPS | 62,893 | 42,571 | **+48%** |
-| Avg Latency | 0.472ms | 0.796ms | **-41%** |
-| P95 Latency | 0.871ms | 1.607ms | **-46%** |
-| P99 Latency | 1.727ms | 2.791ms | **-38%** |
-| Max Latency | 3.391ms | 14.463ms | **-77%** |
-
-### GET Operations (WSL2 - Historical)
-
-| Metric | AstraDB | Redis | Improvement |
-|--------|---------|-------|-------------|
-| QPS | 62,150 | 46,577 | **+33%** |
-| Avg Latency | 0.492ms | 0.638ms | **-23%** |
-| P95 Latency | 0.863ms | 1.335ms | **-35%** |
-| P99 Latency | 1.895ms | 2.015ms | **-6%** |
-| Max Latency | 4.079ms | 8.047ms | **-49%** |
-
-### Target Performance
-
-| Operation | Redis | DragonflyDB | AstraDB (Target) | Current Status |
-|-----------|-------|-------------|------------------|----------------|
-| GET (Non-Pipeline) | 180k-190k | ~220k | **250k+** | ✅ **220k+ achieved** |
-| SET (Non-Pipeline) | 180k-190k | ~220k | **250k+** | ✅ **220k+ achieved** |
-| GET (Pipeline) | ~several million | ~several million | **10M+** | ⏳ Testing planned |
-| SET (Pipeline) | ~several million | ~several million | **10M+** | ⏳ Testing planned |
-| ZADD | TBD | TBD | **1M ops/s** | ⏳ Testing planned |
-| ZRANGE | TBD | TBD | **800K ops/s** | ⏳ Testing planned |
+For historical investigation notes and older experiments, see `PERFORMANCE.md`.
 
 ## 🏗️ Architecture
 
@@ -443,14 +390,13 @@ redis-cli -p 6379 ZRANGE myzset 0 -1 WITHSCORES
 ### Benchmarking
 
 ```bash
-# Using redis-benchmark (from Redis)
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 100000 -c 50
+# Canonical mixed read/write benchmark (recommended)
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 1 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 64 -q
 
-# Benchmark specific commands
-redis-benchmark -h 127.0.0.1 -p 6379 -t lpush,lpop,rpush,rpop -n 100000 -c 50
-
-# Benchmark with pipeline
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 100000 -c 50 -P 16
+# Optional: command-specific stress
+redis-benchmark -h 127.0.0.1 -p 6379 -t lpush,lpop,rpush,rpop -n 1000000 -c 256 -P 16 -q
 ```
 
 ## 📚 Documentation

@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -55,14 +56,19 @@ class HashSlotCalculator {
   // Calculate hash slot with hash tag support
   // For example: key{tag} -> only hash "tag" part
   static HashSlot CalculateWithTag(absl::string_view key) noexcept {
-    // Find hash tag {tag}
-    size_t start = key.find('{');
-    if (start != absl::string_view::npos) {
-      size_t end = key.find('}', start + 1);
-      if (end != absl::string_view::npos && end > start + 1) {
-        // Hash only the tag part
-        absl::string_view tag(key.data() + start + 1, end - start - 1);
-        return Calculate(tag);
+    const char* begin = key.data();
+    const size_t len = key.size();
+
+    const char* tag_start =
+        static_cast<const char*>(std::memchr(begin, '{', len));
+    if (tag_start != nullptr) {
+      const size_t start_index = static_cast<size_t>(tag_start - begin);
+      const size_t remaining = len - start_index - 1;
+      const char* tag_end = static_cast<const char*>(
+          std::memchr(tag_start + 1, '}', remaining));
+      if (tag_end != nullptr && tag_end > tag_start + 1) {
+        return Calculate(absl::string_view(
+            tag_start + 1, static_cast<size_t>(tag_end - tag_start - 1)));
       }
     }
     return Calculate(key);
