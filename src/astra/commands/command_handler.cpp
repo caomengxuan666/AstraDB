@@ -14,31 +14,58 @@
 
 namespace astra::commands {
 
+namespace {
+
+inline bool NeedsAsciiUppercase(absl::string_view s) noexcept {
+  for (unsigned char c : s) {
+    if (c >= 'a' && c <= 'z') {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline const std::string& NormalizeUppercase(const std::string& input,
+                                             std::string& scratch) noexcept {
+  if (NeedsAsciiUppercase(input)) {
+    scratch = absl::AsciiStrToUpper(input);
+    return scratch;
+  }
+  return input;
+}
+
+}  // namespace
+
 void CommandRegistry::Register(const CommandInfo& info,
                                CommandHandler handler) noexcept {
   CommandEntry entry;
   entry.info = info;
   entry.handler = std::move(handler);
   // Store command name in uppercase for case-insensitive lookup
-  std::string upper_name = absl::AsciiStrToUpper(info.name);
+  std::string upper_name = info.name;
+  if (NeedsAsciiUppercase(upper_name)) {
+    absl::AsciiStrToUpper(&upper_name);
+  }
   commands_.insert_or_assign(upper_name, std::move(entry));
 }
 
 void CommandRegistry::Unregister(const std::string& name) noexcept {
-  std::string upper_name = absl::AsciiStrToUpper(name);
-  commands_.erase(upper_name);
+  std::string normalized_name;
+  commands_.erase(NormalizeUppercase(name, normalized_name));
 }
 
 bool CommandRegistry::Exists(const std::string& name) const noexcept {
-  std::string upper_name = absl::AsciiStrToUpper(name);
-  return commands_.find(upper_name) != commands_.end();
+  std::string normalized_name;
+  return commands_.find(NormalizeUppercase(name, normalized_name)) !=
+         commands_.end();
 }
 
 const CommandInfo* CommandRegistry::GetInfo(
     const std::string& name) const noexcept {
-  std::string upper_name = absl::AsciiStrToUpper(name);
-  ASTRADB_LOG_TRACE("GetInfo: name='{}', upper_name='{}'", name, upper_name);
-  auto it = commands_.find(upper_name);
+  std::string normalized_name;
+  const auto& lookup_name = NormalizeUppercase(name, normalized_name);
+  ASTRADB_LOG_TRACE("GetInfo: name='{}', upper_name='{}'", name, lookup_name);
+  auto it = commands_.find(lookup_name);
   if (it != commands_.end()) {
     ASTRADB_LOG_TRACE("GetInfo: found command '{}'", name);
     return &it->second.info;
@@ -53,10 +80,10 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
     return CommandResult(false, "ERR empty command name");
   }
 
-  // Convert command name to uppercase for case-insensitive lookup
-  std::string upper_name = absl::AsciiStrToUpper(command.name);
+  std::string normalized_name;
+  const auto& lookup_name = NormalizeUppercase(command.name, normalized_name);
 
-  auto it = commands_.find(upper_name);
+  auto it = commands_.find(lookup_name);
   if (it == commands_.end()) {
     return CommandResult(false, "ERR unknown command '" + command.name + "'");
   }
@@ -75,7 +102,8 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
     // Fixed arity - exact number required
     if (total_args != entry.info.arity) {
       std::ostringstream oss;
-      oss << "ERR wrong number of arguments for '" << upper_name << "' command";
+      oss << "ERR wrong number of arguments for '" << lookup_name
+          << "' command";
       return CommandResult(false, oss.str());
     }
   } else if (entry.info.arity < 0) {
@@ -83,7 +111,8 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
     int min_args = -entry.info.arity;
     if (total_args < min_args) {
       std::ostringstream oss;
-      oss << "ERR wrong number of arguments for '" << upper_name << "' command";
+      oss << "ERR wrong number of arguments for '" << lookup_name
+          << "' command";
       return CommandResult(false, oss.str());
     }
   }
@@ -112,7 +141,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
         "UNWATCH"};
 
     // Only check key permission if command is not in the non-key command list
-    if (non_key_commands.find(upper_name) == non_key_commands.end() &&
+    if (non_key_commands.find(lookup_name) == non_key_commands.end() &&
         command.ArgCount() > 0 &&
         (command[0].IsBulkString() || command[0].IsSimpleString())) {
       const std::string& key = command[0].AsString();
@@ -152,7 +181,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
 
       // Create cache entry
       CachedCommandEntry cache_entry;
-      cache_entry.command_name = upper_name;
+      cache_entry.command_name = lookup_name;
       cache_entry.hash = cache_key;
       cache_entry.created_at_ms = absl::GetCurrentTimeNanos() / 1000000;
       cache_entry.last_accessed_ms = cache_entry.created_at_ms;
@@ -180,7 +209,7 @@ CommandResult CommandRegistry::Execute(const astra::protocol::Command& command,
       cache_entry.param_count =
           static_cast<uint32_t>(cache_entry.parameters.size());
       cache_entry.estimated_size_bytes =
-          static_cast<uint32_t>(upper_name.size() + cache_key.size() +
+          static_cast<uint32_t>(lookup_name.size() + cache_key.size() +
                                 cache_entry.parameters.size() * 64);
 
       command_cache_[cache_key] = std::move(cache_entry);
@@ -211,8 +240,8 @@ std::vector<std::string> CommandRegistry::GetCommandNames() const noexcept {
 
 RoutingStrategy CommandRegistry::GetRoutingStrategy(
     const std::string& command_name) const noexcept {
-  std::string upper_name = absl::AsciiStrToUpper(command_name);
-  auto it = commands_.find(upper_name);
+  std::string normalized_name;
+  auto it = commands_.find(NormalizeUppercase(command_name, normalized_name));
   if (it != commands_.end()) {
     return it->second.info.routing;
   }
@@ -222,7 +251,8 @@ RoutingStrategy CommandRegistry::GetRoutingStrategy(
 // Generate cache key from command name and arguments
 std::string CommandRegistry::GenerateCacheKey(
     const astra::protocol::Command& command) const noexcept {
-  std::string upper_name = absl::AsciiStrToUpper(command.name);
+  std::string normalized_name;
+  const auto& upper_name = NormalizeUppercase(command.name, normalized_name);
 
   std::vector<std::pair<std::string, CachedParameterValue>> params;
   for (size_t i = 0; i < command.ArgCount(); ++i) {

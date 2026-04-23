@@ -3,6 +3,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 echo "=== Testing Cluster MOVED Redirection ==="
 
 # Kill any existing astradb process
@@ -11,8 +14,20 @@ sleep 1
 
 # Start astradb with cluster enabled
 echo "Starting AstraDB in cluster mode..."
-cd /home/cmx/codespace/AstraDB/build-linux-release-debuginfo-clang
-./bin/astradb --config /home/cmx/codespace/AstraDB/astradb-cluster-test.toml &
+cd "$PROJECT_ROOT"
+
+if [ -x "build-linux-release-debuginfo-clang/bin/astradb" ]; then
+    ASTRADB_BIN="build-linux-release-debuginfo-clang/bin/astradb"
+elif [ -x "build-linux-release-debuginfo-noasan/bin/astradb" ]; then
+    ASTRADB_BIN="build-linux-release-debuginfo-noasan/bin/astradb"
+elif [ -x "build/bin/astradb" ]; then
+    ASTRADB_BIN="build/bin/astradb"
+else
+    echo "ERROR: astradb binary not found in known build directories."
+    exit 1
+fi
+
+"./$ASTRADB_BIN" --config "$PROJECT_ROOT/astradb-cluster-test.toml" &
 ASTRADB_PID=$!
 sleep 2
 

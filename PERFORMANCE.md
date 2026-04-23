@@ -2,71 +2,40 @@
 
 ## Executive Summary
 
-This document captures the performance analysis, benchmarking results, and architectural decisions made during the performance optimization phase of AstraDB.
+This document captures performance analysis, profiling results, and optimization decisions for AstraDB.
 
-**Key Finding**: In native Ubuntu 25.04 environments with persistence disabled, AstraDB achieves performance parity with DragonflyDB (~220k+ QPS non-pipeline mode), significantly outperforming Redis in single-threaded scenarios. Both AstraDB and Dragonfly use single-threaded architecture, while Redis 7.4.2 utilizes multi-threaded network I/O by default.
+**Current baseline (2026-04-23)**: we use one consistent benchmark method, `redis-benchmark -t set,get`, and compare pipeline levels (`-P`) under the same server/config to avoid split-test bias.
 
 ---
 
 ## Performance Benchmarks
 
-### Test Environment (Latest - Native Ubuntu 25.04)
-- **OS**: Ubuntu 25.04 (native Linux, not WSL)
-- **CPU**: Multi-core (2 workers configured)
-- **Compiler**: Clang 19.1 with C++23, -O2 optimization
-- **Build Type**: RelWithDebInfo
-- **Network**: TCP_NODELAY enabled, batch response sending
-- **Persistence**: Disabled (RDB, AOF, RocksDB persistence all disabled)
-- **Architecture**: 
-  - AstraDB: Single-threaded
-  - Dragonfly: Single-threaded
-  - Redis 7.4.2: Multi-threaded network I/O (default)
+### Test Environment (Current Baseline)
+- **OS**: Native Linux (Ubuntu 25.04)
+- **Binary**: `build-linux-release-debuginfo-noasan/bin/astradb`
+- **Config**: `config/astradb-benchmark.toml` (`thread_count=2`, `num_shards=2`, persistence disabled)
+- **Compiler**: Clang 19.1, C++23, optimized build
+- **Client**: `redis-benchmark`
+- **Benchmark mode**: mixed commands in one run (`-t set,get`)
 
-### Latest Results: Non-Pipeline Mode (500 connections)
+### Latest Results (2026-04-23, `-n 1000000 -c 256`)
 
-| Metric | AstraDB | Dragonfly | Redis 7.4.2 | Comparison |
-|--------|---------|-----------|--------------|------------|
-| **SET QPS** | ~220k+ | ~220k+ | ~180k-190k | **+16-22% vs Redis** |
-| **GET QPS** | ~220k+ | ~220k+ | ~180k-190k | **+16-22% vs Redis** |
+| Pipeline (`-P`) | SET QPS | GET QPS |
+|-----------------|---------|---------|
+| **1** | 209,424.08 | 209,117.52 |
+| **16** | 1,381,215.50 | 1,805,054.12 |
+| **64** | 1,612,903.25 | 2,145,922.75 |
 
-**Key Achievements**:
-- ✅ **Performance parity with DragonflyDB** in native Linux environment
-- ✅ **Outperforms Redis by 16-22%** in non-pipeline mode
-- ✅ **Single-threaded architecture beats multi-threaded Redis**
-- ✅ Native Linux environment eliminates WSL virtualization overhead
-- ✅ Successfully optimized for high-throughput scenarios
+Repeatability (same machine/config):
+- `P=1`: SET `210,837.02`, GET `209,511.84`
+- `P=64`: SET `1,600,000.00`, GET `2,127,659.50`
 
-### Pipeline Mode Performance
+### Methodology Rules
 
-| Metric | AstraDB | Dragonfly | Redis 7.4.2 | Notes |
-|--------|---------|-----------|--------------|-------|
-| **Pipeline QPS (P=16)** | ~430k | ~several million | ~2.1M | Under development |
-| **Device Variance** | Significant | Significant | Significant | Performance varies by hardware |
-
-**Current Status**: Pipeline mode optimization is in progress. Current limitations:
-- Batch processing implemented in IO thread (command parsing) and Executor thread
-- Further optimization needed for response batching and zero-copy networking
-- Target: Match or exceed Redis pipeline performance
-
-### Historical Benchmarks (WSL2 Environment - Deprecated)
-
-> **Note**: The following benchmarks were conducted in WSL2 environments and are now deprecated. WSL2 virtualization overhead significantly impacts performance. For accurate performance metrics, use the native Ubuntu 25.04 results above.
-
-#### Single-Threaded Performance (1 connection) - WSL2
-
-| Metric | AstraDB | DragonflyDB | Comparison |
-|--------|---------|-------------|------------|
-| **SET QPS** | ~1218 req/s | ~1176 req/s | **+3.6% faster** |
-| **GET QPS** | ~1178 req/s | ~1177 req/s | **~parity** |
-| **SET Latency** | ~0.82ms | ~0.85ms | **3.5% lower** |
-| **GET Latency** | ~0.84ms | ~0.85ms | ~parity |
-
-#### Multi-Threaded Performance (8 connections) - WSL2
-
-| Metric | AstraDB | DragonflyDB | Comparison |
-|--------|---------|-------------|------------|
-| **SET QPS** | ~2000 req/s | ~1942 req/s | **+3% faster** |
-| **Scaling Factor** | 1.64x | 1.65x | **equivalent** |
+1. Always run `set,get` together in one benchmark process.
+2. Keep server binary and config fixed when comparing `-P` values.
+3. Report both SET and GET from the same run output.
+4. Treat historical WSL results as archived only, not release baselines.
 
 ---
 
@@ -302,14 +271,15 @@ enable_pipeline = true
 
 ### Methodology
 
-We used `redis-benchmark` to measure throughput and latency:
+We use `redis-benchmark` in mixed mode (`set,get`) to measure throughput:
 
 ```bash
-# Single-threaded
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
+# Non-pipeline baseline
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 1 -q
 
-# Multi-threaded
-redis-benchmark -h 127.0.0.1 -p 6�379 -t set,get -n 50000 -c 8 -q
+# Pipeline comparison points
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 64 -q
 ```
 
 ### Key Findings
@@ -647,10 +617,10 @@ ninja
 
 ```bash
 # Start server
-./build-release/bin/astradb
+./build-linux-release-debuginfo-noasan/bin/astradb --config config/astradb-benchmark.toml
 
-# Run benchmarks
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 100000 -c 1 -q
+# Run mixed benchmark
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
 ```
 
 ---
@@ -660,11 +630,11 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 100000 -c 1 -q
 When testing performance, ensure:
 
 - [ ] Use release build (not debug)
-- [ ] Use appropriate thread count for environment
-- [ ] Test with different connection counts
-- [ ] Measure both single-threaded and multi-threaded
-- [ ] Compare with baseline (DragonflyDB/Redis)
-- [ ] Profile with strace if performance issues
+- [ ] Fix binary/config before comparison runs
+- [ ] Run `set,get` in one benchmark process (no split set/get runs)
+- [ ] Compare multiple pipeline levels (`-P 1/16/64`)
+- [ ] Report both SET and GET from the same output
+- [ ] Profile with perf if bottlenecks appear
 - [ ] Check CPU utilization
 - [ ] Monitor memory usage
 
@@ -672,16 +642,9 @@ When testing performance, ensure:
 
 ## Conclusion
 
-AstraDB's performance is solid, achieving parity with DragonflyDB in native Linux environments (~220k+ QPS non-pipeline mode). The key insight is that **simple architecture often outperforms complex solutions** even against multi-threaded alternatives like Redis.
+With the current benchmark baseline, AstraDB reaches about `~209k` QPS in non-pipeline mode (`P=1`) and up to `~1.6M SET / ~2.1M GET` in pipeline mode (`P=64`) on the reference machine.
 
-The direct asio::post architecture proves superior because:
-1. Eliminates task queue overhead
-2. Avoids thread switching
-3. Reduces memory allocations
-4. Simplifies codebase for maintainability
-5. Achieves better performance than multi-threaded Redis in native environments
-
-**Recommendation**: Focus on network I/O and command batching optimizations rather than task scheduling improvements. Native Linux testing provides accurate performance metrics and eliminates virtualization overhead found in WSL environments.
+The main takeaway for optimization work is to keep measuring with consistent mixed-load methodology and focus on pipeline hot paths (batch parse, dispatch, and response write-back) where the remaining gap to Redis is concentrated.
 
 ---
 
@@ -690,21 +653,17 @@ The direct asio::post architecture proves superior because:
 ### Basic Performance Test
 
 ```bash
-# Single thread
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
-
-# 8 threads
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 50000 -c 8 -q
-
-# Comprehensive
-redis-benchmark -h 127.0.0.1 -p 6379 --csv -t set,get
+# Canonical mixed run
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 1 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 64 -q
 ```
 
 ### Profiling
 
 ```bash
 # System call profiling
-strace -c -T redis-benchmark -h 127.0.0.1 -p 6379 -t set -n 10000 -c 1
+strace -c -T redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16
 
 # Futex contention analysis
 strace -f -e trace=futex -p <pid> 2>&1 | grep futex
@@ -716,15 +675,15 @@ strace -f -e trace=futex -p <pid> 2>&1 | grep futex
 # DragonflyDB
 cd ~/codespace/dragonfly/bin
 ./dragonfly-x86_64 &
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
 
 # Redis
 redis-server &
-redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 10000 -c 1 -q
+redis-benchmark -h 127.0.0.1 -p 6379 -t set,get -n 1000000 -c 256 -P 16 -q
 ```
 
 ---
 
-**Document Version**: 2.0  
-**Last Updated**: 2026-04-10  
+**Document Version**: 2.1  
+**Last Updated**: 2026-04-23  
 **Tested Environment**: Ubuntu 25.04 (native Linux), Clang 19.1, C++23, persistence disabled

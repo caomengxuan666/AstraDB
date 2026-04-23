@@ -4,6 +4,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,8 +51,20 @@ test_blocking() {
 
 # Start server
 echo "Starting AstraDB server..."
-cd /home/cmx/codespace/AstraDB/build
-./bin/astradb > /tmp/astradb_blocking_test.log 2>&1 &
+cd "$PROJECT_ROOT"
+
+if [ -x "build-linux-release-debuginfo-noasan/bin/astradb" ]; then
+    ASTRADB_BIN="build-linux-release-debuginfo-noasan/bin/astradb"
+elif [ -x "build-linux-release-debuginfo-clang/bin/astradb" ]; then
+    ASTRADB_BIN="build-linux-release-debuginfo-clang/bin/astradb"
+elif [ -x "build/bin/astradb" ]; then
+    ASTRADB_BIN="build/bin/astradb"
+else
+    echo "ERROR: astradb binary not found in known build directories."
+    exit 1
+fi
+
+"./$ASTRADB_BIN" > /tmp/astradb_blocking_test.log 2>&1 &
 SERVER_PID=$!
 sleep 2
 

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <limits>
 
 #include "astra/base/simd_utils.hpp"
 
@@ -46,6 +47,61 @@ std::optional<CommandArg> ToCommandArg(const RespValue& value) {
     return CommandArg(RespType::kNullBulkString);
   }
   return std::nullopt;
+}
+
+inline bool ParseIntLineFast(std::string_view& input, int64_t& out,
+                             bool allow_negative) noexcept {
+  if (input.empty()) {
+    return false;
+  }
+
+  const char* ptr = input.data();
+  const char* end = ptr + input.size();
+  bool negative = false;
+
+  if (*ptr == '-') {
+    if (!allow_negative) {
+      return false;
+    }
+    negative = true;
+    ++ptr;
+    if (ptr == end) {
+      return false;
+    }
+  }
+
+  if (*ptr < '0' || *ptr > '9') {
+    return false;
+  }
+
+  int64_t value = 0;
+  while (ptr < end) {
+    const char c = *ptr++;
+    if (c == '\r') {
+      if (ptr >= end || *ptr != '\n') {
+        return false;
+      }
+      ++ptr;
+      out = negative ? -value : value;
+      input.remove_prefix(static_cast<size_t>(ptr - input.data()));
+      return true;
+    }
+
+    if (c < '0' || c > '9') {
+      return false;
+    }
+
+    constexpr int64_t kMaxBeforeMul = std::numeric_limits<int64_t>::max() / 10;
+    if (value > kMaxBeforeMul) {
+      return false;
+    }
+    value = value * 10 + static_cast<int64_t>(c - '0');
+    if (value < 0) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 }  // namespace
@@ -144,76 +200,57 @@ std::optional<Command> RespParser::ParseCommandFromArray(
   std::string_view working = data;
   working.remove_prefix(1);  // Remove array type byte
 
-  auto line = ReadUntilCRLF(working);
-  if (!line.has_value()) {
+  int64_t count64 = 0;
+  if (!ParseIntLineFast(working, count64, false)) {
     return std::nullopt;
   }
-
-  auto count = ParseInt(*line);
-  if (!count.has_value() || *count <= 0) {
+  if (count64 <= 0 || count64 > std::numeric_limits<int>::max()) {
     return std::nullopt;
   }
+  const int count = static_cast<int>(count64);
 
   Command cmd;
-  cmd.args.reserve(static_cast<size_t>(*count > 1 ? *count - 1 : 0));
+  cmd.args.reserve(static_cast<size_t>(count > 1 ? count - 1 : 0));
 
-  auto parse_bulk_inline = [](std::string_view& input, std::string& out,
-                              bool& is_null_bulk) -> bool {
-    if (input.empty() || input[0] != '$') {
-      return false;
-    }
-
-    input.remove_prefix(1);  // Remove bulk-string type byte
-    auto len_line = ReadUntilCRLF(input);
-    if (!len_line.has_value()) {
-      return false;
-    }
-
-    auto len = ParseInt(*len_line);
-    if (!len.has_value()) {
-      return false;
-    }
-
-    if (*len == -1) {
-      is_null_bulk = true;
-      out.clear();
-      return true;
-    }
-
-    if (*len < 0) {
-      return false;
-    }
-
-    const size_t bulk_len = static_cast<size_t>(*len);
-    if (input.size() < bulk_len + 2) {
-      return false;
-    }
-
-    is_null_bulk = false;
-    out.assign(input.data(), bulk_len);
-    input.remove_prefix(bulk_len + 2);  // Remove payload + CRLF
-    return true;
-  };
-
-  for (int i = 0; i < *count; ++i) {
+  for (int i = 0; i < count; ++i) {
     // Fast path: benchmark workloads are overwhelmingly bulk-string arrays.
     if (!working.empty() && working[0] == '$') {
-      std::string bulk_str;
-      bool is_null_bulk = false;
-      if (!parse_bulk_inline(working, bulk_str, is_null_bulk)) {
+      working.remove_prefix(1);  // Remove bulk-string type byte
+
+      int64_t bulk_len64 = 0;
+      if (!ParseIntLineFast(working, bulk_len64, true)) {
         return std::nullopt;
       }
 
+      const bool is_null_bulk = bulk_len64 == -1;
       if (i == 0) {
         if (is_null_bulk) {
           return std::nullopt;
         }
-        cmd.name = std::move(bulk_str);
       } else if (is_null_bulk) {
         cmd.args.emplace_back(RespType::kNullBulkString);
-      } else {
-        cmd.args.emplace_back(std::move(bulk_str));
+        continue;
       }
+
+      if (bulk_len64 < 0) {
+        return std::nullopt;
+      }
+
+      const size_t bulk_len = static_cast<size_t>(bulk_len64);
+      if (working.size() < bulk_len + 2) {
+        return std::nullopt;
+      }
+
+      if (working[bulk_len] != '\r' || working[bulk_len + 1] != '\n') {
+        return std::nullopt;
+      }
+
+      if (i == 0) {
+        cmd.name.assign(working.data(), bulk_len);
+      } else {
+        cmd.args.emplace_back(std::string(working.data(), bulk_len));
+      }
+      working.remove_prefix(bulk_len + 2);  // Remove payload + CRLF
       continue;
     }
 

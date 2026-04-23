@@ -7,6 +7,7 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/node_hash_map.h>
 #include <absl/synchronization/mutex.h>
 
 #include <atomic>
@@ -95,8 +96,9 @@ struct ServerStats {
 
   // Thread-safe access to command stats
   absl::Mutex command_stats_mutex_;
-  absl::flat_hash_map<std::string, std::unique_ptr<CommandStats>>
+  absl::node_hash_map<std::string, std::unique_ptr<CommandStats>>
       command_stats_;
+  std::atomic<uint64_t> command_stats_generation_{1};
 
   // Get or create command stats (with global lock - performance bottleneck!)
   // TODO: This violates NO SHARING architecture - should be per-worker
@@ -127,11 +129,34 @@ struct ServerStats {
       total_commands_failed.fetch_add(1, std::memory_order_relaxed);
     }
 
-    // Try fast path first (lock-free)
-    auto* stats = TryGetCommandStats(command);
-    if (!stats) {
-      // Fall back to slow path with lock (only happens for new commands)
-      stats = GetCommandStats(command);
+    struct ThreadLocalCommandStatsCache {
+      uint64_t generation = 0;
+      std::string command;
+      CommandStats* stats = nullptr;
+    };
+    thread_local ThreadLocalCommandStatsCache cache;
+
+    const uint64_t generation =
+        command_stats_generation_.load(std::memory_order_relaxed);
+    if (cache.generation != generation) {
+      cache.generation = generation;
+      cache.command.clear();
+      cache.stats = nullptr;
+    }
+
+    CommandStats* stats = nullptr;
+    if (cache.stats != nullptr && cache.command == command) {
+      stats = cache.stats;
+    } else {
+      // Try fast path first (read lock only)
+      stats = TryGetCommandStats(command);
+      if (!stats) {
+        // Fall back to slow path with write lock (only happens for new
+        // commands)
+        stats = GetCommandStats(command);
+      }
+      cache.command = command;
+      cache.stats = stats;
     }
 
     stats->calls.fetch_add(1, std::memory_order_relaxed);
@@ -357,6 +382,7 @@ struct ServerStats {
 
     absl::MutexLock lock(&command_stats_mutex_);
     command_stats_.clear();
+    command_stats_generation_.fetch_add(1, std::memory_order_relaxed);
   }
 };
 
