@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Performance Test Script for AstraDB
-# Usage: sudo ./tests/perf_test.sh
+# Usage: sudo ./scripts/tests/perf_test.sh
 
 set -e
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 cd "$PROJECT_ROOT"
 

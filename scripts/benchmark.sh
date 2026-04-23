@@ -1,6 +1,11 @@
 #!/bin/bash
 # Benchmark script for AstraDB vs Redis
 
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "=== Benchmark Script ==="
 echo ""
 
@@ -16,7 +21,7 @@ sleep 2
 
 # Start AstraDB on 6379
 echo "Starting AstraDB on 6379..."
-cd /home/cmx/codespace/AstraDB
+cd "$PROJECT_ROOT"
 ./build-linux-package-clang/bin/astradb --config config/astradb-benchmark.toml &
 sleep 3
 
