@@ -23,7 +23,8 @@ enum class KeyType : uint8_t {
   kSet = 3,
   kZSet = 4,
   kList = 5,
-  kStream = 6
+  kStream = 6,
+  kVector = 7
 };
 
 // Key metadata - stored with every key

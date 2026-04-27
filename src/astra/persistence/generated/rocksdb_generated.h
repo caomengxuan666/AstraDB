@@ -46,6 +46,9 @@ struct SortedSetValueBuilder;
 struct KeyValue;
 struct KeyValueBuilder;
 
+struct VectorValue;
+struct VectorValueBuilder;
+
 enum ValueType : uint8_t {
   ValueType_String = 0,
   ValueType_Hash = 1,
@@ -55,11 +58,12 @@ enum ValueType : uint8_t {
   ValueType_Bitmap = 5,
   ValueType_HyperLogLog = 6,
   ValueType_Stream = 7,
+  ValueType_Vector = 8,
   ValueType_MIN = ValueType_String,
-  ValueType_MAX = ValueType_Stream
+  ValueType_MAX = ValueType_Vector
 };
 
-inline const ValueType (&EnumValuesValueType())[8] {
+inline const ValueType (&EnumValuesValueType())[9] {
   static const ValueType values[] = {
     ValueType_String,
     ValueType_Hash,
@@ -68,13 +72,14 @@ inline const ValueType (&EnumValuesValueType())[8] {
     ValueType_SortedSet,
     ValueType_Bitmap,
     ValueType_HyperLogLog,
-    ValueType_Stream
+    ValueType_Stream,
+    ValueType_Vector
   };
   return values;
 }
 
 inline const char * const *EnumNamesValueType() {
-  static const char * const names[9] = {
+  static const char * const names[10] = {
     "String",
     "Hash",
     "List",
@@ -83,13 +88,14 @@ inline const char * const *EnumNamesValueType() {
     "Bitmap",
     "HyperLogLog",
     "Stream",
+    "Vector",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameValueType(ValueType e) {
-  if (::flatbuffers::IsOutRange(e, ValueType_String, ValueType_Stream)) return "";
+  if (::flatbuffers::IsOutRange(e, ValueType_String, ValueType_Vector)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesValueType()[index];
 }
@@ -605,7 +611,8 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_HASH_VALUE = 12,
     VT_LIST_VALUE = 14,
     VT_SET_VALUE = 16,
-    VT_SORTEDSET_VALUE = 18
+    VT_SORTEDSET_VALUE = 18,
+    VT_VECTOR_VALUE = 20
   };
   AstraDB::RocksDB::ValueType value_type() const {
     return static_cast<AstraDB::RocksDB::ValueType>(GetField<uint8_t>(VT_VALUE_TYPE, 0));
@@ -631,6 +638,9 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const AstraDB::RocksDB::SortedSetValue *sortedset_value() const {
     return GetPointer<const AstraDB::RocksDB::SortedSetValue *>(VT_SORTEDSET_VALUE);
   }
+  const AstraDB::RocksDB::VectorValue *vector_value() const {
+    return GetPointer<const AstraDB::RocksDB::VectorValue *>(VT_VECTOR_VALUE);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_VALUE_TYPE, 1) &&
@@ -646,6 +656,8 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyTable(set_value()) &&
            VerifyOffset(verifier, VT_SORTEDSET_VALUE) &&
            verifier.VerifyTable(sortedset_value()) &&
+           VerifyOffset(verifier, VT_VECTOR_VALUE) &&
+           verifier.VerifyTable(vector_value()) &&
            verifier.EndTable();
   }
 };
@@ -678,6 +690,9 @@ struct KeyValueBuilder {
   void add_sortedset_value(::flatbuffers::Offset<AstraDB::RocksDB::SortedSetValue> sortedset_value) {
     fbb_.AddOffset(KeyValue::VT_SORTEDSET_VALUE, sortedset_value);
   }
+  void add_vector_value(::flatbuffers::Offset<AstraDB::RocksDB::VectorValue> vector_value) {
+    fbb_.AddOffset(KeyValue::VT_VECTOR_VALUE, vector_value);
+  }
   explicit KeyValueBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -698,10 +713,12 @@ inline ::flatbuffers::Offset<KeyValue> CreateKeyValue(
     ::flatbuffers::Offset<AstraDB::RocksDB::HashValue> hash_value = 0,
     ::flatbuffers::Offset<AstraDB::RocksDB::ListValue> list_value = 0,
     ::flatbuffers::Offset<AstraDB::RocksDB::SetValue> set_value = 0,
-    ::flatbuffers::Offset<AstraDB::RocksDB::SortedSetValue> sortedset_value = 0) {
+    ::flatbuffers::Offset<AstraDB::RocksDB::SortedSetValue> sortedset_value = 0,
+    ::flatbuffers::Offset<AstraDB::RocksDB::VectorValue> vector_value = 0) {
   KeyValueBuilder builder_(_fbb);
   builder_.add_ttl_ms(ttl_ms);
   builder_.add_timestamp(timestamp);
+  builder_.add_vector_value(vector_value);
   builder_.add_sortedset_value(sortedset_value);
   builder_.add_set_value(set_value);
   builder_.add_list_value(list_value);
@@ -709,6 +726,95 @@ inline ::flatbuffers::Offset<KeyValue> CreateKeyValue(
   builder_.add_string_value(string_value);
   builder_.add_value_type(value_type);
   return builder_.Finish();
+}
+
+struct VectorValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef VectorValueBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATA = 4,
+    VT_DIMENSION = 6,
+    VT_DISTANCE_METRIC = 8,
+    VT_INDEX_NAME = 10
+  };
+  const ::flatbuffers::Vector<float> *data() const {
+    return GetPointer<const ::flatbuffers::Vector<float> *>(VT_DATA);
+  }
+  uint32_t dimension() const {
+    return GetField<uint32_t>(VT_DIMENSION, 0);
+  }
+  uint8_t distance_metric() const {
+    return GetField<uint8_t>(VT_DISTANCE_METRIC, 0);
+  }
+  const ::flatbuffers::String *index_name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_INDEX_NAME);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATA) &&
+           verifier.VerifyVector(data()) &&
+           VerifyField<uint32_t>(verifier, VT_DIMENSION, 4) &&
+           VerifyField<uint8_t>(verifier, VT_DISTANCE_METRIC, 1) &&
+           VerifyOffset(verifier, VT_INDEX_NAME) &&
+           verifier.VerifyString(index_name()) &&
+           verifier.EndTable();
+  }
+};
+
+struct VectorValueBuilder {
+  typedef VectorValue Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_data(::flatbuffers::Offset<::flatbuffers::Vector<float>> data) {
+    fbb_.AddOffset(VectorValue::VT_DATA, data);
+  }
+  void add_dimension(uint32_t dimension) {
+    fbb_.AddElement<uint32_t>(VectorValue::VT_DIMENSION, dimension, 0);
+  }
+  void add_distance_metric(uint8_t distance_metric) {
+    fbb_.AddElement<uint8_t>(VectorValue::VT_DISTANCE_METRIC, distance_metric, 0);
+  }
+  void add_index_name(::flatbuffers::Offset<::flatbuffers::String> index_name) {
+    fbb_.AddOffset(VectorValue::VT_INDEX_NAME, index_name);
+  }
+  explicit VectorValueBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<VectorValue> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<VectorValue>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<VectorValue> CreateVectorValue(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<float>> data = 0,
+    uint32_t dimension = 0,
+    uint8_t distance_metric = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> index_name = 0) {
+  VectorValueBuilder builder_(_fbb);
+  builder_.add_index_name(index_name);
+  builder_.add_dimension(dimension);
+  builder_.add_data(data);
+  builder_.add_distance_metric(distance_metric);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<VectorValue> CreateVectorValueDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<float> *data = nullptr,
+    uint32_t dimension = 0,
+    uint8_t distance_metric = 0,
+    const char *index_name = nullptr) {
+  auto data__ = data ? _fbb.CreateVector<float>(*data) : 0;
+  auto index_name__ = index_name ? _fbb.CreateString(index_name) : 0;
+  return AstraDB::RocksDB::CreateVectorValue(
+      _fbb,
+      data__,
+      dimension,
+      distance_metric,
+      index_name__);
 }
 
 inline const AstraDB::RocksDB::KeyValue *GetKeyValue(const void *buf) {

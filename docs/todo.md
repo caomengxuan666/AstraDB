@@ -218,6 +218,128 @@ Effort: **1–2 weeks**
 
 ---
 
+## 🟡 Vector Search (In-Memory, hnswlib-backed)
+
+Status: **Not started**.  
+Architecture: FlatBuffers internal + RESP external. Vectors as 8th data type in `Database`. RocksDB-only persistence (no AOF). NO SHARING compliant.  
+Backend: hnswlib (MIT, header-only, ~3K lines). SIMD acceleration via existing `simd_utils.hpp`.  
+Effort: **6–8 weeks**
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Internal FlatBuffers, external RESP** | Consistent with existing AOF/RDB patterns; zero-copy serialization for vector blobs |
+| **Vectors in Database as 8th data type** | Follows existing String/Hash/ZSet pattern; reuses KeyMetadata, MemoryTracker, EvictionManager, batch callback |
+| **No separate KV/DB layer** | Database is already both KV store and DB layer; no benefit to splitting |
+| **NO SHARING: hash-slot routing** | VSET/VGET/VDEL route by key hash (identical to SET pattern) |
+| **NO SHARING: scatter-gather search** | VSEARCH broadcasts via CrossWorkerRequest → each worker searches local HNSW → priority-queue merge (identical to CLIENT LIST pattern) |
+| **RocksDB-only persistence** | No AOF for vectors — too verbose for float arrays. Vectors stored as RocksDB keys; HNSW rebuilt from RocksDB on restart |
+| **hnswlib, not FAISS** | Header-only, MIT license, zero build complexity, sufficient for million-scale |
+| **Post-filter metadata strategy** | Search with 2×k candidates, then apply filter conditions in-memory |
+
+### Command Set (10 commands)
+
+```
+VCREATE index DIM n DISTANCE cosine|l2|ip [M m] [EF ef]
+VDROP index
+VLIST [IDX]
+VSET index key vector [META k v ...]
+MVSET index key1 vec1 [META ...] key2 vec2 [META ...] ...
+VGET index key [VECTOR] [META]
+VDEL index key
+VSEARCH index vector k [FILTER field op val ...] [WITHVECTOR] [WITHMETA] [WITHSCORE]
+VINFO index
+VCOMPACT index
+```
+
+### Phase 1: Core Engine (3–5 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Integrate hnswlib via CPM (header-only, compile flag) | Critical |
+| 2 | Add `KeyType::kVector` to `key_metadata.hpp` | Critical |
+| 3 | Implement `VectorEntry` struct (vector bytes + metadata map) | Critical |
+| 4 | Implement `VectorIndexManager` class wrapping hnswlib per-index instances | Critical |
+| 5 | SIMD distance functions: COSINE, L2, IP using existing `simd_utils.hpp` (SSE2/AVX2/NEON) | High |
+| 6 | Vector validation (dimension check, NaN/Inf guard) | High |
+
+### Phase 2: Database Integration (2–3 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Add `vectors_` DashMap to `Database` class | Critical |
+| 2 | Add `VectorIndexManager` member to `Database` | Critical |
+| 3 | Wire VSET → key registration + metadata + HNSW insert + memory tracking | Critical |
+| 4 | Wire VDEL → cleanup from DashMap + HNSW mark-delete + RocksDB delete | Critical |
+| 5 | Wire EvictKey for kVector → RocksDB save + DashMap remove + HNSW mark-delete | High |
+| 6 | Extend `PersistKey()` with `kVector` case (FlatBuffers serialization to RocksDB) | High |
+
+### Phase 3: Commands Implementation (1–2 weeks)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | VCREATE / VDROP / VLIST — index lifecycle | Critical |
+| 2 | VSET / VGET / VDEL — single-key ops (hash-slot routed) | Critical |
+| 3 | MVSET — batch insert (per-key routing, no broadcast needed) | Critical |
+| 4 | VSEARCH — scatter-gather via CrossWorkerRequest + priority-queue merge | Critical |
+| 5 | Post-filter expression parser (`field op value` with AND combination) | High |
+| 6 | VINFO — index stats (count, dimension, memory, ef_construction) | High |
+| 7 | VCOMPACT — hnswlib mark-delete cleanup + optional RocksDB checkpoint snapshot | Medium |
+| 8 | Register all 10 commands in `RuntimeCommandRegistry` | Critical |
+| 9 | `RoutingStrategy::kNone` for VSEARCH (global broadcast, no slot routing) | Critical |
+
+### Phase 4: Persistence & Recovery (3–5 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | FlatBuffers schema for `VectorValue` (key, dimension, float32 blob, metadata fields) | Critical |
+| 2 | `RocksDBSerializer::SerializeVector` / `DeserializeVector` | Critical |
+| 3 | Startup recovery: scan RocksDB for all kVector keys → group by index_name → bulk rebuild HNSW | Critical |
+| 4 | Optional `VCOMPACT` HNSW checkpoint snapshot to RocksDB (for faster restart) | Low |
+| 5 | RDB snapshot support: include vector data in BGSAVE/SAVE output | Medium |
+
+### Phase 5: Memory Management (2–3 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Per-index memory tracking (register with existing `MemoryTracker`) | High |
+| 2 | `vector.max_memory` config option in TOML | High |
+| 3 | Vector eviction on memory pressure (LRU remove oldest entries, + HNSW mark-delete) | High |
+| 4 | Object size estimator for vector entries (dim × sizeof(float) + metadata overhead + HNSW graph edge allocation) | Medium |
+
+### Phase 6: Monitoring (1–2 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Prometheus metrics: `vector_index_count`, `vector_total`, `vector_memory_bytes` | High |
+| 2 | Prometheus metrics: `vector_search_latency_p50/p95/p99`, `vector_search_qps` | Medium |
+| 3 | Prometheus metrics: `vector_insert_qps`, `index_dimension`, `index_distance` | Medium |
+
+### Phase 7: Python Client & AI Ecosystem (3–5 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Python package `astradb-vector`: RESP-based client for all 10 commands | High |
+| 2 | LangChain `VectorStore` adapter class (~100 lines: `add_texts`, `similarity_search`, `delete`) | High |
+| 3 | LlamaIndex adapter (optional, same pattern) | Low |
+| 4 | Publish to PyPI | Low |
+| 5 | Basic usage example: RAG pipeline with OpenAI/HuggingFace embedding | Medium |
+
+### Phase 8: Testing (3–5 days)
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | Unit tests: vector validation, distance functions, HNSW index lifecycle | High |
+| 2 | Unit tests: expression parser correctness, edge cases | High |
+| 3 | Integration tests: VSET/VSEARCH round-trip, multi-index scenarios | High |
+| 4 | Integration tests: scatter-gather correctness (multi-worker) | High |
+| 5 | Integration tests: persistence round-trip (RocksDB save → restart → rebuild → verify) | High |
+| 6 | Benchmark: search latency vs vector count (10K/100K/1M scale) | Medium |
+| 7 | Benchmark: batch insert throughput | Medium |
+
+---
+
 ## 🟢 Documentation
 
 | # | Task | Priority |
@@ -245,10 +367,11 @@ Effort: **1–2 weeks**
 | Lua Scripting | 5 | 2 weeks |
 | ACL | 6 | 1 week |
 | TLS | 3 | 1–2 weeks |
+| Vector Search | 38 | 6–8 weeks |
 | Perf Optimizations | 5 | 1 week |
 | Testing | 6 | 2 weeks |
 | Documentation | 3 | 1 week |
-| **Total** | **70** | **~12–16 weeks** (est.) |
+| **Total** | **108** | **~18–24 weeks** (est.) |
 
 ### Suggested Execution Order
 
@@ -260,5 +383,9 @@ Effort: **1–2 weeks**
 6. **Slave Read-Only Mode** — medium, production safety
 7. **Replication Timeout & Auto-Reconnect** — medium, robustness
 8. **RocksDB Serialization** — medium, RocksDB all-in completeness
-9. **Testing & Validation** — run in parallel throughout
-10. **Everything else** (ASTRA commands, ACL, TLS, docs) — lower priority
+9.  **RocksDB Serialization** — medium, RocksDB all-in completeness
+10. **Vector Search — Phase 1+2 (Core + DB Integration)** — unblocks all vector work
+11. **Vector Search — Phase 3 (Commands)** — makes vector search usable end-to-end
+12. **Vector Search — Phase 4 (Persistence & Recovery)** — restart safety
+13. **Vector Search — Phase 5+6+7+8 (Memory, Monitoring, Client, Testing)** — production readiness
+14. **Everything else** (ASTRA commands, ACL, TLS, docs) — lower priority

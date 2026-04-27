@@ -9,6 +9,11 @@ if(NOT TARGET astra_container)
     ${CMAKE_CURRENT_SOURCE_DIR}
   )
   
+  # Add hnswlib include directory (required by vector_index_manager.hpp)
+  if(hnswlib_SOURCE_DIR)
+    target_include_directories(astra_container INTERFACE ${hnswlib_SOURCE_DIR})
+  endif()
+  
   target_link_libraries(astra_container INTERFACE
     absl::base
     absl::hash

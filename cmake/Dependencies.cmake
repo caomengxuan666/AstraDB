@@ -367,7 +367,7 @@ endif()
 
 # ==============================================================================
 
-# fmt - Formatting library (spdlog dependency)
+# fmt - Formatting library (provided by spdlog bundled fmt)
 # libgossip - Gossip Protocol for Cluster Communication
 # First, download the package without adding it
 CPMAddPackage(
@@ -454,11 +454,11 @@ CPMAddPackage(
         NAME
         fmt
         VERSION
-        10.2.1
+        12.1.0
         GITHUB_REPOSITORY
         fmtlib/fmt
         GIT_TAG
-        10.2.1
+        12.1.0
         OPTIONS
         "FMT_INSTALL OFF"
         "FMT_TEST OFF"
@@ -673,6 +673,17 @@ CPMAddPackage(
         "FLATBUFFERS_BUILD_DART OFF"  # Disable Dart
         "FLATBUFFERS_BUILD_GRPC OFF"  # Disable gRPC
         "FLATBUFFERS_BUILD_INSTALL OFF")
+
+# ==============================================================================
+# Vector Search
+# ==============================================================================
+
+# hnswlib - HNSW approximate nearest neighbor search
+CPMAddPackage(
+    NAME hnswlib
+    VERSION 0.8.0
+    GITHUB_REPOSITORY nmslib/hnswlib
+    GIT_TAG v0.8.0)
 
 # ==============================================================================
 # Testing and Benchmarking

@@ -15,6 +15,7 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     multi_database_bench.cpp
     rocksdb_bench.cpp
     storage_mode_bench.cpp
+    vector_bench.cpp
   )
   
   target_include_directories(astradb_benchmarks PRIVATE
@@ -22,6 +23,11 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
     ${CMAKE_CURRENT_SOURCE_DIR}/../..
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src
   )
+
+  # Add hnswlib include for vector benchmarks
+  if(hnswlib_SOURCE_DIR)
+    target_include_directories(astradb_benchmarks PRIVATE ${hnswlib_SOURCE_DIR})
+  endif()
   
   target_link_libraries(astradb_benchmarks PRIVATE
     astra_core
@@ -42,6 +48,13 @@ if(ASTRADB_BUILD_BENCHMARKS AND TARGET benchmark::benchmark)
   if(rocksdb_ADDED)
     if(TARGET rocksdb)
       target_link_libraries(astradb_benchmarks PRIVATE rocksdb)
+    endif()
+  endif()
+
+  # Link hnswlib if available (for vector benchmarks)
+  if(hnswlib_ADDED)
+    if(TARGET hnswlib)
+      target_link_libraries(astradb_benchmarks PRIVATE hnswlib)
     endif()
   endif()
   

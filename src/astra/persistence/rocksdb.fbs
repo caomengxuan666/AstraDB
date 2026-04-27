@@ -16,7 +16,8 @@ enum ValueType : uint8 {
   SortedSet = 4,
   Bitmap = 5,
   HyperLogLog = 6,
-  Stream = 7
+  Stream = 7,
+  Vector = 8
 }
 
 // String value
@@ -79,6 +80,15 @@ table KeyValue {
   list_value: ListValue;
   set_value: SetValue;
   sortedset_value: SortedSetValue;
+  vector_value: VectorValue;
+}
+
+// Vector value for semantic search (KNN)
+table VectorValue {
+  data: [float];          // raw float32 vector
+  dimension: uint32;
+  distance_metric: uint8; // 0=cosine, 1=l2, 2=ip
+  index_name: string;
 }
 
 root_type KeyValue;

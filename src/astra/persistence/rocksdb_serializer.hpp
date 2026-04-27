@@ -201,6 +201,62 @@ class RocksDBSerializer {
     return true;
   }
 
+  // Serialize vector value
+  static std::string SerializeVector(
+      const std::string& key, const std::vector<float>& vector_data,
+      const std::string& index_name, uint32_t dimension,
+      uint8_t distance_metric, int64_t timestamp = 0, int64_t ttl_ms = 0) {
+    flatbuffers::FlatBufferBuilder builder;
+
+    auto fb_vector = builder.CreateVector(vector_data);
+    auto fb_index = builder.CreateString(index_name);
+
+    auto vector_value = AstraDB::RocksDB::CreateVectorValue(
+        builder, fb_vector, dimension, distance_metric, fb_index);
+
+    AstraDB::RocksDB::KeyValueBuilder kv_builder(builder);
+    kv_builder.add_value_type(AstraDB::RocksDB::ValueType_Vector);
+    kv_builder.add_timestamp(timestamp);
+    kv_builder.add_ttl_ms(ttl_ms);
+    kv_builder.add_vector_value(vector_value);
+
+    auto kv = kv_builder.Finish();
+    builder.Finish(kv);
+
+    return std::string(
+        reinterpret_cast<const char*>(builder.GetBufferPointer()),
+        builder.GetSize());
+  }
+
+  // Deserialize vector value (fill in all output fields)
+  static bool DeserializeVector(
+      const std::string& serialized, std::vector<float>* out_vector,
+      std::string* out_index_name, uint32_t* out_dimension,
+      uint8_t* out_distance_metric, int64_t* out_timestamp = nullptr,
+      int64_t* out_ttl_ms = nullptr) {
+    auto kv = AstraDB::RocksDB::GetKeyValue(serialized.data());
+    if (!kv || kv->value_type() != AstraDB::RocksDB::ValueType_Vector) {
+      return false;
+    }
+
+    if (kv->vector_value()) {
+      auto* vec_val = kv->vector_value();
+      if (out_vector && vec_val->data()) {
+        out_vector->assign(vec_val->data()->begin(), vec_val->data()->end());
+      }
+      if (out_dimension) *out_dimension = vec_val->dimension();
+      if (out_distance_metric) *out_distance_metric = vec_val->distance_metric();
+      if (out_index_name && vec_val->index_name()) {
+        *out_index_name = vec_val->index_name()->str();
+      }
+    }
+
+    if (out_timestamp) *out_timestamp = kv->timestamp();
+    if (out_ttl_ms) *out_ttl_ms = kv->ttl_ms();
+
+    return true;
+  }
+
   // Get value type from serialized data
   static bool GetValueType(const std::string& serialized,
                            astra::storage::KeyType* out_type) {
@@ -224,6 +280,12 @@ class RocksDBSerializer {
         return true;
       case AstraDB::RocksDB::ValueType_List:
         *out_type = astra::storage::KeyType::kList;
+        return true;
+      case AstraDB::RocksDB::ValueType_Stream:
+        *out_type = astra::storage::KeyType::kStream;
+        return true;
+      case AstraDB::RocksDB::ValueType_Vector:
+        *out_type = astra::storage::KeyType::kVector;
         return true;
       default:
         return false;

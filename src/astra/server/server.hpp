@@ -59,7 +59,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   uint32_t cluster_shard_count = 256;
 
   // ACL
-  bool acl_enabled = true;
+  bool acl_enabled = false;  // disabled by default, enable via [acl] config section
   std::string acl_default_user = "default";
   std::string acl_default_password = "";
 

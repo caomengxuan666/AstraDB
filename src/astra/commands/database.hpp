@@ -23,6 +23,8 @@
 #include "astra/container/dash_map.hpp"
 #include "astra/container/linked_list.hpp"
 #include "astra/container/stream_data.hpp"
+#include "astra/container/vector_index_manager.hpp"
+#include "astra/container/vector_types.hpp"
 #include "astra/container/zset/bplustree_zset.hpp"
 #include "astra/core/memory/eviction_manager.hpp"
 #include "astra/core/memory/memory_tracker.hpp"
@@ -72,6 +74,9 @@ class Database {
   using HashType = astra::container::DashMap<std::string, std::string>;
   using ZSetType = astra::container::ZSetBPlus<std::string, double>;
   using ListType = astra::container::StringList;
+  using VectorMap =
+      astra::container::DashMap<std::string, std::shared_ptr<astra::container::VectorEntry>>;
+  using VectorIndexManager = astra::container::VectorIndexManager;
 
   Database() : string_pool_(std::make_unique<core::memory::StringPool>()) {}
   ~Database() = default;
@@ -226,6 +231,18 @@ class Database {
             "PersistKey: Stream type not yet supported for RocksDB");
         break;
       }
+      case astra::storage::KeyType::kVector: {
+        std::shared_ptr<astra::container::VectorEntry> entry;
+        if (vectors_.Get(key, &entry) && entry) {
+          uint8_t dist_metric =
+              static_cast<uint8_t>(astra::container::DistanceMetric::kL2);
+          serialized = persistence::RocksDBSerializer::SerializeVector(
+              key, entry->vector, entry->index_name,
+              static_cast<uint32_t>(entry->vector.size()), dist_metric);
+          success = !serialized.empty();
+        }
+        break;
+      }
       default:
         break;
     }
@@ -251,7 +268,8 @@ class Database {
     // Remove from all data structures
     bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
                    sets_.Remove(key) || zsets_.Remove(key) ||
-                   lists_.Remove(key) || streams_.Remove(key);
+                   lists_.Remove(key) || streams_.Remove(key) ||
+                   vectors_.Remove(key);
 
     if (removed) {
       // Get estimated size before deletion
@@ -260,9 +278,7 @@ class Database {
           core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
 
       ASTRADB_LOG_DEBUG(
-          "EvictKey: successfully removed key: {}, estimated_size={}, "
-          "metadata_size={}",
-          key, estimated_size, metadata_size);
+          "EvictKey: successfully removed key: {}", key);
 
       // Subtract memory from tracker
       if (memory_tracker_) {
@@ -277,6 +293,151 @@ class Database {
 
     ASTRADB_LOG_DEBUG("EvictKey: failed to remove key: {}", key);
     return false;
+  }
+
+  // ========== Vector Operations ==========
+
+  bool VectorCreateIndex(const std::string& name, uint32_t dim,
+                         container::DistanceMetric dist, uint32_t M = 16,
+                         uint32_t ef = 200) {
+    container::IndexConfig config;
+    config.name = name;
+    config.dimension = dim;
+    config.distance_metric = dist;
+    config.M = M;
+    config.ef_construction = ef;
+    config.ef_search = ef;
+    return vector_index_mgr_.CreateIndex(config);
+  }
+
+  bool VectorDropIndex(const std::string& name) {
+    return vector_index_mgr_.DropIndex(name);
+  }
+
+  bool VectorHasIndex(const std::string& name) const {
+    return vector_index_mgr_.HasIndex(name);
+  }
+
+  std::vector<std::string> VectorListIndexes() const {
+    return vector_index_mgr_.GetIndexNames();
+  }
+
+  container::IndexStats VectorGetStats(const std::string& name) const {
+    return vector_index_mgr_.GetStats(name);
+  }
+
+  bool VecSet(const std::string& index_name, const std::string& key,
+              const std::vector<float>& vector,
+              const std::unordered_map<std::string, container::MetaValue>&
+                  metadata = {}) {
+    if (!vector_index_mgr_.HasIndex(index_name)) {
+      ASTRADB_LOG_ERROR("VecSet: index '{}' not found", index_name);
+      return false;
+    }
+
+    auto stats = vector_index_mgr_.GetStats(index_name);
+    if (vector.size() != stats.dimension) {
+      ASTRADB_LOG_ERROR("VecSet: dim mismatch {} vs {}", vector.size(),
+                        stats.dimension);
+      return false;
+    }
+
+    auto entry = std::make_shared<container::VectorEntry>(vector, index_name);
+    entry->metadata = metadata;
+
+    bool key_existed = vectors_.Contains(key);
+    if (key_existed) {
+      VecDel(index_name, key);
+    }
+
+    vectors_.Insert(key, std::move(entry));
+    metadata_manager_.RegisterKey(key, astra::storage::KeyType::kVector);
+    metadata_manager_.UpdateAccessInfo(key);
+
+    uint64_t internal_id = std::hash<std::string>{}(key);
+    auto inserted = vector_index_mgr_.AddVector(index_name, internal_id,
+                                                 vector.data());
+
+    if (!inserted) {
+      ASTRADB_LOG_ERROR("VecSet: AddVector failed for key='{}' id={}", key,
+                        internal_id);
+      return false;
+    }
+
+    if (inserted && memory_tracker_) {
+      size_t bytes = vector.size() * sizeof(float) +
+                     key.size() + 64;
+      memory_tracker_->AddMemory(bytes);
+    }
+
+    if (inserted && storage_mode_ == base::StorageMode::kRocksDB) {
+      PersistKey(key, astra::storage::KeyType::kVector);
+    }
+
+    return inserted;
+  }
+
+  std::optional<container::VectorEntry> VecGet(
+      const std::string& key) {
+    std::shared_ptr<container::VectorEntry> entry;
+    if (vectors_.Get(key, &entry)) {
+      metadata_manager_.UpdateAccessInfo(key);
+      return *entry;
+    }
+
+    if (rocksdb_adapter_) {
+      auto serialized = rocksdb_adapter_->Get(key);
+      if (serialized.has_value()) {
+        std::vector<float> vec_data;
+        std::string idx_name;
+        uint32_t dimension = 0;
+        uint8_t dist_metric = 0;
+        if (persistence::RocksDBSerializer::DeserializeVector(
+                *serialized, &vec_data, &idx_name, &dimension,
+                &dist_metric)) {
+          auto entry_ptr =
+              std::make_shared<astra::container::VectorEntry>(
+                  std::move(vec_data), idx_name);
+          vectors_.Insert(key, entry_ptr);
+          metadata_manager_.RegisterKey(key,
+                                        astra::storage::KeyType::kVector);
+          metadata_manager_.UpdateAccessInfo(key);
+          return *entry_ptr;
+        }
+      }
+    }
+
+    return std::nullopt;
+  }
+
+  bool VecDel(const std::string& index_name, const std::string& key) {
+    std::shared_ptr<container::VectorEntry> entry;
+    if (vectors_.Get(key, &entry)) {
+      uint64_t internal_id = std::hash<std::string>{}(key);
+      vector_index_mgr_.RemoveVector(index_name, internal_id);
+    }
+    bool removed = vectors_.Remove(key);
+    if (removed) {
+      metadata_manager_.UnregisterKey(key);
+      if (storage_mode_ == base::StorageMode::kRocksDB && rocksdb_adapter_) {
+        rocksdb_adapter_->Delete(key);
+      }
+    }
+    return removed;
+  }
+
+  std::vector<std::pair<uint64_t, float>> VecSearch(
+      const std::string& index_name, const std::vector<float>& query,
+      size_t k) {
+    return vector_index_mgr_.SearchKNN(index_name, query.data(), k);
+  }
+
+  size_t VectorGetCount() const {
+    return vector_index_mgr_.TotalVectorCount();
+  }
+
+  void CompactVectorIndex(const std::string& name) {
+    vector_index_mgr_.CompactIndex(name);
   }
 
   // ========== Stream Operations ==========
@@ -539,7 +700,8 @@ class Database {
     // Remove from all data structures
     bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
                    sets_.Remove(key) || zsets_.Remove(key) ||
-                   lists_.Remove(key) || streams_.Remove(key);
+                   lists_.Remove(key) || streams_.Remove(key) ||
+                   vectors_.Remove(key);
 
     if (removed && memory_tracker_) {
       // Subtract memory from tracker (data + metadata)
@@ -2281,6 +2443,8 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<ZSetType>> zsets_;
   astra::container::DashMap<std::string, std::shared_ptr<ListType>> lists_;
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
+  VectorMap vectors_;
+  VectorIndexManager vector_index_mgr_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned

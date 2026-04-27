@@ -1928,6 +1928,43 @@ class Worker {
       }
 
       // Wait if no work (using absl condition variable for best performance)
+      //
+      // ==========================================================================
+      // P99 LATENCY ANALYSIS (2026-04-28, vector search benchmark):
+      // ==========================================================================
+      // This 1ms WaitWithTimeout is the root cause of ~1ms P99 tail latency for
+      // single-command workloads (e.g., VSEARCH). Breakdown:
+      //
+      //   Configuration         P50      P95      P99
+      //   16 workers / 20 cores  18µs     40µs   1047µs  ← 1ms spike
+      //    4 workers / 20 cores  17µs     23µs     56µs  ← spike gone
+      //
+      // Root cause: with many workers, the executor thread of the worker that
+      // happens to receive a VSEARCH (SO_REUSEPORT random) is often idle and
+      // waiting in WaitWithTimeout(1ms). Although NotifyExecutorLoop() calls
+      // Signal() immediately when a command arrives, the absl::CondVar on Linux
+      // futex can incur kernel scheduling jitter under high thread contention
+      // (32 threads on 20 cores), effectively delaying the wakeup by up to the
+      // full timeout period.
+      //
+      // OPTIMIZATION PATHS (not applied yet — premature optimization is evil):
+      //
+      // Phase 1 (lowest risk): Reduce timeout to 100µs.
+      //   absl::Milliseconds(1) → absl::Microseconds(100)
+      //   Effect: P99 cap drops from 1ms to 100µs. CPU overhead negligible
+      //   (idle workers spin a bit more often, but they have nothing to do).
+      //
+      // Phase 2 (better burst latency): Spin-then-sleep.
+      //   Before entering the mutex, busy-check cmd_queue_ for ~200µs:
+      //     for (int spin = 0; spin < 20; spin++)
+      //         if (cmd_queue_.size_approx() > 0) { has_work = true; break; }
+      //   Effect: bypasses futex altogether for bursty workloads, P50 < 10µs.
+      //
+      // Phase 3 (ideal, larger refactor): eventfd per executor.
+      //   Replace absl::CondVar with eventfd write/read + epoll on the IO
+      //   thread. Guarantees atomic kernel-level notification with zero
+      //   user-space lock contention. Requires ~200 LOC changes in worker.hpp.
+      //
       // NOTE: 1ms timeout to handle edge cases where NotifyExecutorLoop() might
       // be missed This provides a balance between:
       // - Zero latency (when notification works correctly)

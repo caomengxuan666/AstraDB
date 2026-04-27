@@ -40,6 +40,11 @@ if(rocksdb_SOURCE_DIR)
   target_include_directories(astra_commands PUBLIC ${rocksdb_SOURCE_DIR}/include)
 endif()
 
+# Add hnswlib include directory (required by vector_index_manager.hpp)
+if(hnswlib_SOURCE_DIR)
+  target_include_directories(astra_commands PUBLIC ${hnswlib_SOURCE_DIR})
+endif()
+
 # All command files (including core registration logic)
 target_sources(
   astra_commands
@@ -67,6 +72,7 @@ target_sources(
           redis/client_commands.cpp
           # Astra-specific commands
           astra/astra_commands.cpp
+          astra/vector_commands.cpp
           # Common utilities
           blocking_manager.cpp)
 
