@@ -137,13 +137,12 @@ int main(int argc, char** argv) {
   astra::base::InitLogging(config.log_file, log_level, config.log_async,
                            config.log_queue_size);
 
-  // Print AstraDB startup banner (constellation + info box)
-  // Width: ~62 chars, compatible with standard 80-column terminals
-  // Constellation: 17-line symmetric star-chart, info on right panel
+  // Print AstraDB startup banner (constellation logo + info)
+  // Width: ~56 chars, fits standard 80-column terminals
+  // Left: symmetric star-chart constellation, Right: product info
 
   auto C = [](int r, int g, int b) { return fmt::fg(fmt::rgb(r, g, b)); };
   auto B = fmt::emphasis::bold;
-  auto BOX = C(120, 180, 240);
   auto LINE = C(80, 160, 240);
   auto DOT = C(255, 255, 0);
   auto STAR = C(255, 200, 0) | B;
@@ -152,85 +151,42 @@ int main(int argc, char** argv) {
   auto VER = C(255, 180, 60);
 
   fmt::print("\n");
-  fmt::print(BOX | B, "╭{0:─^62}╮\n", "");
-  fmt::print(BOX | B, "│{0:^62}│\n", "");
-  fmt::print(BOX, "│ ");
-  fmt::print(STAR, "       ★                   ★      ");
-  fmt::print(BOX, " │");
+  fmt::print(STAR, "        ★                   ★      ");
   fmt::print(TEXT, " AstraDB  ");
-  fmt::print(VER, "v{}", ASTRADB_VERSION);
-  fmt::print(BOX, " │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "      ╱ ╲                 ╱ ╲     ");
-  fmt::print(BOX, " │");
-  fmt::print(TEXT, " Redis-compatible         ");
-  fmt::print(BOX, " │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(DOT, "     ·───·");
+  fmt::print(VER, "v{}\n", ASTRADB_VERSION);
+  fmt::print(LINE, "       ╱ ╲                 ╱ ╲     ");
+  fmt::print(TEXT, " Redis-compatible\n");
+  fmt::print(DOT, "      ·───·");
   fmt::print(LINE, "───────────────");
   fmt::print(DOT, "·───·    ");
-  fmt::print(BOX, " │");
-  fmt::print(TEXT, " NO SHARING · C++23        ");
-  fmt::print(BOX, " │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "    ╱                         ╲    ");
-  fmt::print(BOX, " │");
-  fmt::print(TEXT, " 250+ Commands · SIMD      ");
-  fmt::print(BOX, " │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(STAR, "   ★");
+  fmt::print(TEXT, " NO SHARING · C++23\n");
+  fmt::print(LINE, "     ╱                         ╲    ");
+  fmt::print(TEXT, " 250+ Commands · SIMD\n");
+  fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
-  fmt::print(STAR, "★   ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "    ╲     ╱ ╲           ╲     ╱    ");
-  fmt::print(BOX, " │");
-  fmt::print(TEXT, " ★ Constellations ★       ");
-  fmt::print(BOX, " │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(DOT, "     ·───");
+  fmt::print(STAR, "★");
+  fmt::print(TEXT, "   ★ Constellations ★\n");
+  fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱\n");
+  fmt::print(DOT, "      ·───");
   fmt::print(STAR, "★");
   fmt::print(DOT, "───·           ·───");
-  fmt::print(STAR, "★     ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "      ╲ ╱     ╲         ╱           ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(STAR, "       ★       ★───●───★           ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "      ╱ ╲     ╱         ╲           ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(DOT, "     ·───·───");
+  fmt::print(STAR, "★\n");
+  fmt::print(LINE, "       ╲ ╱     ╲         ╱\n");
+  fmt::print(STAR, "        ★       ★───●───★\n");
+  fmt::print(LINE, "       ╱ ╲     ╱         ╲\n");
+  fmt::print(DOT, "      ·───·───");
   fmt::print(STAR, "★           ");
-  fmt::print(LINE, "╲          ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "    ╱                         ╲    ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(STAR, "   ★");
+  fmt::print(LINE, "╲\n");
+  fmt::print(LINE, "     ╱                         ╲\n");
+  fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
-  fmt::print(STAR, "★   ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "    ╲                         ╱    ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(DOT, "     ·───·");
+  fmt::print(STAR, "★\n");
+  fmt::print(LINE, "     ╲                         ╱\n");
+  fmt::print(DOT, "      ·───·");
   fmt::print(LINE, "───────────────");
-  fmt::print(DOT, "·───·    ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(LINE, "      ╲ ╱                 ╲ ╱     ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX, "│ ");
-  fmt::print(STAR, "       ★                   ★      ");
-  fmt::print(BOX, " │                            │\n");
-  fmt::print(BOX | B, "│{0:^62}│\n", "");
-  fmt::print(BOX | B, "╰{0:^62}╯\n", "");
+  fmt::print(DOT, "·───·\n");
+  fmt::print(LINE, "       ╲ ╱                 ╲ ╱\n");
+  fmt::print(STAR, "        ★                   ★\n");
   fmt::print("\n");
 
   // Print version information
