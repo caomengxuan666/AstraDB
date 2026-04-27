@@ -166,22 +166,81 @@ int main(int argc, char** argv) {
   fmt::print(LINE, "───────·───────────·───────");
   fmt::print(STAR, "★");
   fmt::print(TEXT, "   ★ Constellations ★\n");
-  fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱\n");
+
+  fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱");
+  fmt::print(TEXT, "    "
+#ifdef __clang__
+  "Compiler: Clang"
+#elif defined(__GNUC__)
+  "Compiler: GCC"
+#else
+  "Compiler: Unknown"
+#endif
+  "\n");
+
   fmt::print(DOT, "      ·───");
   fmt::print(STAR, "★");
   fmt::print(DOT, "───·           ·───");
-  fmt::print(STAR, "★\n");
-  fmt::print(LINE, "       ╲ ╱     ╲         ╱\n");
-  fmt::print(STAR, "        ★       ★───●───★\n");
-  fmt::print(LINE, "       ╱ ╲     ╱         ╲\n");
+  fmt::print(STAR, "★");
+  fmt::print(TEXT, "   "
+#if defined(__linux__)
+  "Platform: Linux"
+#elif defined(__APPLE__)
+  "Platform: macOS"
+#elif defined(_WIN32)
+  "Platform: Windows"
+#endif
+  " · "
+#if defined(__x86_64__) || defined(_M_X64)
+  "x86_64"
+#elif defined(__aarch64__)
+  "aarch64"
+#endif
+  "\n");
+
+  fmt::print(LINE, "       ╲ ╱     ╲         ╱");
+  fmt::print(TEXT, "       "
+#ifdef __AVX2__
+  "SIMD: AVX2"
+#elif defined(__SSE4_2__)
+  "SIMD: SSE4.2"
+#elif defined(__ARM_NEON)
+  "SIMD: NEON"
+#else
+  "SIMD: SSE2/SSE4"
+#endif
+  "\n");
+
+  fmt::print(STAR, "        ★       ★───●───★");
+  fmt::print(TEXT, "   Vector Search: hnswlib\n");
+
+  fmt::print(LINE, "       ╱ ╲     ╱         ╲");
+  fmt::print(TEXT, "       RocksDB · FlatBuffers\n");
+
   fmt::print(DOT, "      ·───·───");
   fmt::print(STAR, "★           ");
-  fmt::print(LINE, "╲\n");
-  fmt::print(LINE, "     ╱                         ╲\n");
+  fmt::print(LINE, "╲");
+  fmt::print(TEXT, "          TLS: ");
+#ifdef ASTRADB_ENABLE_TLS
+  fmt::print(TEXT, "enabled\n");
+#else
+  fmt::print(TEXT, "disabled\n");
+#endif
+
+  fmt::print(LINE, "     ╱                         ╲");
+  fmt::print(TEXT, "    Cluster: "
+#ifdef ASTRADB_CLUSTER_ENABLED
+  "enabled"
+#else
+  "disabled"
+#endif
+  "\n");
+
   fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
   fmt::print(STAR, "★\n");
-  fmt::print(LINE, "     ╲                         ╱\n");
+  fmt::print(LINE, "     ╲                         ╱");
+  fmt::print(TEXT, "    Threads: auto-detect\n");
   fmt::print(DOT, "      ·───·");
   fmt::print(LINE, "───────────────");
   fmt::print(DOT, "·───·\n");
