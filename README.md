@@ -20,7 +20,8 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Zero-Copy Serialization**: FlatBuffers-based efficient serialization
 - **Flexible Threading**: Support for both single-threaded and multi-threaded modes
 - **Dual Backend**: epoll (stable) and io_uring (high performance) support
-- **Rich Commands**: Support for 250+ Redis commands across all data types
+- **Vector Search**: In-memory ANN search with hnswlib (cosine/L2/IP)
+- **Rich Commands**: Support for 260+ Redis commands across all data types
 - **Persistence**: AOF (Append Only File), RDB snapshots, and ROCKSDB integration
 - **Cluster Support**: Gossip-based cluster management with libgossip
 - **Security**: Access Control List (ACL) support
@@ -54,7 +55,7 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Real Blocking**: Full blocking command implementation (BLPOP, BRPOP, etc.)
 - **Raft Consensus**: Distributed consensus for cluster management
 - **TLS Encryption**: Secure connections with OpenSSL
-- **Vector Search**: ANN search for Redis Search compatibility
+- **Scatter-Gather VSEARCH**: Parallel multi-worker vector search
 - **Redis Modules compatibility**: Support for Redis Modules API
 
 ## 📊 Performance
@@ -110,7 +111,7 @@ For historical investigation notes and older experiments, see `PERFORMANCE.md`.
 │  Data Structures Layer                                         │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  DashMap | B+ Tree ZSet | String Pool | Linked List       │  │
-│  │  Stream Data | FlatBuffers Serialization                   │  │
+│  │  Stream Data | HNSW Vector Index | FlatBuffers Serialize   │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                              ↓                                   │
 │  Storage Layer                                                 │
@@ -153,6 +154,7 @@ Cluster & Security:
 | **Thread Pool** | Intel TBB | 2021.12.0 | Work-stealing scheduler |
 | **Concurrent Queue** | concurrentqueue | 1.0.4 | Lock-free queue |
 | **Cluster** | libgossip | 1.2.0 | Gossip protocol |
+| **Vector Search** | hnswlib | 0.8.0 | HNSW approximate nearest neighbor |
 | **Storage** | ROCKSDB | Latest | Key-value store |
 | **Metrics** | Prometheus Client | 1.2.4 | Metrics collection |
 | **Compression** | zstd | 1.5.6 | Fast compression |
@@ -387,6 +389,50 @@ redis-cli -p 6379 ZADD myzset 1 "one" 2 "two" 3 "three"
 redis-cli -p 6379 ZRANGE myzset 0 -1 WITHSCORES
 ```
 
+### Vector Search Quick Start 🆕
+
+```bash
+# Start AstraDB
+./build-release/bin/astradb --port 6379
+
+# Use the bundled Python benchmark script
+python3 scripts/vector_bench.py --dim 512 --count 5000 --search-qps-duration 10
+
+# Or test manually with raw RESP commands:
+# Create a 512-dim cosine index
+printf '*4\r\n$7\r\nVCREATE\r\n$2\r\ndb\r\n$3\r\n512\r\n$6\r\ncosine\r\n' | nc 127.0.0.1 6379
+
+# Search with a query vector (requires raw float32 bytes)
+```
+
+```python
+# Python example using raw sockets
+import socket, struct, random
+
+def resp_cmd(sock, *args):
+    parts = [f'*{len(args)}\r\n'.encode()]
+    for a in args:
+        b = a if isinstance(a, bytes) else a.encode()
+        parts.append(f'${len(b)}\r\n'.encode() + b + b'\r\n')
+    sock.sendall(b''.join(parts))
+    return sock.recv(1024)
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect(('127.0.0.1', 6379))
+
+# Create index
+resp_cmd(sock, 'VCREATE', 'docs', '768', 'cosine')
+
+# Insert a vector (768-dimensional random)
+vec = struct.pack('768f', *[random.gauss(0, 1) for _ in range(768)])
+resp_cmd(sock, 'VSET', 'docs', 'doc:1', vec)
+
+# Search top-10
+query = struct.pack('768f', *[random.gauss(0, 1) for _ in range(768)])
+result = resp_cmd(sock, 'VSEARCH', 'docs', query, '10')
+print(result)
+```
+
 ### Benchmarking
 
 ```bash
@@ -457,19 +503,19 @@ Contributions are welcome! Please follow these guidelines:
 - [ ] Raft consensus
 - [ ] Full Redis compatibility (100%)
 - [ ] Comprehensive documentation
+- [x] Vector search (in-memory, hnswlib, cosine/L2/IP)
 
 ### v1.2.0 (Future)
 
 - [ ] TLS encryption
 - [ ] Full RESP3 protocol
-- [ ] Vector search
+- [ ] Scatter-gather multi-worker VSEARCH
 - [ ] Redis Modules compatibility
 - [ ] Web UI for monitoring
-- [ ] Comprehensive documentation
 
 ### Implemented Commands (250+)
 
-AstraDB has implemented **250+ Redis commands**, covering all major data types and features. We aim to achieve **100% Redis 7.4.1 compatibility**.
+AstraDB has implemented **260+ Redis commands**, covering all major data types and features. We aim to achieve **100% Redis 7.4.1 compatibility**.
 
 #### String Commands (30+)
 - `GET`, `SET`, `DEL`, `EXISTS`, `MGET`, `MSET`, `MSETNX`
@@ -553,6 +599,18 @@ AstraDB has implemented **250+ Redis commands**, covering all major data types a
 #### Replication Commands (5+)
 - `SYNC`, `PSYNC`, `REPLCONF`, `SLAVEOF`, `REPLICAOF`, `ROLE`
 
+#### Vector Search Commands (10) 🆕
+- `VCREATE` — Create a vector index with dimension and distance metric
+- `VDROP` — Drop a vector index
+- `VLIST` — List all vector indexes
+- `VSET` — Insert/update a vector with optional metadata
+- `MVSET` — Batch insert multiple vectors
+- `VGET` — Retrieve a vector entry
+- `VDEL` — Delete a vector entry
+- `VSEARCH` — KNN search by vector similarity
+- `VINFO` — Get vector index statistics
+- `VCOMPACT` — Compact vector index (remove deleted entries)
+
 #### TTL Commands (9+)
 - `TTL`, `PTTL`, `EXPIRE`, `PEXPIRE`, `EXPIREAT`, `PEXPIREAT`
 - `EXPIRETIME`, `PEXPIRETIME`, `PERSIST`
@@ -579,7 +637,8 @@ AstraDB has implemented **250+ Redis commands**, covering all major data types a
 | Cluster | 5+ | ✅ Complete |
 | Replication | 6 | ✅ Complete |
 | TTL | 9 | ✅ Complete |
-| **Total** | **250+** | **96%+** |
+| Vector Search | 10 | ✅ New |
+| **Total** | **260+** | **96%+** |
 
 ### Command Implementation Notes
 
@@ -624,6 +683,7 @@ All 250+ commands are registered and functional. We aim for **100% Redis 7.4.1 c
 | MPSC Queues | ❌ | ✅ | ✅ |
 | Zero-Copy I/O | ❌ | ✅ | ✅ |
 | C++23 | ❌ | ❌ | ✅ |
+| Vector Search | ✅ (RediSearch) | ❌ | ✅ (hnswlib) |
 
 ## 🔐 Security
 
