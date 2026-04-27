@@ -151,24 +151,24 @@ int main(int argc, char** argv) {
   auto VER = C(255, 180, 60);
 
   fmt::print("\n");
-  fmt::print(STAR, "        ★                   ★      ");
-  fmt::print(TEXT, " AstraDB  ");
+  fmt::print(STAR, "        ★                   ★       ");
+  fmt::print(TEXT, "AstraDB  ");
   fmt::print(VER, "v{}\n", ASTRADB_VERSION);
-  fmt::print(LINE, "       ╱ ╲                 ╱ ╲     ");
-  fmt::print(TEXT, " Redis-compatible\n");
+  fmt::print(LINE, "       ╱ ╲                 ╱ ╲      ");
+  fmt::print(TEXT, "Redis-compatible\n");
   fmt::print(DOT, "      ·───·");
   fmt::print(LINE, "───────────────");
-  fmt::print(DOT, "·───·    ");
-  fmt::print(TEXT, " NO SHARING · C++23\n");
+  fmt::print(DOT, "·───·     ");
+  fmt::print(TEXT, "NO SHARING · C++23\n");
   fmt::print(LINE, "     ╱                         ╲    ");
-  fmt::print(TEXT, " 250+ Commands · SIMD\n");
+  fmt::print(TEXT, "250+ Commands · SIMD\n");
   fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
-  fmt::print(STAR, "★");
-  fmt::print(TEXT, "   ★ Constellations ★\n");
+  fmt::print(STAR, "★   ");
+  fmt::print(TEXT, "★ Constellations ★\n");
 
-  fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱");
-  fmt::print(TEXT, "    "
+  fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱    ");
+  fmt::print(TEXT, ""
 #ifdef __clang__
   "Compiler: Clang"
 #elif defined(__GNUC__)
@@ -181,8 +181,8 @@ int main(int argc, char** argv) {
   fmt::print(DOT, "      ·───");
   fmt::print(STAR, "★");
   fmt::print(DOT, "───·           ·───");
-  fmt::print(STAR, "★");
-  fmt::print(TEXT, "   "
+  fmt::print(STAR, "★     ");
+  fmt::print(TEXT, ""
 #if defined(__linux__)
   "Platform: Linux"
 #elif defined(__APPLE__)
@@ -198,8 +198,8 @@ int main(int argc, char** argv) {
 #endif
   "\n");
 
-  fmt::print(LINE, "       ╲ ╱     ╲         ╱");
-  fmt::print(TEXT, "       "
+  fmt::print(LINE, "       ╲ ╱     ╲         ╱          ");
+  fmt::print(TEXT, ""
 #ifdef __AVX2__
   "SIMD: AVX2"
 #elif defined(__SSE4_2__)
@@ -211,24 +211,24 @@ int main(int argc, char** argv) {
 #endif
   "\n");
 
-  fmt::print(STAR, "        ★       ★───●───★");
-  fmt::print(TEXT, "   Vector Search: hnswlib\n");
+  fmt::print(STAR, "        ★       ★───●───★           ");
+  fmt::print(TEXT, "Vector Search: hnswlib\n");
 
-  fmt::print(LINE, "       ╱ ╲     ╱         ╲");
-  fmt::print(TEXT, "       RocksDB · FlatBuffers\n");
+  fmt::print(LINE, "       ╱ ╲     ╱         ╲          ");
+  fmt::print(TEXT, "RocksDB · FlatBuffers\n");
 
   fmt::print(DOT, "      ·───·───");
   fmt::print(STAR, "★           ");
-  fmt::print(LINE, "╲");
-  fmt::print(TEXT, "          TLS: ");
+  fmt::print(LINE, "╲         ");
+  fmt::print(TEXT, "TLS: ");
 #ifdef ASTRADB_ENABLE_TLS
   fmt::print(TEXT, "enabled\n");
 #else
   fmt::print(TEXT, "disabled\n");
 #endif
 
-  fmt::print(LINE, "     ╱                         ╲");
-  fmt::print(TEXT, "    Cluster: "
+  fmt::print(LINE, "     ╱                         ╲    ");
+  fmt::print(TEXT, "Cluster: "
 #ifdef ASTRADB_CLUSTER_ENABLED
   "enabled"
 #else
@@ -238,14 +238,35 @@ int main(int argc, char** argv) {
 
   fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
-  fmt::print(STAR, "★\n");
-  fmt::print(LINE, "     ╲                         ╱");
-  fmt::print(TEXT, "    Threads: auto-detect\n");
+  fmt::print(STAR, "★   ");
+  fmt::print(TEXT, "Port: {}\n", config.port);
+
+  fmt::print(LINE, "     ╲                         ╱    ");
+  fmt::print(TEXT, "Threads: ");
+  if (config.thread_count == 0)
+    fmt::print(TEXT, "auto\n");
+  else
+    fmt::print(TEXT, "{}\n", config.thread_count);
+
   fmt::print(DOT, "      ·───·");
   fmt::print(LINE, "───────────────");
-  fmt::print(DOT, "·───·\n");
-  fmt::print(LINE, "       ╲ ╱                 ╲ ╱\n");
-  fmt::print(STAR, "        ★                   ★\n");
+  fmt::print(DOT, "·───·     ");
+  fmt::print(TEXT, "Eviction: {}\n", config.memory.eviction_policy);
+
+  fmt::print(LINE, "       ╲ ╱                 ╲ ╱      ");
+  fmt::print(TEXT, "Max Memory: ");
+  if (config.memory.max_memory == 0)
+    fmt::print(TEXT, "unlimited\n");
+  else
+    fmt::print(TEXT, "{} MiB\n", config.memory.max_memory / (1024*1024));
+
+  fmt::print(STAR, "        ★                   ★       ");
+  fmt::print(TEXT, "Replication: ");
+  if (config.replication.enabled)
+    fmt::print(TEXT, "{}\n", config.replication.role);
+  else
+    fmt::print(TEXT, "disabled\n");
+
   fmt::print("\n");
 
   // Print version information
