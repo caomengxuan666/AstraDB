@@ -137,29 +137,101 @@ int main(int argc, char** argv) {
   astra::base::InitLogging(config.log_file, log_level, config.log_async,
                            config.log_queue_size);
 
-  // Print AstraDB startup banner with ASCII art logo (always visible)
-  // Use vibrant gradient colors from cyan to magenta via RGB
+  // Print AstraDB startup banner (constellation + info box)
+  // Width: ~62 chars, compatible with standard 80-column terminals
+  // Constellation: 17-line symmetric star-chart, info on right panel
 
-  // clang-format off
+  auto C = [](int r, int g, int b) { return fmt::fg(fmt::rgb(r, g, b)); };
+  auto B = fmt::emphasis::bold;
+  auto BOX = C(120, 180, 240);
+  auto LINE = C(80, 160, 240);
+  auto DOT = C(255, 255, 0);
+  auto STAR = C(255, 200, 0) | B;
+  auto CENTER = C(255, 255, 255) | B;
+  auto TEXT = C(180, 210, 255);
+  auto VER = C(255, 180, 60);
+
   fmt::print("\n");
-  fmt::print(fmt::fg(fmt::rgb(0, 255, 255)) | fmt::emphasis::bold, "               AAA                                       tttt                                             DDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB   \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 230, 255)) | fmt::emphasis::bold, "              A:::A                                   ttt:::t                                             D::::::::::::DDD   B::::::::::::::::B  \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 200, 255)) | fmt::emphasis::bold, "             A:::::A                                  t:::::t                                             D:::::::::::::::DD B::::::BBBBBB:::::B \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 175, 255)) | fmt::emphasis::bold, "            A:::::::A                                 t:::::t                                             DDD:::::DDDDD:::::DBB:::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(0, 150, 255)) | fmt::emphasis::bold, "           A:::::::::A             ssssssssss   ttttttt:::::ttttttt   rrrrr   rrrrrrrrr   aaaaaaaaaaaaa     D:::::D    D:::::D B::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(0, 125, 255)) | fmt::emphasis::bold, "          A:::::A:::::A          ss::::::::::s  t:::::::::::::::::t   r::::rrr:::::::::r  a::::::::::::a    D:::::D     D:::::DB::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(0, 100, 255)) | fmt::emphasis::bold, "         A:::::A A:::::A       ss:::::::::::::s t:::::::::::::::::t   r:::::::::::::::::r aaaaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 75, 255)) | fmt::emphasis::bold,  "        A:::::A   A:::::A      s::::::ssss:::::stttttt:::::::tttttt   rr::::::rrrrr::::::r         a::::a   D:::::D     D:::::DB:::::::::::::BB  \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 50, 255)) | fmt::emphasis::bold,  "       A:::::A     A:::::A      s:::::s  ssssss       t:::::t          r:::::r     r:::::r  aaaaaaa:::::a   D:::::D     D:::::DB::::BBBBBB:::::B \n");
-  fmt::print(fmt::fg(fmt::rgb(0, 25, 255)) | fmt::emphasis::bold,  "      A:::::AAAAAAAAA:::::A       s::::::s            t:::::t          r:::::r     rrrrrrraa::::::::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(75, 0, 255)) | fmt::emphasis::bold,  "     A:::::::::::::::::::::A         s::::::s         t:::::t          r:::::r           a::::aaaa::::::a   D:::::D     D:::::DB::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(125, 0, 255)) | fmt::emphasis::bold, "    A:::::AAAAAAAAAAAAA:::::A  ssssss   s:::::s       t:::::t    ttttttr:::::r          a::::a    a:::::a   D:::::D    D:::::D B::::B     B:::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(175, 0, 255)) | fmt::emphasis::bold, "   A:::::A             A:::::A s:::::ssss::::::s      t::::::tttt:::::tr:::::r          a::::a    a:::::a DDD:::::DDDDD:::::DBB:::::BBBBBB::::::B\n");
-  fmt::print(fmt::fg(fmt::rgb(200, 0, 255)) | fmt::emphasis::bold, "  A:::::A               A:::::As::::::::::::::s       tt::::::::::::::tr:::::r          a:::::aaaa::::::a D:::::::::::::::DD B:::::::::::::::::B \n");
-  fmt::print(fmt::fg(fmt::rgb(225, 0, 255)) | fmt::emphasis::bold, " A:::::A                 A:::::As:::::::::::ss          tt:::::::::::ttr:::::r           a::::::::::aa:::aD::::::::::::DDD   B::::::::::::::::B  \n");
-  fmt::print(fmt::fg(fmt::rgb(255, 0, 255)) | fmt::emphasis::bold, "AAAAAAA                   AAAAAAAsssssssssss              ttttttttttt  rrrrrrr            aaaaaaaaaa  aaaaDDDDDDDDDDDDD      BBBBBBBBBBBBBBBBB \n");
+  fmt::print(BOX | B, "╭{0:─^62}╮\n", "");
+  fmt::print(BOX | B, "│{0:^62}│\n", "");
+  fmt::print(BOX, "│ ");
+  fmt::print(STAR, "       ★                   ★      ");
+  fmt::print(BOX, " │");
+  fmt::print(TEXT, " AstraDB  ");
+  fmt::print(VER, "v{}", ASTRADB_VERSION);
+  fmt::print(BOX, " │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "      ╱ ╲                 ╱ ╲     ");
+  fmt::print(BOX, " │");
+  fmt::print(TEXT, " Redis-compatible         ");
+  fmt::print(BOX, " │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(DOT, "     ·───·");
+  fmt::print(LINE, "───────────────");
+  fmt::print(DOT, "·───·    ");
+  fmt::print(BOX, " │");
+  fmt::print(TEXT, " NO SHARING · C++23        ");
+  fmt::print(BOX, " │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "    ╱                         ╲    ");
+  fmt::print(BOX, " │");
+  fmt::print(TEXT, " 250+ Commands · SIMD      ");
+  fmt::print(BOX, " │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(STAR, "   ★");
+  fmt::print(LINE, "───────·───────────·───────");
+  fmt::print(STAR, "★   ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "    ╲     ╱ ╲           ╲     ╱    ");
+  fmt::print(BOX, " │");
+  fmt::print(TEXT, " ★ Constellations ★       ");
+  fmt::print(BOX, " │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(DOT, "     ·───");
+  fmt::print(STAR, "★");
+  fmt::print(DOT, "───·           ·───");
+  fmt::print(STAR, "★     ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "      ╲ ╱     ╲         ╱           ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(STAR, "       ★       ★───●───★           ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "      ╱ ╲     ╱         ╲           ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(DOT, "     ·───·───");
+  fmt::print(STAR, "★           ");
+  fmt::print(LINE, "╲          ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "    ╱                         ╲    ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(STAR, "   ★");
+  fmt::print(LINE, "───────·───────────·───────");
+  fmt::print(STAR, "★   ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "    ╲                         ╱    ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(DOT, "     ·───·");
+  fmt::print(LINE, "───────────────");
+  fmt::print(DOT, "·───·    ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(LINE, "      ╲ ╱                 ╲ ╱     ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX, "│ ");
+  fmt::print(STAR, "       ★                   ★      ");
+  fmt::print(BOX, " │                            │\n");
+  fmt::print(BOX | B, "│{0:^62}│\n", "");
+  fmt::print(BOX | B, "╰{0:^62}╯\n", "");
   fmt::print("\n");
-  // clang-format on
 
   // Print version information
   ASTRADB_LOG_INFO("Version:     {}", ASTRADB_VERSION);
