@@ -73,6 +73,7 @@ target_sources(
           # Astra-specific commands
           astra/astra_commands.cpp
           astra/vector_commands.cpp
+          astra/json_commands.cpp
           # Common utilities
           blocking_manager.cpp)
 

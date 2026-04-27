@@ -49,6 +49,9 @@ struct KeyValueBuilder;
 struct VectorValue;
 struct VectorValueBuilder;
 
+struct JsonValue;
+struct JsonValueBuilder;
+
 enum ValueType : uint8_t {
   ValueType_String = 0,
   ValueType_Hash = 1,
@@ -59,11 +62,12 @@ enum ValueType : uint8_t {
   ValueType_HyperLogLog = 6,
   ValueType_Stream = 7,
   ValueType_Vector = 8,
+  ValueType_Json = 9,
   ValueType_MIN = ValueType_String,
-  ValueType_MAX = ValueType_Vector
+  ValueType_MAX = ValueType_Json
 };
 
-inline const ValueType (&EnumValuesValueType())[9] {
+inline const ValueType (&EnumValuesValueType())[10] {
   static const ValueType values[] = {
     ValueType_String,
     ValueType_Hash,
@@ -73,13 +77,14 @@ inline const ValueType (&EnumValuesValueType())[9] {
     ValueType_Bitmap,
     ValueType_HyperLogLog,
     ValueType_Stream,
-    ValueType_Vector
+    ValueType_Vector,
+    ValueType_Json
   };
   return values;
 }
 
 inline const char * const *EnumNamesValueType() {
-  static const char * const names[10] = {
+  static const char * const names[11] = {
     "String",
     "Hash",
     "List",
@@ -89,13 +94,14 @@ inline const char * const *EnumNamesValueType() {
     "HyperLogLog",
     "Stream",
     "Vector",
+    "Json",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameValueType(ValueType e) {
-  if (::flatbuffers::IsOutRange(e, ValueType_String, ValueType_Vector)) return "";
+  if (::flatbuffers::IsOutRange(e, ValueType_String, ValueType_Json)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesValueType()[index];
 }
@@ -612,7 +618,8 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_LIST_VALUE = 14,
     VT_SET_VALUE = 16,
     VT_SORTEDSET_VALUE = 18,
-    VT_VECTOR_VALUE = 20
+    VT_VECTOR_VALUE = 20,
+    VT_JSON_VALUE = 22
   };
   AstraDB::RocksDB::ValueType value_type() const {
     return static_cast<AstraDB::RocksDB::ValueType>(GetField<uint8_t>(VT_VALUE_TYPE, 0));
@@ -641,6 +648,9 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const AstraDB::RocksDB::VectorValue *vector_value() const {
     return GetPointer<const AstraDB::RocksDB::VectorValue *>(VT_VECTOR_VALUE);
   }
+  const AstraDB::RocksDB::JsonValue *json_value() const {
+    return GetPointer<const AstraDB::RocksDB::JsonValue *>(VT_JSON_VALUE);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_VALUE_TYPE, 1) &&
@@ -658,6 +668,8 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyTable(sortedset_value()) &&
            VerifyOffset(verifier, VT_VECTOR_VALUE) &&
            verifier.VerifyTable(vector_value()) &&
+           VerifyOffset(verifier, VT_JSON_VALUE) &&
+           verifier.VerifyTable(json_value()) &&
            verifier.EndTable();
   }
 };
@@ -693,6 +705,9 @@ struct KeyValueBuilder {
   void add_vector_value(::flatbuffers::Offset<AstraDB::RocksDB::VectorValue> vector_value) {
     fbb_.AddOffset(KeyValue::VT_VECTOR_VALUE, vector_value);
   }
+  void add_json_value(::flatbuffers::Offset<AstraDB::RocksDB::JsonValue> json_value) {
+    fbb_.AddOffset(KeyValue::VT_JSON_VALUE, json_value);
+  }
   explicit KeyValueBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -714,10 +729,12 @@ inline ::flatbuffers::Offset<KeyValue> CreateKeyValue(
     ::flatbuffers::Offset<AstraDB::RocksDB::ListValue> list_value = 0,
     ::flatbuffers::Offset<AstraDB::RocksDB::SetValue> set_value = 0,
     ::flatbuffers::Offset<AstraDB::RocksDB::SortedSetValue> sortedset_value = 0,
-    ::flatbuffers::Offset<AstraDB::RocksDB::VectorValue> vector_value = 0) {
+    ::flatbuffers::Offset<AstraDB::RocksDB::VectorValue> vector_value = 0,
+    ::flatbuffers::Offset<AstraDB::RocksDB::JsonValue> json_value = 0) {
   KeyValueBuilder builder_(_fbb);
   builder_.add_ttl_ms(ttl_ms);
   builder_.add_timestamp(timestamp);
+  builder_.add_json_value(json_value);
   builder_.add_vector_value(vector_value);
   builder_.add_sortedset_value(sortedset_value);
   builder_.add_set_value(set_value);
@@ -815,6 +832,57 @@ inline ::flatbuffers::Offset<VectorValue> CreateVectorValueDirect(
       dimension,
       distance_metric,
       index_name__);
+}
+
+struct JsonValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef JsonValueBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATA = 4
+  };
+  const ::flatbuffers::String *data() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_DATA);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATA) &&
+           verifier.VerifyString(data()) &&
+           verifier.EndTable();
+  }
+};
+
+struct JsonValueBuilder {
+  typedef JsonValue Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_data(::flatbuffers::Offset<::flatbuffers::String> data) {
+    fbb_.AddOffset(JsonValue::VT_DATA, data);
+  }
+  explicit JsonValueBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<JsonValue> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<JsonValue>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<JsonValue> CreateJsonValue(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> data = 0) {
+  JsonValueBuilder builder_(_fbb);
+  builder_.add_data(data);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<JsonValue> CreateJsonValueDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *data = nullptr) {
+  auto data__ = data ? _fbb.CreateString(data) : 0;
+  return AstraDB::RocksDB::CreateJsonValue(
+      _fbb,
+      data__);
 }
 
 inline const AstraDB::RocksDB::KeyValue *GetKeyValue(const void *buf) {

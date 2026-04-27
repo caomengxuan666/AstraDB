@@ -287,9 +287,56 @@ class RocksDBSerializer {
       case AstraDB::RocksDB::ValueType_Vector:
         *out_type = astra::storage::KeyType::kVector;
         return true;
+      case AstraDB::RocksDB::ValueType_Json:
+        *out_type = astra::storage::KeyType::kJson;
+        return true;
       default:
         return false;
     }
+  }
+
+  // Serialize JSON value
+  static std::string SerializeJson(const std::string& key,
+                                    const std::string& json_str,
+                                    int64_t timestamp = 0,
+                                    int64_t ttl_ms = 0) {
+    flatbuffers::FlatBufferBuilder builder;
+    auto fb_json = builder.CreateString(json_str);
+
+    auto json_value = AstraDB::RocksDB::CreateJsonValue(builder, fb_json);
+
+    AstraDB::RocksDB::KeyValueBuilder kv_builder(builder);
+    kv_builder.add_value_type(AstraDB::RocksDB::ValueType_Json);
+    kv_builder.add_timestamp(timestamp);
+    kv_builder.add_ttl_ms(ttl_ms);
+    kv_builder.add_json_value(json_value);
+
+    auto kv = kv_builder.Finish();
+    builder.Finish(kv);
+
+    return std::string(
+        reinterpret_cast<const char*>(builder.GetBufferPointer()),
+        builder.GetSize());
+  }
+
+  // Deserialize JSON value
+  static bool DeserializeJson(const std::string& serialized,
+                               std::string* out_json,
+                               int64_t* out_timestamp = nullptr,
+                               int64_t* out_ttl_ms = nullptr) {
+    auto kv = AstraDB::RocksDB::GetKeyValue(serialized.data());
+    if (!kv || kv->value_type() != AstraDB::RocksDB::ValueType_Json) {
+      return false;
+    }
+
+    if (kv->json_value() && kv->json_value()->data()) {
+      *out_json = kv->json_value()->data()->str();
+    }
+
+    if (out_timestamp) *out_timestamp = kv->timestamp();
+    if (out_ttl_ms) *out_ttl_ms = kv->ttl_ms();
+
+    return true;
   }
 };
 
