@@ -439,6 +439,13 @@ install(FILES README.md AstraDB_DESIGN.md PERFORMANCE.md LICENSE
     DESTINATION share/doc/astradb
     COMPONENT Documentation)
 
+# Block third-party library install rules from polluting the package.
+# CPM dependencies (mimalloc, rocksdb, flatbuffers, etc.) have their own
+# install() calls that would otherwise land static libs, cmake configs,
+# headers, and pkg-config files into the distribution tarball/DEB.
+# Since astradb is statically compiled, none of these are needed at runtime.
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "_thirdparty_excluded")
+
 # Create component groups
 set(CPACK_COMPONENTS_ALL Applications Configuration Documentation)
 set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
