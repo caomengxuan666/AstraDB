@@ -439,16 +439,10 @@ install(FILES README.md AstraDB_DESIGN.md PERFORMANCE.md LICENSE
     DESTINATION share/doc/astradb
     COMPONENT Documentation)
 
-# Block third-party library install rules from polluting the package.
-# CPM dependencies (mimalloc, rocksdb, flatbuffers, etc.) have their own
-# install() calls that would otherwise land static libs, cmake configs,
-# headers, and pkg-config files into the distribution tarball/DEB.
-# Since astradb is statically compiled, none of these are needed at runtime.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "_thirdparty_excluded")
-
 # Create component groups
 set(CPACK_COMPONENTS_ALL Applications Configuration Documentation)
 set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+set(CPACK_MONOLITHIC_INSTALL OFF)
 
 # Platform-specific configurations
 if(UNIX AND NOT APPLE)
@@ -539,6 +533,28 @@ set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/astradb")
 
 # Package output directory
 set(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_SOURCE_DIR}/dist")
+
+# ==============================================================================
+# CPack Pre-Build Cleanup: run after install but before packaging
+# Removes development files (headers, static libs, cmake/pkconfig configs)
+# leaked into the install tree by dependency install() rules.
+# Preserves lib/systemd/system/ for the astradb.service unit file.
+# ==============================================================================
+string(REGEX REPLACE "^/" "" CPACK_REL_PREFIX "${CPACK_PACKAGING_INSTALL_PREFIX}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/CleanPackage.cmake
+"message(STATUS \"Cleaning package staging directory...\")
+set(_ROOT \"\${CPACK_TEMPORARY_DIRECTORY}/${CPACK_REL_PREFIX}\")
+file(REMOVE_RECURSE \"\${_ROOT}/include\")
+file(GLOB _lib_items \"\${_ROOT}/lib/*\")
+foreach(_item IN LISTS _lib_items)
+  get_filename_component(_name \"\${_item}\" NAME)
+  if(NOT _name STREQUAL \"systemd\")
+    file(REMOVE_RECURSE \"\${_item}\")
+  endif()
+endforeach()
+message(STATUS \"Cleanup complete\")
+")
+set(CPACK_PRE_BUILD_SCRIPTS ${CMAKE_CURRENT_BINARY_DIR}/CleanPackage.cmake)
 
 # Enable CPack
 include(CPack)
