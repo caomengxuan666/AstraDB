@@ -17,7 +17,8 @@ enum ValueType : uint8 {
   Bitmap = 5,
   HyperLogLog = 6,
   Stream = 7,
-  Vector = 8
+  Vector = 8,
+  Json = 9
 }
 
 // String value
@@ -81,6 +82,7 @@ table KeyValue {
   set_value: SetValue;
   sortedset_value: SortedSetValue;
   vector_value: VectorValue;
+  json_value: JsonValue;
 }
 
 // Vector value for semantic search (KNN)
@@ -89,6 +91,11 @@ table VectorValue {
   dimension: uint32;
   distance_metric: uint8; // 0=cosine, 1=l2, 2=ip
   index_name: string;
+}
+
+// JSON value for document storage
+table JsonValue {
+  data: string;  // serialized JSON string
 }
 
 root_type KeyValue;

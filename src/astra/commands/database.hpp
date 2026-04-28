@@ -36,6 +36,8 @@
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
 
+#include <nlohmann/json.hpp>
+
 // Forward declarations
 namespace astra::server {
 class WorkerScheduler;
@@ -243,6 +245,15 @@ class Database {
         }
         break;
       }
+      case astra::storage::KeyType::kJson: {
+        std::shared_ptr<nlohmann::json> doc;
+        if (jsons_.Get(key, &doc) && doc) {
+          serialized = persistence::RocksDBSerializer::SerializeJson(
+              key, doc->dump());
+          success = !serialized.empty();
+        }
+        break;
+      }
       default:
         break;
     }
@@ -269,7 +280,7 @@ class Database {
     bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
                    sets_.Remove(key) || zsets_.Remove(key) ||
                    lists_.Remove(key) || streams_.Remove(key) ||
-                   vectors_.Remove(key);
+                   vectors_.Remove(key) || jsons_.Remove(key);
 
     if (removed) {
       // Get estimated size before deletion
@@ -438,6 +449,235 @@ class Database {
 
   void CompactVectorIndex(const std::string& name) {
     vector_index_mgr_.CompactIndex(name);
+  }
+
+  // ========== JSON Operations ==========
+
+  bool JsonSet(const std::string& key, const std::string& json_str) {
+    try {
+      auto doc = nlohmann::json::parse(json_str);
+      bool key_existed = jsons_.Contains(key);
+
+      auto shared_doc = std::make_shared<nlohmann::json>(std::move(doc));
+      jsons_.Insert(key, shared_doc);
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kJson);
+      metadata_manager_.UpdateAccessInfo(key);
+
+      if (memory_tracker_) {
+        size_t old_size = 0;
+        size_t new_size = json_str.size() + 128;
+        if (!key_existed) {
+          memory_tracker_->AddMemory(new_size);
+        }
+      }
+
+      if (storage_mode_ == base::StorageMode::kRocksDB) {
+        PersistKey(key, astra::storage::KeyType::kJson);
+      }
+      return true;
+    } catch (const nlohmann::json::parse_error&) {
+      return false;
+    }
+  }
+
+  std::optional<std::string> JsonGet(const std::string& key,
+                                      const std::string& path = "$") {
+    std::shared_ptr<nlohmann::json> doc;
+    if (jsons_.Get(key, &doc) && doc) {
+      metadata_manager_.UpdateAccessInfo(key);
+      if (path == "$") {
+        return doc->dump();
+      }
+      try {
+        auto jp = nlohmann::json::json_pointer(path);
+        if (doc->contains(jp)) {
+          return doc->at(jp).dump();
+        }
+      } catch (...) {
+      }
+      return std::nullopt;
+    }
+    return std::nullopt;
+  }
+
+  bool JsonDelete(const std::string& key, const std::string& path = "$") {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return false;
+    metadata_manager_.UpdateAccessInfo(key);
+
+    if (path == "$") {
+      bool removed = jsons_.Remove(key);
+      if (removed) {
+        metadata_manager_.UnregisterKey(key);
+        if (storage_mode_ == base::StorageMode::kRocksDB && rocksdb_adapter_) {
+          rocksdb_adapter_->Delete(key);
+        }
+      }
+      return removed;
+    }
+
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      if (doc->contains(jp)) {
+        auto& parent = doc->at(json_parent_path(jp));
+        std::string last = json_last_path_segment(path);
+        if (parent.is_object()) {
+          parent.erase(last);
+        } else if (parent.is_array()) {
+          size_t idx = std::stoul(last);
+          parent.erase(idx);
+        }
+        PersistKey(key, astra::storage::KeyType::kJson);
+        return true;
+      }
+    } catch (...) {
+    }
+    return false;
+  }
+
+  std::optional<std::string> JsonType(const std::string& key,
+                                       const std::string& path = "$") {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
+    metadata_manager_.UpdateAccessInfo(key);
+
+    try {
+      const nlohmann::json* target = doc.get();
+      if (path != "$") {
+        auto jp = nlohmann::json::json_pointer(path);
+        target = &doc->at(jp);
+      }
+      switch (target->type()) {
+        case nlohmann::json::value_t::null: return "null";
+        case nlohmann::json::value_t::boolean: return "boolean";
+        case nlohmann::json::value_t::number_integer:
+        case nlohmann::json::value_t::number_unsigned:
+        case nlohmann::json::value_t::number_float: return "number";
+        case nlohmann::json::value_t::string: return "string";
+        case nlohmann::json::value_t::array: return "array";
+        case nlohmann::json::value_t::object: return "object";
+        default: return "unknown";
+      }
+    } catch (...) {
+      return std::nullopt;
+    }
+  }
+
+  bool JsonArrayAppend(const std::string& key, const std::string& path,
+                        const std::string& json_val) {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return false;
+    metadata_manager_.UpdateAccessInfo(key);
+
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& arr = doc->at(jp);
+      if (!arr.is_array()) return false;
+      arr.push_back(nlohmann::json::parse(json_val));
+      PersistKey(key, astra::storage::KeyType::kJson);
+      return true;
+    } catch (...) {
+    }
+    return false;
+  }
+
+  std::optional<int64_t> JsonNumIncrBy(const std::string& key,
+                                         const std::string& path, int64_t inc) {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
+    metadata_manager_.UpdateAccessInfo(key);
+
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& val = doc->at(jp);
+      if (!val.is_number()) return std::nullopt;
+      int64_t old = val.get<int64_t>();
+      int64_t new_val = old + inc;
+      val = new_val;
+      PersistKey(key, astra::storage::KeyType::kJson);
+      return new_val;
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
+  std::optional<size_t> JsonArrayLen(const std::string& key,
+                                      const std::string& path = "$") {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
+    metadata_manager_.UpdateAccessInfo(key);
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& arr = doc->at(jp);
+      if (!arr.is_array()) return std::nullopt;
+      return arr.size();
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
+  std::optional<size_t> JsonObjLen(const std::string& key,
+                                    const std::string& path = "$") {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
+    metadata_manager_.UpdateAccessInfo(key);
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& obj = doc->at(jp);
+      if (!obj.is_object()) return std::nullopt;
+      return obj.size();
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
+  std::optional<int64_t> JsonArrIndex(const std::string& key,
+                                        const std::string& path,
+                                        const std::string& json_val) {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
+    metadata_manager_.UpdateAccessInfo(key);
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& arr = doc->at(jp);
+      if (!arr.is_array()) return std::nullopt;
+      auto val = nlohmann::json::parse(json_val);
+      for (size_t i = 0; i < arr.size(); i++) {
+        if (arr[i] == val) return static_cast<int64_t>(i);
+      }
+      return -1;
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
+  bool JsonStrAppend(const std::string& key, const std::string& path,
+                      const std::string& str) {
+    std::shared_ptr<nlohmann::json> doc;
+    if (!jsons_.Get(key, &doc) || !doc) return false;
+    metadata_manager_.UpdateAccessInfo(key);
+    try {
+      auto jp = nlohmann::json::json_pointer(path);
+      auto& val = doc->at(jp);
+      if (!val.is_string()) return false;
+      val = val.get<std::string>() + str;
+      PersistKey(key, astra::storage::KeyType::kJson);
+      return true;
+    } catch (...) {
+    }
+    return false;
+  }
+
+
+  static std::string json_parent_path(const nlohmann::json::json_pointer& jp) {
+    auto s = jp.to_string();
+    auto pos = s.rfind('/');
+    return pos == std::string::npos ? "$" : s.substr(0, pos);
+  }
+
+  static std::string json_last_path_segment(const std::string& path) {
+    auto pos = path.rfind('/');
+    return pos == std::string::npos ? path : path.substr(pos + 1);
   }
 
   // ========== Stream Operations ==========
@@ -701,7 +941,7 @@ class Database {
     bool removed = strings_.Remove(key) || hashes_.Remove(key) ||
                    sets_.Remove(key) || zsets_.Remove(key) ||
                    lists_.Remove(key) || streams_.Remove(key) ||
-                   vectors_.Remove(key);
+                   vectors_.Remove(key) || jsons_.Remove(key);
 
     if (removed && memory_tracker_) {
       // Subtract memory from tracker (data + metadata)
@@ -2445,6 +2685,7 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   VectorMap vectors_;
   VectorIndexManager vector_index_mgr_;
+  astra::container::DashMap<std::string, std::shared_ptr<nlohmann::json>> jsons_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned

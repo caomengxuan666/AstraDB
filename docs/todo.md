@@ -1,8 +1,8 @@
 # AstraDB — Remaining Work (TODO)
 
 **Last Updated**: 2026-04-28  
-**Version**: 1.5.3  
-**Overall Completion**: ~94% (single-node), ~73% (multi-node)
+**Version**: 1.6.0  
+**Overall Completion**: ~95% (single-node), ~73% (multi-node)
 
 ---
 
@@ -190,6 +190,44 @@ Effort: **1–2 weeks**
 | 1 | TLS acceptor via Asio SSL streams | Low |
 | 2 | Certificate/key file loading from config | Low |
 | 3 | `REQUIREPASS` / `requirepass` config support | Low |
+
+---
+
+## 🟡 JSON Commands — RedisJSON Compatibility Gap
+
+Status: **10/25 commands implemented** (~40%). Core CRUD + basic ops work.  
+Missing: advanced array ops, multi-path, merge, debug.  
+Effort: **1–2 weeks**
+
+### Implemented (10) ✅
+
+| Command | Status |
+|---------|--------|
+| JSON.SET / JSON.GET | ✅ |
+| JSON.DEL / JSON.TYPE | ✅ |
+| JSON.ARRAPPEND / JSON.ARRLEN | ✅ |
+| JSON.OBJLEN / JSON.NUMINCRBY | ✅ |
+| JSON.STRAPPEND / JSON.ARRINDEX | ✅ |
+
+### Missing (15) ❌
+
+| # | Task | Priority |
+|---|------|----------|
+| 1 | `JSON.MGET` — batch get multiple JSON keys | Medium |
+| 2 | `JSON.MSET` — batch set multiple JSON keys | Medium |
+| 3 | `JSON.ARRPOP` — pop from array at index | Low |
+| 4 | `JSON.ARRINSERT` — insert into array at index | Low |
+| 5 | `JSON.ARRTRIM` — trim array to range | Low |
+| 6 | `JSON.OBJKEYS` — list object keys at path | Medium |
+| 7 | `JSON.MERGE` — deep-merge JSON patch | Medium |
+| 8 | `JSON.TOGGLE` — toggle boolean value | Low |
+| 9 | `JSON.CLEAR` — clear container (object/array) | Low |
+| 10 | `JSON.DEBUG` — memory/info debug | Low |
+| 11 | `JSON.RESP` — return response in RESP3 format | Low |
+| 12 | `JSON.FORGET` — alias for JSON.DEL | Low |
+| 13 | `JSON.STRLEN` — string length at path | Low |
+| 14 | Full JSON Pointer (RFC 6901) deep path support | Medium |
+| 15 | Multi-path operations (e.g. `JSON.GET k $.a $.b`) | Medium |
 
 ---
 

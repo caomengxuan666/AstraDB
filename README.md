@@ -21,7 +21,8 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Flexible Threading**: Support for both single-threaded and multi-threaded modes
 - **Dual Backend**: epoll (stable) and io_uring (high performance) support
 - **Vector Search**: In-memory ANN search with hnswlib (cosine/L2/IP)
-- **Rich Commands**: Support for 260+ Redis commands across all data types
+- **JSON Documents**: Native JSON.SET/GET/DEL/TYPE with nlohmann_json
+- **Rich Commands**: Support for 270+ Redis commands across all data types
 - **Persistence**: AOF (Append Only File), RDB snapshots, and ROCKSDB integration
 - **Cluster Support**: Gossip-based cluster management with libgossip
 - **Security**: Access Control List (ACL) support
@@ -39,6 +40,7 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 - **Bitmap**: Bit manipulation operations
 - **HyperLogLog**: Probabilistic cardinality estimation
 - **Geospatial**: Geospatial indexing and queries
+- **JSON**: Document storage with JSON Pointer path support
 
 ### Advanced Features ✅
 
@@ -515,7 +517,7 @@ Contributions are welcome! Please follow these guidelines:
 
 ### Implemented Commands (250+)
 
-AstraDB has implemented **260+ Redis commands**, covering all major data types and features. We aim to achieve **100% Redis 7.4.1 compatibility**.
+AstraDB has implemented **270+ Redis commands**, covering all major data types and features. We aim to achieve **100% Redis 7.4.1 compatibility**., covering all major data types and features. We aim to achieve **100% Redis 7.4.1 compatibility**.
 
 #### String Commands (30+)
 - `GET`, `SET`, `DEL`, `EXISTS`, `MGET`, `MSET`, `MSETNX`
@@ -615,6 +617,18 @@ AstraDB has implemented **260+ Redis commands**, covering all major data types a
 - `TTL`, `PTTL`, `EXPIRE`, `PEXPIRE`, `EXPIREAT`, `PEXPIREAT`
 - `EXPIRETIME`, `PEXPIRETIME`, `PERSIST`
 
+#### JSON Commands (10) 🆕
+- `JSON.SET` — Set JSON document at key
+- `JSON.GET` — Get JSON document or sub-path
+- `JSON.DEL` — Delete key or sub-path
+- `JSON.TYPE` — Get type of value at path
+- `JSON.ARRAPPEND` — Append values to array
+- `JSON.ARRLEN` — Get array length
+- `JSON.OBJLEN` — Get object key count
+- `JSON.NUMINCRBY` — Increment number at path
+- `JSON.STRAPPEND` — Append to string at path
+- `JSON.ARRINDEX` — Find value index in array
+
 ### Command Completion Status
 
 | Category | Commands | Status |
@@ -637,8 +651,9 @@ AstraDB has implemented **260+ Redis commands**, covering all major data types a
 | Cluster | 5+ | ✅ Complete |
 | Replication | 6 | ✅ Complete |
 | TTL | 9 | ✅ Complete |
+| JSON | 10 | ✅ New |
 | Vector Search | 10 | ✅ New |
-| **Total** | **260+** | **96%+** |
+| **Total** | **270+** | **96%+** |
 
 ### Command Implementation Notes
 
