@@ -449,6 +449,7 @@ redis-benchmark -h 127.0.0.1 -p 6379 -t lpush,lpop,rpush,rpop -n 1000000 -c 256 
 
 ## 📚 Documentation
 
+- **Project Wiki (DeepWiki)**: https://deepwiki.com/caomengxuan666/AstraDB - Browse architecture, modules, and indexed project docs online
 - **Design Document**: [AstraDB_DESIGN.md](AstraDB_DESIGN.md) - Comprehensive design and architecture documentation
 - **Performance Document**: [PERFORMANCE.md](PERFORMANCE.md) - Performance benchmarks and optimizations
 - **Eviction Strategy Document**: [DOCS/eviction-strategy-optimization.md](DOCS/eviction-strategy-optimization.md) - Dragonfly-style 2Q eviction algorithm
