@@ -15,6 +15,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/strings/match.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "astra/base/concurrentqueue_wrapper.hpp"
@@ -24,6 +25,7 @@
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
+#include "astra/commands/astra/vector_search_runtime.hpp"
 #include "astra/commands/redis/pubsub_commands.hpp"
 #include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
@@ -239,6 +241,27 @@ class WorkerCommandContext : public astra::commands::CommandContext {
 
   void ClearConnectionState(uint64_t connection_id) {
     transaction_state_store_.ClearConnectionState(connection_id);
+    absl::MutexLock lock(&vector_search_mode_mutex_);
+    vector_search_modes_.erase(connection_id);
+  }
+
+  // ============== Vector Search Mode / Async State (per worker) ==============
+  commands::VectorSearchMode GetVectorSearchMode() const {
+    absl::MutexLock lock(&vector_search_mode_mutex_);
+    auto it = vector_search_modes_.find(connection_id_);
+    if (it == vector_search_modes_.end()) {
+      return commands::VectorSearchMode::kGlobal;
+    }
+    return it->second;
+  }
+
+  void SetVectorSearchMode(commands::VectorSearchMode mode) {
+    absl::MutexLock lock(&vector_search_mode_mutex_);
+    vector_search_modes_[connection_id_] = mode;
+  }
+
+  commands::VectorSearchJobTable& GetVectorSearchJobTable() {
+    return vector_search_job_table_;
   }
 
   // Set AOF callback (for persistence)
@@ -362,6 +385,10 @@ class WorkerCommandContext : public astra::commands::CommandContext {
   bool authenticated_ = false;
   std::string authenticated_user_;
   mutable TransactionStateStore transaction_state_store_;
+  mutable absl::Mutex vector_search_mode_mutex_;
+  absl::flat_hash_map<uint64_t, commands::VectorSearchMode> vector_search_modes_
+      ABSL_GUARDED_BY(vector_search_mode_mutex_);
+  commands::VectorSearchJobTable vector_search_job_table_;
 
   // Callback to update cluster state for all workers (set by Server)
   // Uses WorkerScheduler::DispatchOnAll to avoid deadlock
