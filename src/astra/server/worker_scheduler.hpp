@@ -16,6 +16,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#endif
+
 #include "asio/awaitable.hpp"
 #include "astra/base/logging.hpp"
 #include "astra/server/worker.hpp"
@@ -215,9 +219,10 @@ class WorkerScheduler {
         continue;
       }
       ++idle_rounds;
-      if (idle_rounds <= 64) {
-        std::this_thread::yield();
-      } else if (idle_rounds <= 256) {
+      if (idle_rounds <= 256) {
+        // Keep early waits in userspace to avoid sched_yield syscall overhead.
+        RelaxCpu();
+      } else if (idle_rounds <= 2048) {
         std::this_thread::sleep_for(std::chrono::microseconds(5));
       } else {
         std::this_thread::sleep_for(std::chrono::microseconds(20));
@@ -240,9 +245,10 @@ class WorkerScheduler {
         continue;
       }
       ++idle_rounds;
-      if (idle_rounds <= 64) {
-        std::this_thread::yield();
-      } else if (idle_rounds <= 256) {
+      if (idle_rounds <= 256) {
+        // Keep early waits in userspace to avoid sched_yield syscall overhead.
+        RelaxCpu();
+      } else if (idle_rounds <= 2048) {
         std::this_thread::sleep_for(std::chrono::microseconds(5));
       } else {
         std::this_thread::sleep_for(std::chrono::microseconds(20));
@@ -269,6 +275,14 @@ class WorkerScheduler {
   }
 
  private:
+  static inline void RelaxCpu() {
+#if defined(__x86_64__) || defined(__i386__)
+    _mm_pause();
+#else
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+#endif
+  }
+
   std::vector<Worker*> workers_;
 };
 

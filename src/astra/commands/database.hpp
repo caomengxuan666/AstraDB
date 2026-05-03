@@ -716,8 +716,15 @@ class Database {
     // Update metadata (register key first, so
     // metadata_manager_.UpdateEstimatedSize can find it)
     strings_.Insert(key, std::move(value));
-    metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
-    metadata_manager_.UpdateAccessInfo(key);
+    if (!key_existed) {
+      metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+    } else {
+      // Preserve Redis WATCH semantics: every successful write bumps version.
+      metadata_manager_.IncrementKeyVersion(key);
+    }
+    if (ShouldTrackAccessInfo()) {
+      metadata_manager_.UpdateAccessInfo(key);
+    }
 
     // Update memory tracker using helper (after key is registered)
     if (memory_tracker_) {
@@ -766,7 +773,9 @@ class Database {
       // First check memory cache
       StringValue value;
       if (strings_.Get(key, &value)) {
-        metadata_manager_.UpdateAccessInfo(key);
+        if (ShouldTrackAccessInfo()) {
+          metadata_manager_.UpdateAccessInfo(key);
+        }
         return value;
       }
 
@@ -785,7 +794,9 @@ class Database {
           // Insert into memory cache and metadata
           strings_.Insert(key, std::move(str_value));
           metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
-          metadata_manager_.UpdateAccessInfo(key);
+          if (ShouldTrackAccessInfo()) {
+            metadata_manager_.UpdateAccessInfo(key);
+          }
 
           // Update memory tracker
           if (memory_tracker_) {
@@ -814,7 +825,9 @@ class Database {
     StringValue value;
     if (strings_.Get(key, &value)) {
       // Update access time for LRU/LFU
-      metadata_manager_.UpdateAccessInfo(key);
+      if (ShouldTrackAccessInfo()) {
+        metadata_manager_.UpdateAccessInfo(key);
+      }
 
       // Record access for 2Q strategy if active
       if (eviction_manager_ && memory_tracker_ &&
@@ -2569,6 +2582,12 @@ class Database {
   }
 
  private:
+  bool ShouldTrackAccessInfo() const {
+    return memory_tracker_ &&
+           memory_tracker_->GetEvictionPolicy() !=
+               core::memory::EvictionPolicy::kNoEviction;
+  }
+
   std::shared_ptr<HashType> GetHash(const std::string& key) {
     std::shared_ptr<HashType> hash;
     if (hashes_.Get(key, &hash)) {
@@ -2630,9 +2649,11 @@ class Database {
         if (persistence::RocksDBSerializer::DeserializeString(
                 *serialized, &value, &timestamp, &ttl_ms)) {
           StringValue str_value(value);
-          strings_.Insert(key, std::move(str_value));
-          metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
-          metadata_manager_.UpdateAccessInfo(key);
+            strings_.Insert(key, std::move(str_value));
+            metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+            if (ShouldTrackAccessInfo()) {
+              metadata_manager_.UpdateAccessInfo(key);
+            }
           return true;
         }
         break;
