@@ -87,55 +87,14 @@ std::string ToUpperCopy(const std::string& s) {
 void WaitFutureWithWorkerPump(std::future<void>& future,
                               CommandContext* context) {
   auto* current_worker = context ? context->GetWorker() : nullptr;
-  uint32_t idle_rounds = 0;
-  while (future.wait_for(std::chrono::microseconds(0)) !=
-         std::future_status::ready) {
-    bool has_work = false;
-    if (current_worker) {
-      has_work =
-          current_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
-    }
-    if (has_work) {
-      idle_rounds = 0;
-      continue;
-    }
-    ++idle_rounds;
-    if (idle_rounds <= 64) {
-      std::this_thread::yield();
-    } else if (idle_rounds <= 256) {
-      std::this_thread::sleep_for(std::chrono::microseconds(5));
-    } else {
-      std::this_thread::sleep_for(std::chrono::microseconds(20));
-    }
-  }
-  future.get();
+  server::WorkerScheduler::WaitFutureWithCallerPump(future, current_worker);
 }
 
 template <typename T>
 T WaitFutureWithWorkerPump(std::future<T>& future, CommandContext* context) {
   auto* current_worker = context ? context->GetWorker() : nullptr;
-  uint32_t idle_rounds = 0;
-  while (future.wait_for(std::chrono::microseconds(0)) !=
-         std::future_status::ready) {
-    bool has_work = false;
-    if (current_worker) {
-      has_work =
-          current_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
-    }
-    if (has_work) {
-      idle_rounds = 0;
-      continue;
-    }
-    ++idle_rounds;
-    if (idle_rounds <= 64) {
-      std::this_thread::yield();
-    } else if (idle_rounds <= 256) {
-      std::this_thread::sleep_for(std::chrono::microseconds(5));
-    } else {
-      std::this_thread::sleep_for(std::chrono::microseconds(20));
-    }
-  }
-  return future.get();
+  return server::WorkerScheduler::WaitFutureWithCallerPump(future,
+                                                            current_worker);
 }
 
 VectorSearchMode GetVectorSearchModeFromContext(CommandContext* context) {

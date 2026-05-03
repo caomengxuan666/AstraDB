@@ -366,7 +366,8 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
     // Collect results in order
     std::vector<std::optional<std::string>> ordered_results(keys.size());
     for (auto& future : futures) {
-      auto worker_results = future.get();
+      auto worker_results = server::WorkerScheduler::WaitFutureWithCallerPump(
+          future, current_worker);
       for (const auto& [index, result] : worker_results) {
         ordered_results[index] = result;
       }
@@ -422,8 +423,12 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
 
-    // Distribute key-value pairs to respective workers
+    // Group key-value pairs by worker to reduce task dispatch overhead.
+    std::vector<std::vector<std::pair<std::string, std::string>>> worker_kvs(
+        all_workers.size());
+
     for (size_t i = 0; i < command.ArgCount(); i += 2) {
       const auto& key_arg = command[i];
       const auto& value_arg = command[i + 1];
@@ -435,19 +440,50 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
       std::string key = key_arg.AsString();
       std::string value = value_arg.AsString();
 
-      // Hash key to determine which worker should handle it
-      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(key) % all_workers.size();
+      size_t worker_id =
+          cluster::HashSlotCalculator::CalculateWithTag(key) % all_workers.size();
+      worker_kvs[worker_id].push_back(
+          {std::move(key), std::move(value)});
+    }
 
-      // Capture necessary data by value to make lambda copyable
+    std::vector<std::future<void>> futures;
+    futures.reserve(all_workers.size());
+
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      if (worker_kvs[worker_id].empty()) {
+        continue;
+      }
+
       server::Worker* target_worker = all_workers[worker_id];
+      if (target_worker == current_worker) {
+        Database* local_db = &target_worker->GetDataShard().GetDatabase();
+        for (const auto& [key, value] : worker_kvs[worker_id]) {
+          local_db->Set(key, StringValue(value));
+        }
+        continue;
+      }
 
-      all_workers[worker_id]->AddTask([key, value, target_worker]() {
-        Database* db = &target_worker->GetDataShard().GetDatabase();
-        db->Set(key, StringValue(value));
+      auto promise = std::make_shared<std::promise<void>>();
+      futures.push_back(promise->get_future());
+      auto kvs_for_worker = std::move(worker_kvs[worker_id]);
+
+      target_worker->AddTask([target_worker, promise,
+                              kvs = std::move(kvs_for_worker)]() mutable {
+        try {
+          Database* remote_db = &target_worker->GetDataShard().GetDatabase();
+          for (const auto& [key, value] : kvs) {
+            remote_db->Set(key, StringValue(value));
+          }
+          promise->set_value();
+        } catch (...) {
+          promise->set_exception(std::current_exception());
+        }
       });
+      target_worker->NotifyTaskProcessing();
+    }
 
-      // Notify worker to process task immediately
-      all_workers[worker_id]->NotifyTaskProcessing();
+    for (auto& future : futures) {
+      server::WorkerScheduler::WaitFutureWithCallerPump(future, current_worker);
     }
 
     // Log to AOF (zero-copy with string_view from const std::string&)
