@@ -62,26 +62,41 @@ Our goal: **2x DragonflyDB performance, 50% less memory usage, and superior scal
 
 ## 📊 Performance
 
-### Current Baseline (2026-04-23)
-
-All numbers below are from a single mixed benchmark mode (`-t set,get`) to avoid split-test bias.
+### Current Baseline (2026-05-04)
 
 **Test setup:**
-- **Binary**: `build-linux-release-debuginfo-noasan/bin/astradb`
-- **Config**: `config/astradb-benchmark.toml` (2 workers, 2 shards, persistence disabled)
+- **AstraDB binary**: `build-linux-release-debuginfo-noasan/bin/astradb`
+- **AstraDB config**: `/tmp/astradb-mgetmset-test.toml` (`thread_count=2`, `num_shards=2`, persistence disabled)
+- **Redis baseline**: `redis-server 8.0.2` (`--save '' --appendonly no`)
 - **Client**: `redis-benchmark`
-- **Command mix**: `-t set,get`
-- **Run shape**: `-n 1000000 -c 256 -P <pipeline>`
+- **Run shape**: `-n 300000 -c 80 -P 1` (non-pipeline)
+
+| Command | AstraDB QPS | Redis QPS | AstraDB vs Redis |
+|---------|-------------|-----------|------------------|
+| `SET` | 220,102.70 | 219,780.22 | **+0.15%** |
+| `GET` | 223,380.48 | 221,402.20 | **+0.89%** |
+| `MSET k1..k4` | 187,617.27 | 211,118.94 | **-11.13%** |
+| `MGET k1..k4` | 182,815.36 | 205,761.33 | **-11.15%** |
+
+Conclusion: non-pipeline `SET/GET` is roughly at Redis level on this setup; `MSET/MGET` still needs major optimization.
+
+Peak values from the same run shape (`-n 300000 -c 80 -P 1`):
+- `SET`: **223,498**
+- `GET`: **228,116**
+- `MSET k1..k4`: **190,056**
+- `MGET k1..k4`: **184,532**
+
+Benchmark note: run commands sequentially (not in parallel) when collecting baseline numbers.
+
+### Historical Mixed Pipeline Baseline (2026-04-23)
+
+All numbers below are from one mixed benchmark mode (`-t set,get`) to avoid split-test bias.
 
 | Pipeline (`-P`) | SET QPS | GET QPS |
 |-----------------|---------|---------|
 | **1** | 209,424.08 | 209,117.52 |
 | **16** | 1,381,215.50 | 1,805,054.12 |
 | **64** | 1,612,903.25 | 2,145,922.75 |
-
-**Repeatability checks (same machine, same config):**
-- `P=1`: SET `210,837.02`, GET `209,511.84`
-- `P=64`: SET `1,600,000.00`, GET `2,127,659.50`
 
 For historical investigation notes and older experiments, see `PERFORMANCE.md`.
 
@@ -668,13 +683,15 @@ All 250+ commands are registered and functional. We aim for **100% Redis 7.4.1 c
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| GET QPS (Non-Pipeline) | 220k+ | 250k+ | ✅ **88% achieved** |
-| SET QPS (Non-Pipeline) | 220k+ | 250k+ | ✅ **88% achieved** |
+| MGET(4) QPS (Non-Pipeline) | 182,815.36 (Peak 184,532) | >= Redis | ⚠️ **89% of Redis (205,761.33)** |
+| MSET(4) QPS (Non-Pipeline) | 187,617.27 (Peak 190,056) | >= Redis | ⚠️ **89% of Redis (211,118.94)** |
 | Pipeline QPS | ~several million | 10M+ | ⏳ Testing planned |
 | Command Coverage | 250+ (96%+) | 250+ (100%) | 96% |
 | Memory Overhead | TBD | 0 bytes | TBD |
 | Scalability (1→8 threads) | TBD | 8x | TBD |
 | Startup Time | TBD | 0.5s | TBD |
+
+Note: on this machine, non-pipeline single-key throughput is NIC-limited at around 220k QPS (similar to Redis/Dragonfly), so optimization focus is on multi-key and pipeline paths.
 
 ## 🏆 Comparison
 

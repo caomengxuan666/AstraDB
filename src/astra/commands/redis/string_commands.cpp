@@ -9,8 +9,14 @@
 #include <absl/strings/ascii.h>
 #include <absl/strings/numbers.h>
 
+#include <atomic>
 #include <iomanip>
 #include <sstream>
+#include <thread>
+
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#endif
 
 #include "astra/cluster/cluster_config.hpp"
 #include "astra/core/metrics.hpp"
@@ -19,6 +25,42 @@
 #include "command_auto_register.hpp"
 
 namespace astra::commands {
+
+namespace {
+
+inline void BusyWaitPause() {
+#if defined(__x86_64__) || defined(__i386__)
+  _mm_pause();
+#else
+  std::atomic_signal_fence(std::memory_order_seq_cst);
+#endif
+}
+
+inline void WaitRemoteTasksWithCallerPump(std::atomic<size_t>& pending_remote,
+                                          server::Worker* caller_worker) {
+  uint32_t idle_rounds = 0;
+  while (pending_remote.load(std::memory_order_acquire) != 0) {
+    bool has_work = false;
+    if (caller_worker) {
+      has_work = caller_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
+    }
+    if (has_work) {
+      idle_rounds = 0;
+      continue;
+    }
+
+    ++idle_rounds;
+    if (idle_rounds <= 2048) {
+      BusyWaitPause();
+    } else if (idle_rounds <= 8192) {
+      std::this_thread::sleep_for(std::chrono::microseconds(2));
+    } else {
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+    }
+  }
+}
+
+}  // namespace
 
 // GET key
 CommandResult HandleGet(const astra::protocol::Command& command,
@@ -266,14 +308,11 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
     return CommandResult(false, "ERR database not initialized");
   }
 
-  std::vector<std::string> keys;
-  keys.reserve(command.ArgCount());
   for (size_t i = 0; i < command.ArgCount(); ++i) {
     const auto& arg = command[i];
     if (!arg.IsBulkString()) {
       return CommandResult(false, "ERR wrong type of key argument");
     }
-    keys.push_back(arg.AsString());
   }
 
   // Try to use WorkerScheduler for cross-shard query (NO SHARING architecture)
@@ -282,22 +321,27 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
     auto all_workers = worker_scheduler->GetAllWorkers();
     server::Worker* current_worker = context->GetWorker();
 
-    // Group keys by worker_id
-    std::vector<std::vector<std::pair<size_t, std::string>>> worker_keys(
-        all_workers.size());
-    for (size_t i = 0; i < keys.size(); ++i) {
-      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(keys[i]) % all_workers.size();
-      worker_keys[worker_id].push_back({i, keys[i]});
+    // Group key argument indexes by worker_id; avoid per-request key copies.
+    std::vector<std::vector<size_t>> worker_key_indexes(all_workers.size());
+    const size_t per_worker_reserve =
+        (command.ArgCount() + all_workers.size() - 1) / all_workers.size();
+    for (auto& indexes : worker_key_indexes) {
+      indexes.reserve(per_worker_reserve);
+    }
+    for (size_t i = 0; i < command.ArgCount(); ++i) {
+      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(
+                             command[i].AsString()) %
+                         all_workers.size();
+      worker_key_indexes[worker_id].push_back(i);
     }
 
-    // Collect results from all workers
-    std::vector<
-        std::future<std::vector<std::pair<size_t, std::optional<std::string>>>>>
-        futures;
-    futures.reserve(all_workers.size());
+    std::vector<std::optional<std::string>> ordered_results(command.ArgCount());
+    std::atomic<size_t> pending_remote{0};
+    std::exception_ptr first_exception = nullptr;
+    std::atomic<bool> has_exception{false};
 
     for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
-      if (worker_keys[worker_id].empty()) {
+      if (worker_key_indexes[worker_id].empty()) {
         continue;
       }
 
@@ -306,56 +350,42 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
       // Check if this is the current worker - execute directly to avoid
       // deadlock
       if (target_worker == current_worker) {
-        // Execute directly in current thread
-        std::vector<std::pair<size_t, std::optional<std::string>>> results;
         Database* db = &target_worker->GetDataShard().GetDatabase();
-
-        for (const auto& [index, key] : worker_keys[worker_id]) {
-          auto result = db->Get(key);
+        for (size_t index : worker_key_indexes[worker_id]) {
+          auto result = db->Get(command[index].AsString());
           if (result.has_value()) {
-            results.push_back(
-                {index, std::optional<std::string>(result->value)});
+            ordered_results[index] = std::optional<std::string>(result->value);
           } else {
-            results.push_back({index, std::optional<std::string>()});
+            ordered_results[index] = std::optional<std::string>();
           }
         }
-
-        // Create a satisfied future
-        auto promise = std::make_shared<std::promise<
-            std::vector<std::pair<size_t, std::optional<std::string>>>>>();
-        promise->set_value(results);
-        futures.push_back(promise->get_future());
       } else {
-        // Execute on other worker via queue
-        auto promise = std::make_shared<std::promise<
-            std::vector<std::pair<size_t, std::optional<std::string>>>>>();
-        auto future = promise->get_future();
-        futures.push_back(std::move(future));
+        pending_remote.fetch_add(1, std::memory_order_relaxed);
+        auto indexes_for_worker = std::move(worker_key_indexes[worker_id]);
 
-        // Capture necessary data by value to make lambda copyable
-        std::vector<std::pair<size_t, std::string>> keys_for_worker =
-            worker_keys[worker_id];
-
-        all_workers[worker_id]->AddTask([keys_for_worker, target_worker,
-                                         promise]() {
+        all_workers[worker_id]->AddTask(
+            [&command, &ordered_results, &pending_remote, &first_exception,
+             &has_exception,
+             indexes_for_worker = std::move(indexes_for_worker),
+             target_worker]() mutable {
           try {
-            std::vector<std::pair<size_t, std::optional<std::string>>> results;
             Database* db = &target_worker->GetDataShard().GetDatabase();
 
-            for (const auto& [index, key] : keys_for_worker) {
-              auto result = db->Get(key);
+            for (size_t index : indexes_for_worker) {
+              auto result = db->Get(command[index].AsString());
               if (result.has_value()) {
-                results.push_back(
-                    {index, std::optional<std::string>(result->value)});
+                ordered_results[index] =
+                    std::optional<std::string>(result->value);
               } else {
-                results.push_back({index, std::optional<std::string>()});
+                ordered_results[index] = std::optional<std::string>();
               }
             }
-
-            promise->set_value(results);
           } catch (...) {
-            promise->set_exception(std::current_exception());
+            if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
+              first_exception = std::current_exception();
+            }
           }
+          pending_remote.fetch_sub(1, std::memory_order_release);
         });
 
         // Notify worker to process task immediately
@@ -363,18 +393,16 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
       }
     }
 
-    // Collect results in order
-    std::vector<std::optional<std::string>> ordered_results(keys.size());
-    for (auto& future : futures) {
-      auto worker_results = future.get();
-      for (const auto& [index, result] : worker_results) {
-        ordered_results[index] = result;
-      }
+    if (pending_remote.load(std::memory_order_acquire) != 0) {
+      WaitRemoteTasksWithCallerPump(pending_remote, current_worker);
+    }
+    if (first_exception) {
+      std::rethrow_exception(first_exception);
     }
 
     // Build response array
     absl::InlinedVector<RespValue, 16> array;
-    array.reserve(keys.size());
+    array.reserve(command.ArgCount());
     for (const auto& result : ordered_results) {
       if (result.has_value()) {
         array.emplace_back(RespValue(std::string(*result)));
@@ -388,6 +416,11 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
   }
 
   // Fallback: single worker mode
+  std::vector<std::string> keys;
+  keys.reserve(command.ArgCount());
+  for (size_t i = 0; i < command.ArgCount(); ++i) {
+    keys.push_back(command[i].AsString());
+  }
   auto results = db->MGet(keys);
 
   absl::InlinedVector<RespValue, 16> array;
@@ -422,8 +455,18 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
   auto* worker_scheduler = context->GetWorkerScheduler();
   if (worker_scheduler && worker_scheduler->size() > 1) {
     auto all_workers = worker_scheduler->GetAllWorkers();
+    server::Worker* current_worker = context->GetWorker();
 
-    // Distribute key-value pairs to respective workers
+    // Group key argument indexes by worker to reduce dispatch overhead and
+    // avoid per-request key/value copies.
+    std::vector<std::vector<size_t>> worker_kv_indexes(all_workers.size());
+    const size_t total_pairs = command.ArgCount() / 2;
+    const size_t base_reserve =
+        (total_pairs + all_workers.size() - 1) / all_workers.size();
+    for (auto& indexes : worker_kv_indexes) {
+      indexes.reserve(base_reserve);
+    }
+
     for (size_t i = 0; i < command.ArgCount(); i += 2) {
       const auto& key_arg = command[i];
       const auto& value_arg = command[i + 1];
@@ -432,22 +475,58 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
         return CommandResult(false, "ERR wrong type of key or value argument");
       }
 
-      std::string key = key_arg.AsString();
-      std::string value = value_arg.AsString();
+      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(
+                             key_arg.AsString()) %
+                         all_workers.size();
+      worker_kv_indexes[worker_id].push_back(i);
+    }
 
-      // Hash key to determine which worker should handle it
-      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(key) % all_workers.size();
+    std::atomic<size_t> pending_remote{0};
+    std::exception_ptr first_exception = nullptr;
+    std::atomic<bool> has_exception{false};
 
-      // Capture necessary data by value to make lambda copyable
+    for (size_t worker_id = 0; worker_id < all_workers.size(); ++worker_id) {
+      if (worker_kv_indexes[worker_id].empty()) {
+        continue;
+      }
+
       server::Worker* target_worker = all_workers[worker_id];
+      if (target_worker == current_worker) {
+        Database* local_db = &target_worker->GetDataShard().GetDatabase();
+        for (size_t index : worker_kv_indexes[worker_id]) {
+          local_db->Set(command[index].AsString(),
+                        StringValue(command[index + 1].AsString()));
+        }
+        continue;
+      }
 
-      all_workers[worker_id]->AddTask([key, value, target_worker]() {
-        Database* db = &target_worker->GetDataShard().GetDatabase();
-        db->Set(key, StringValue(value));
+      pending_remote.fetch_add(1, std::memory_order_relaxed);
+      auto indexes_for_worker = std::move(worker_kv_indexes[worker_id]);
+
+      target_worker->AddTask([&command, target_worker, &pending_remote,
+                              &first_exception, &has_exception,
+                              indexes = std::move(indexes_for_worker)]() mutable {
+        try {
+          Database* remote_db = &target_worker->GetDataShard().GetDatabase();
+          for (size_t index : indexes) {
+            remote_db->Set(command[index].AsString(),
+                           StringValue(command[index + 1].AsString()));
+          }
+        } catch (...) {
+          if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
+            first_exception = std::current_exception();
+          }
+        }
+        pending_remote.fetch_sub(1, std::memory_order_release);
       });
+      target_worker->NotifyTaskProcessing();
+    }
 
-      // Notify worker to process task immediately
-      all_workers[worker_id]->NotifyTaskProcessing();
+    if (pending_remote.load(std::memory_order_acquire) != 0) {
+      WaitRemoteTasksWithCallerPump(pending_remote, current_worker);
+    }
+    if (first_exception) {
+      std::rethrow_exception(first_exception);
     }
 
     // Log to AOF (zero-copy with string_view from const std::string&)

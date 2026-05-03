@@ -8,11 +8,17 @@
 #include <absl/types/span.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
+
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#endif
 
 #include "asio/awaitable.hpp"
 #include "astra/base/logging.hpp"
@@ -71,6 +77,7 @@ class WorkerScheduler {
     }
     ASTRADB_LOG_DEBUG("WorkerScheduler: Adding task to worker {}", worker_id);
     workers_[worker_id]->AddTask(std::forward<F>(func));
+    workers_[worker_id]->NotifyTaskProcessing();
     return true;
   }
 
@@ -106,8 +113,9 @@ class WorkerScheduler {
             promise.set_exception(std::current_exception());
           }
         });
+    workers_[worker_id]->NotifyTaskProcessing();
 
-    return future.get();
+    return WaitFutureWithCallerPump(future, nullptr);
   }
 
   /**
@@ -133,11 +141,12 @@ class WorkerScheduler {
           promise.set_exception(std::current_exception());
         }
       });
+      workers_[i]->NotifyTaskProcessing();
     }
 
     // Wait for all tasks to complete
     for (auto& f : futures) {
-      f.wait();
+      WaitFutureWithCallerPump(f, nullptr);
     }
   }
 
@@ -150,6 +159,7 @@ class WorkerScheduler {
   void DispatchOnAll(F&& func) {
     for (size_t i = 0; i < workers_.size(); ++i) {
       workers_[i]->AddTask(func);
+      workers_[i]->NotifyTaskProcessing();
     }
   }
 
@@ -180,11 +190,71 @@ class WorkerScheduler {
           promise.set_exception(std::current_exception());
         }
       });
+      workers_[i]->NotifyTaskProcessing();
     }
 
     for (auto& f : futures) {
-      f.wait();
+      WaitFutureWithCallerPump(f, nullptr);
     }
+  }
+
+  /**
+   * @brief Wait for a future while pumping caller worker scheduler tasks.
+   *
+   * This avoids cross-worker circular wait stalls in no-sharing architecture:
+   * while caller is waiting on remote worker result, caller still executes
+   * pending scheduler tasks.
+   */
+  template <typename T>
+  static T WaitFutureWithCallerPump(std::future<T>& future, Worker* caller) {
+    uint32_t idle_rounds = 0;
+    while (future.wait_for(std::chrono::microseconds(0)) !=
+           std::future_status::ready) {
+      bool has_work = false;
+      if (caller) {
+        has_work = caller->ProcessPendingSchedulerTasksForCrossWorkerWait();
+      }
+      if (has_work) {
+        idle_rounds = 0;
+        continue;
+      }
+      ++idle_rounds;
+      if (idle_rounds <= 256) {
+        // Keep early waits in userspace to avoid sched_yield syscall overhead.
+        RelaxCpu();
+      } else if (idle_rounds <= 2048) {
+        std::this_thread::sleep_for(std::chrono::microseconds(5));
+      } else {
+        std::this_thread::sleep_for(std::chrono::microseconds(20));
+      }
+    }
+    return future.get();
+  }
+
+  static void WaitFutureWithCallerPump(std::future<void>& future,
+                                       Worker* caller) {
+    uint32_t idle_rounds = 0;
+    while (future.wait_for(std::chrono::microseconds(0)) !=
+           std::future_status::ready) {
+      bool has_work = false;
+      if (caller) {
+        has_work = caller->ProcessPendingSchedulerTasksForCrossWorkerWait();
+      }
+      if (has_work) {
+        idle_rounds = 0;
+        continue;
+      }
+      ++idle_rounds;
+      if (idle_rounds <= 256) {
+        // Keep early waits in userspace to avoid sched_yield syscall overhead.
+        RelaxCpu();
+      } else if (idle_rounds <= 2048) {
+        std::this_thread::sleep_for(std::chrono::microseconds(5));
+      } else {
+        std::this_thread::sleep_for(std::chrono::microseconds(20));
+      }
+    }
+    future.get();
   }
 
   /**
@@ -205,6 +275,14 @@ class WorkerScheduler {
   }
 
  private:
+  static inline void RelaxCpu() {
+#if defined(__x86_64__) || defined(__i386__)
+    _mm_pause();
+#else
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+#endif
+  }
+
   std::vector<Worker*> workers_;
 };
 

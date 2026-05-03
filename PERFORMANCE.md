@@ -4,21 +4,37 @@
 
 This document captures performance analysis, profiling results, and optimization decisions for AstraDB.
 
-**Current baseline (2026-04-23)**: we use one consistent benchmark method, `redis-benchmark -t set,get`, and compare pipeline levels (`-P`) under the same server/config to avoid split-test bias.
+**Current baseline (2026-05-04)**: non-pipeline single-command benchmarks with direct Redis comparison show `SET/GET` near parity, while `MSET/MGET` are still significantly behind Redis.
 
 ---
 
 ## Performance Benchmarks
 
-### Test Environment (Current Baseline)
+### Test Environment (Current Baseline, 2026-05-04)
 - **OS**: Native Linux (Ubuntu 25.04)
 - **Binary**: `build-linux-release-debuginfo-noasan/bin/astradb`
-- **Config**: `config/astradb-benchmark.toml` (`thread_count=2`, `num_shards=2`, persistence disabled)
+- **AstraDB config**: `/tmp/astradb-mgetmset-test.toml` (`thread_count=2`, `num_shards=2`, persistence disabled)
+- **Redis baseline**: `redis-server 8.0.2` with `--save '' --appendonly no`
 - **Compiler**: Clang 19.1, C++23, optimized build
 - **Client**: `redis-benchmark`
-- **Benchmark mode**: mixed commands in one run (`-t set,get`)
+- **Run shape**: `-n 300000 -c 80 -P 1` (non-pipeline)
 
-### Latest Results (2026-04-23, `-n 1000000 -c 256`)
+### Latest Results (2026-05-04)
+
+| Command | AstraDB QPS | Redis QPS | AstraDB vs Redis |
+|---------|-------------|-----------|------------------|
+| `SET` | 220,102.70 | 219,780.22 | **+0.15%** |
+| `GET` | 223,380.48 | 221,402.20 | **+0.89%** |
+| `MSET k1..k4` | 187,617.27 | 211,118.94 | **-11.13%** |
+| `MGET k1..k4` | 182,815.36 | 205,761.33 | **-11.15%** |
+
+Peak values from the same run shape:
+- `SET`: **223,498**
+- `GET`: **228,116**
+- `MSET k1..k4`: **190,056**
+- `MGET k1..k4`: **184,532**
+
+### Historical Mixed Pipeline Baseline (2026-04-23, `-n 1000000 -c 256`)
 
 | Pipeline (`-P`) | SET QPS | GET QPS |
 |-----------------|---------|---------|
@@ -26,16 +42,31 @@ This document captures performance analysis, profiling results, and optimization
 | **16** | 1,381,215.50 | 1,805,054.12 |
 | **64** | 1,612,903.25 | 2,145,922.75 |
 
-Repeatability (same machine/config):
-- `P=1`: SET `210,837.02`, GET `209,511.84`
-- `P=64`: SET `1,600,000.00`, GET `2,127,659.50`
-
 ### Methodology Rules
 
-1. Always run `set,get` together in one benchmark process.
-2. Keep server binary and config fixed when comparing `-P` values.
-3. Report both SET and GET from the same run output.
-4. Treat historical WSL results as archived only, not release baselines.
+1. For AstraDB-vs-Redis command comparison, use single-command runs (`-P 1`) and same `-n/-c`.
+2. Keep persistence disabled for both servers when doing throughput comparison.
+3. Separate command families (`SET/GET` and `MSET/MGET`) to avoid cross-command noise.
+4. Run benchmark commands sequentially (not in parallel) for baseline data.
+5. Keep mixed `set,get` pipeline runs as a historical trend baseline, not as command-level comparison data.
+
+### Repro Commands (2026-05-04)
+
+```bash
+# AstraDB
+./build-linux-release-debuginfo-noasan/bin/astradb --config /tmp/astradb-mgetmset-test.toml
+redis-benchmark -h 127.0.0.1 -p 6392 -n 300000 -c 80 -P 1 -q -t set
+redis-benchmark -h 127.0.0.1 -p 6392 -n 300000 -c 80 -P 1 -q -t get
+redis-benchmark -h 127.0.0.1 -p 6392 -n 300000 -c 80 -P 1 -q MSET k1 v1 k2 v2 k3 v3 k4 v4
+redis-benchmark -h 127.0.0.1 -p 6392 -n 300000 -c 80 -P 1 -q MGET k1 k2 k3 k4
+
+# Redis
+redis-server --port 6380 --save '' --appendonly no --daemonize yes
+redis-benchmark -h 127.0.0.1 -p 6380 -n 300000 -c 80 -P 1 -q -t set
+redis-benchmark -h 127.0.0.1 -p 6380 -n 300000 -c 80 -P 1 -q -t get
+redis-benchmark -h 127.0.0.1 -p 6380 -n 300000 -c 80 -P 1 -q MSET k1 v1 k2 v2 k3 v3 k4 v4
+redis-benchmark -h 127.0.0.1 -p 6380 -n 300000 -c 80 -P 1 -q MGET k1 k2 k3 k4
+```
 
 ---
 
