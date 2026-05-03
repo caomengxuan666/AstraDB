@@ -969,6 +969,26 @@ class Worker {
   // This should be called after AddTask when immediate processing is needed
   void NotifyTaskProcessing() { NotifyExecutorLoop(); }
 
+  // Process pending scheduler tasks while current command is waiting on
+  // cross-worker futures. This keeps no-sharing workers responsive and avoids
+  // circular waits where each worker blocks on the other.
+  bool ProcessPendingSchedulerTasksForCrossWorkerWait(size_t max_tasks = 64) {
+    bool has_work = false;
+    std::function<void()> task;
+    size_t processed = 0;
+    while (processed < max_tasks && task_queue_.try_dequeue(task)) {
+      has_work = true;
+      ++processed;
+      try {
+        task();
+      } catch (const std::exception& e) {
+        ASTRADB_LOG_ERROR("Worker {}: Scheduler task failed during wait: {}",
+                          worker_id_, e.what());
+      }
+    }
+    return has_work;
+  }
+
   // Get blocking manager (for blocking commands)
   commands::BlockingManager* GetBlockingManager() {
     return blocking_manager_.get();

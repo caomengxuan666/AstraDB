@@ -12,6 +12,7 @@
 #include <absl/time/time.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <future>
@@ -83,6 +84,60 @@ std::string ToUpperCopy(const std::string& s) {
   return out;
 }
 
+void WaitFutureWithWorkerPump(std::future<void>& future,
+                              CommandContext* context) {
+  auto* current_worker = context ? context->GetWorker() : nullptr;
+  uint32_t idle_rounds = 0;
+  while (future.wait_for(std::chrono::microseconds(0)) !=
+         std::future_status::ready) {
+    bool has_work = false;
+    if (current_worker) {
+      has_work =
+          current_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
+    }
+    if (has_work) {
+      idle_rounds = 0;
+      continue;
+    }
+    ++idle_rounds;
+    if (idle_rounds <= 64) {
+      std::this_thread::yield();
+    } else if (idle_rounds <= 256) {
+      std::this_thread::sleep_for(std::chrono::microseconds(5));
+    } else {
+      std::this_thread::sleep_for(std::chrono::microseconds(20));
+    }
+  }
+  future.get();
+}
+
+template <typename T>
+T WaitFutureWithWorkerPump(std::future<T>& future, CommandContext* context) {
+  auto* current_worker = context ? context->GetWorker() : nullptr;
+  uint32_t idle_rounds = 0;
+  while (future.wait_for(std::chrono::microseconds(0)) !=
+         std::future_status::ready) {
+    bool has_work = false;
+    if (current_worker) {
+      has_work =
+          current_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
+    }
+    if (has_work) {
+      idle_rounds = 0;
+      continue;
+    }
+    ++idle_rounds;
+    if (idle_rounds <= 64) {
+      std::this_thread::yield();
+    } else if (idle_rounds <= 256) {
+      std::this_thread::sleep_for(std::chrono::microseconds(5));
+    } else {
+      std::this_thread::sleep_for(std::chrono::microseconds(20));
+    }
+  }
+  return future.get();
+}
+
 VectorSearchMode GetVectorSearchModeFromContext(CommandContext* context) {
   if (auto* worker_ctx = dynamic_cast<WorkerCommandContext*>(context)) {
     return worker_ctx->GetVectorSearchMode();
@@ -132,20 +187,21 @@ SearchHits ExecuteLocalSearch(const std::string& index_name,
     return db->VecSearch(index_name, query_vec, k);
   }
 
+  auto shared_query = std::make_shared<const std::vector<float>>(query_vec);
   auto promise = std::make_shared<std::promise<SearchHits>>();
   auto future = promise->get_future();
   target_worker->AddTask(
-      [target_worker, promise, index_name, query_vec, k]() mutable {
+      [target_worker, promise, index_name, shared_query, k]() mutable {
         try {
           auto results = target_worker->GetDataShard().GetDatabase().VecSearch(
-              index_name, query_vec, k);
+              index_name, *shared_query, k);
           promise->set_value(std::move(results));
         } catch (...) {
           promise->set_exception(std::current_exception());
         }
       });
   target_worker->NotifyTaskProcessing();
-  return future.get();
+  return WaitFutureWithWorkerPump(future, context);
 }
 
 SearchHits ExecuteGlobalSearch(const std::string& index_name,
@@ -166,6 +222,7 @@ SearchHits ExecuteGlobalSearch(const std::string& index_name,
   auto all_workers = worker_scheduler->GetAllWorkers();
   std::vector<std::future<SearchHits>> futures;
   futures.reserve(all_workers.size());
+  auto shared_query = std::make_shared<const std::vector<float>>(query_vec);
 
   for (auto* target_worker : all_workers) {
     if (target_worker == current_worker) {
@@ -177,10 +234,10 @@ SearchHits ExecuteGlobalSearch(const std::string& index_name,
     auto promise = std::make_shared<std::promise<SearchHits>>();
     futures.push_back(promise->get_future());
     target_worker->AddTask(
-        [target_worker, promise, index_name, query_vec, k]() mutable {
+        [target_worker, promise, index_name, shared_query, k]() mutable {
           try {
             auto task_results = target_worker->GetDataShard().GetDatabase().VecSearch(
-                index_name, query_vec, k);
+                index_name, *shared_query, k);
             promise->set_value(std::move(task_results));
           } catch (...) {
             promise->set_exception(std::current_exception());
@@ -190,7 +247,7 @@ SearchHits ExecuteGlobalSearch(const std::string& index_name,
   }
 
   for (auto& future : futures) {
-    auto worker_results = future.get();
+    auto worker_results = WaitFutureWithWorkerPump(future, context);
     results.insert(results.end(), worker_results.begin(), worker_results.end());
   }
 
@@ -356,7 +413,7 @@ CommandResult HandleVCreate(const protocol::Command& command,
       target->NotifyTaskProcessing();
     }
     for (auto& future : futures) {
-      future.get();
+      WaitFutureWithWorkerPump(future, context);
     }
   }
   return CommandResult(MakeOkResponse());
@@ -398,7 +455,7 @@ CommandResult HandleVDrop(const protocol::Command& command,
       target->NotifyTaskProcessing();
     }
     for (auto& future : futures) {
-      future.get();
+      WaitFutureWithWorkerPump(future, context);
     }
   }
   return CommandResult(MakeOkResponse());
@@ -483,7 +540,7 @@ CommandResult HandleVSet(const protocol::Command& command,
         }
       });
       target_worker->NotifyTaskProcessing();
-      ok = future.get();
+      ok = WaitFutureWithWorkerPump(future, context);
     }
   } else {
     ok = db->VecSet(index_name, key, vec, metadata);
@@ -578,7 +635,7 @@ CommandResult HandleVGet(const protocol::Command& command,
         }
       });
       target_worker->NotifyTaskProcessing();
-      entry = future.get();
+      entry = WaitFutureWithWorkerPump(future, context);
     }
   } else {
     entry = db->VecGet(key);
@@ -651,7 +708,7 @@ CommandResult HandleVDel(const protocol::Command& command,
         }
       });
       target_worker->NotifyTaskProcessing();
-      ok = future.get();
+      ok = WaitFutureWithWorkerPump(future, context);
     }
   } else {
     ok = db->VecDel(index_name, key);
@@ -789,7 +846,7 @@ CommandResult HandleVSearchGet(const protocol::Command& command,
       }
     });
     owner_worker->NotifyTaskProcessing();
-    return future.get();
+    return WaitFutureWithWorkerPump(future, context);
   }
 
   auto* worker_ctx = dynamic_cast<WorkerCommandContext*>(context);
@@ -859,7 +916,7 @@ CommandResult HandleVSearchWait(const protocol::Command& command,
       }
     });
     owner_worker->NotifyTaskProcessing();
-    return future.get();
+    return WaitFutureWithWorkerPump(future, context);
   }
 
   auto* worker_ctx = dynamic_cast<WorkerCommandContext*>(context);
@@ -924,7 +981,7 @@ CommandResult HandleVSearchCancel(const protocol::Command& command,
       }
     });
     owner_worker->NotifyTaskProcessing();
-    return future.get();
+    return WaitFutureWithWorkerPump(future, context);
   }
 
   auto* worker_ctx = dynamic_cast<WorkerCommandContext*>(context);
@@ -1002,7 +1059,7 @@ CommandResult HandleVInfo(const protocol::Command& command,
     }
 
     for (auto& future : futures) {
-      total_count += future.get();
+      total_count += WaitFutureWithWorkerPump(future, context);
     }
     stats.vector_count = total_count;
   }
