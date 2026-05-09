@@ -42,7 +42,8 @@ inline void WaitRemoteTasksWithCallerPump(std::atomic<size_t>& pending_remote,
   while (pending_remote.load(std::memory_order_acquire) != 0) {
     bool has_work = false;
     if (caller_worker) {
-      has_work = caller_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
+      has_work =
+          caller_worker->ProcessPendingSchedulerTasksForCrossWorkerWait();
     }
     if (has_work) {
       idle_rounds = 0;
@@ -100,20 +101,6 @@ CommandResult HandleGet(const astra::protocol::Command& command,
     astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
     return CommandResult(RespValue(std::string(value->value)));
   } else {
-    // Try to read from RocksDB (cold data)
-    auto* rocksdb_adapter = db->GetRocksDBAdapter();
-    if (rocksdb_adapter) {
-      auto cold_value = rocksdb_adapter->Get(key);
-      if (cold_value.has_value()) {
-        // Found in RocksDB - reload to memory
-        db->Set(key, *cold_value);
-        ASTRADB_LOG_DEBUG("GET: key {} found in RocksDB, reloaded to memory",
-                          key);
-        astra::metrics::AstraMetrics::Instance().RecordKeyspaceHit();
-        return CommandResult(RespValue(*cold_value));
-      }
-    }
-
     astra::metrics::AstraMetrics::Instance().RecordKeyspaceMiss();
     return CommandResult(RespValue(RespType::kNullBulkString));
   }
@@ -329,9 +316,9 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
       indexes.reserve(per_worker_reserve);
     }
     for (size_t i = 0; i < command.ArgCount(); ++i) {
-      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(
-                             command[i].AsString()) %
-                         all_workers.size();
+      size_t worker_id =
+          cluster::HashSlotCalculator::CalculateWithTag(command[i].AsString()) %
+          all_workers.size();
       worker_key_indexes[worker_id].push_back(i);
     }
 
@@ -365,28 +352,27 @@ CommandResult HandleMGet(const astra::protocol::Command& command,
 
         all_workers[worker_id]->AddTask(
             [&command, &ordered_results, &pending_remote, &first_exception,
-             &has_exception,
-             indexes_for_worker = std::move(indexes_for_worker),
+             &has_exception, indexes_for_worker = std::move(indexes_for_worker),
              target_worker]() mutable {
-          try {
-            Database* db = &target_worker->GetDataShard().GetDatabase();
+              try {
+                Database* db = &target_worker->GetDataShard().GetDatabase();
 
-            for (size_t index : indexes_for_worker) {
-              auto result = db->Get(command[index].AsString());
-              if (result.has_value()) {
-                ordered_results[index] =
-                    std::optional<std::string>(result->value);
-              } else {
-                ordered_results[index] = std::optional<std::string>();
+                for (size_t index : indexes_for_worker) {
+                  auto result = db->Get(command[index].AsString());
+                  if (result.has_value()) {
+                    ordered_results[index] =
+                        std::optional<std::string>(result->value);
+                  } else {
+                    ordered_results[index] = std::optional<std::string>();
+                  }
+                }
+              } catch (...) {
+                if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
+                  first_exception = std::current_exception();
+                }
               }
-            }
-          } catch (...) {
-            if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
-              first_exception = std::current_exception();
-            }
-          }
-          pending_remote.fetch_sub(1, std::memory_order_release);
-        });
+              pending_remote.fetch_sub(1, std::memory_order_release);
+            });
 
         // Notify worker to process task immediately
         all_workers[worker_id]->NotifyTaskProcessing();
@@ -475,9 +461,9 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
         return CommandResult(false, "ERR wrong type of key or value argument");
       }
 
-      size_t worker_id = cluster::HashSlotCalculator::CalculateWithTag(
-                             key_arg.AsString()) %
-                         all_workers.size();
+      size_t worker_id =
+          cluster::HashSlotCalculator::CalculateWithTag(key_arg.AsString()) %
+          all_workers.size();
       worker_kv_indexes[worker_id].push_back(i);
     }
 
@@ -503,22 +489,23 @@ CommandResult HandleMSet(const astra::protocol::Command& command,
       pending_remote.fetch_add(1, std::memory_order_relaxed);
       auto indexes_for_worker = std::move(worker_kv_indexes[worker_id]);
 
-      target_worker->AddTask([&command, target_worker, &pending_remote,
-                              &first_exception, &has_exception,
-                              indexes = std::move(indexes_for_worker)]() mutable {
-        try {
-          Database* remote_db = &target_worker->GetDataShard().GetDatabase();
-          for (size_t index : indexes) {
-            remote_db->Set(command[index].AsString(),
-                           StringValue(command[index + 1].AsString()));
-          }
-        } catch (...) {
-          if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
-            first_exception = std::current_exception();
-          }
-        }
-        pending_remote.fetch_sub(1, std::memory_order_release);
-      });
+      target_worker->AddTask(
+          [&command, target_worker, &pending_remote, &first_exception,
+           &has_exception, indexes = std::move(indexes_for_worker)]() mutable {
+            try {
+              Database* remote_db =
+                  &target_worker->GetDataShard().GetDatabase();
+              for (size_t index : indexes) {
+                remote_db->Set(command[index].AsString(),
+                               StringValue(command[index + 1].AsString()));
+              }
+            } catch (...) {
+              if (!has_exception.exchange(true, std::memory_order_acq_rel)) {
+                first_exception = std::current_exception();
+              }
+            }
+            pending_remote.fetch_sub(1, std::memory_order_release);
+          });
       target_worker->NotifyTaskProcessing();
     }
 

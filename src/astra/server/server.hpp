@@ -4,6 +4,7 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -59,7 +60,8 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   uint32_t cluster_shard_count = 256;
 
   // ACL
-  bool acl_enabled = false;  // disabled by default, enable via [acl] config section
+  bool acl_enabled =
+      false;  // disabled by default, enable via [acl] config section
   std::string acl_default_user = "default";
   std::string acl_default_password = "";
 
@@ -96,6 +98,7 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.use_async_commands = base_config.use_async_commands;
     config.use_per_worker_io = base_config.use_per_worker_io;
     config.use_so_reuseport = base_config.use_so_reuseport;
+    config.storage = base_config.storage;
     config.persistence = base_config.persistence;
     config.cluster = base_config.cluster;
 
@@ -131,7 +134,15 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
 
     // Load ACL configuration from TOML
     try {
+#if TOML_EXCEPTIONS
       toml::table config_table = toml::parse_file(config_file);
+#else
+      auto parse_result = toml::parse_file(config_file);
+      if (parse_result.failed()) {
+        throw std::runtime_error("Failed to parse server configuration");
+      }
+      toml::table& config_table = parse_result.table();
+#endif
 
       // ACL configuration
       if (config_table.contains("acl")) {

@@ -136,6 +136,14 @@ CommandResult HandleClient(const protocol::Command& command,
     return HandleClientSetName(new_command, context);
   } else if (sub == "GETNAME") {
     return HandleClientGetName(command, context);
+  } else if (sub == "SETINFO") {
+    if (command.ArgCount() != 3) {
+      return CommandResult(
+          false, "ERR wrong number of arguments for 'client setinfo' command");
+    }
+    protocol::RespValue resp;
+    resp.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(resp);
   } else {
     return CommandResult(false, "ERR unknown subcommand '" + sub + "'");
   }

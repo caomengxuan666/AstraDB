@@ -27,6 +27,10 @@ target_sources(astra_server PRIVATE
   worker_scheduler.cpp
 )
 
+if(MSVC)
+  target_compile_options(astra_server PRIVATE /bigobj)
+endif()
+
 target_link_libraries(astra_server PUBLIC
   astra_core
   astra_network

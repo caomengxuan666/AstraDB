@@ -69,7 +69,8 @@ void Server::Start() {
                        workers_.size());
       for (auto& worker : workers_) {
         ASTRADB_LOG_DEBUG("Calling SetPersistenceManager for worker");
-        worker->SetPersistenceManager(persistence_manager_.get(), config_.aof.enabled);
+        worker->SetPersistenceManager(persistence_manager_.get(),
+                                      config_.aof.enabled);
       }
       ASTRADB_LOG_INFO("Persistence manager set for all workers (AOF: {})",
                        config_.aof.enabled ? "enabled" : "disabled");
@@ -188,9 +189,41 @@ void Server::Start() {
     memory_config.eviction_samples = config_.memory.eviction_samples;
     memory_config.enable_tracking = config_.memory.enable_tracking;
 
+    const bool rocksdb_all_in =
+        config_.storage.mode == base::StorageMode::kRocksDB;
+    const bool rocksdb_cold_data =
+        config_.storage.mode == base::StorageMode::kRedis &&
+        config_.storage.enable_rocksdb_cold_data && config_.rocksdb.enabled;
+
+    DataShard::RocksDBRuntimeConfig rocksdb_config;
+    rocksdb_config.enabled = rocksdb_all_in || rocksdb_cold_data;
+    rocksdb_config.storage_mode = config_.storage.mode;
+    rocksdb_config.enable_compression = config_.storage.enable_compression;
+    rocksdb_config.compression_type = config_.storage.compression_type;
+
+    if (rocksdb_all_in) {
+      rocksdb_config.data_dir = config_.storage.rocksdb_mode.data_dir;
+      rocksdb_config.cache_size = config_.storage.rocksdb_mode.cache_size;
+      rocksdb_config.write_buffer_size =
+          config_.storage.rocksdb_mode.write_buffer_size;
+      rocksdb_config.enable_wal = config_.storage.rocksdb_mode.enable_wal;
+      rocksdb_config.create_if_missing =
+          config_.storage.rocksdb_mode.create_if_missing;
+      rocksdb_config.max_open_files =
+          config_.storage.rocksdb_mode.max_open_files;
+    } else {
+      rocksdb_config.data_dir = config_.rocksdb.data_dir;
+      rocksdb_config.cache_size = config_.rocksdb.cache_size;
+      rocksdb_config.enable_wal = config_.rocksdb.enable_wal;
+      rocksdb_config.create_if_missing = config_.rocksdb.create_if_missing;
+    }
+
     ASTRADB_LOG_INFO(
-        "Setting memory configuration for {} workers (RocksDB enabled: {})",
-        workers_.size(), config_.rocksdb.enabled ? "yes" : "no");
+        "Setting memory configuration for {} workers (storage_mode={}, "
+        "rocksdb_enabled={}, rocksdb_role={})",
+        workers_.size(), rocksdb_all_in ? "rocksdb" : "redis",
+        rocksdb_config.enabled ? "yes" : "no",
+        rocksdb_all_in ? "all-in" : (rocksdb_cold_data ? "cold-data" : "none"));
     for (auto& worker : workers_) {
       // Create callback to get total memory across all workers
       core::memory::GetTotalMemoryCallback get_total_memory_callback;
@@ -206,8 +239,7 @@ void Server::Start() {
       }
 
       worker->GetDataShard().SetMemoryConfig(
-          memory_config, std::move(get_total_memory_callback),
-          config_.rocksdb.enabled);
+          memory_config, std::move(get_total_memory_callback), rocksdb_config);
     }
     ASTRADB_LOG_INFO("Memory configuration set for all workers");
   }

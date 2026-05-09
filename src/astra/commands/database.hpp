@@ -14,6 +14,7 @@
 
 #include <iomanip>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -35,8 +36,6 @@
 #include "astra/persistence/rocksdb_serializer.hpp"
 #include "astra/protocol/resp/resp_types.hpp"
 #include "astra/storage/key_metadata.hpp"
-
-#include <nlohmann/json.hpp>
 
 // Forward declarations
 namespace astra::server {
@@ -77,7 +76,8 @@ class Database {
   using ZSetType = astra::container::ZSetBPlus<std::string, double>;
   using ListType = astra::container::StringList;
   using VectorMap =
-      astra::container::DashMap<std::string, std::shared_ptr<astra::container::VectorEntry>>;
+      astra::container::DashMap<std::string,
+                                std::shared_ptr<astra::container::VectorEntry>>;
   using VectorIndexManager = astra::container::VectorIndexManager;
 
   Database() : string_pool_(std::make_unique<core::memory::StringPool>()) {}
@@ -248,8 +248,8 @@ class Database {
       case astra::storage::KeyType::kJson: {
         std::shared_ptr<nlohmann::json> doc;
         if (jsons_.Get(key, &doc) && doc) {
-          serialized = persistence::RocksDBSerializer::SerializeJson(
-              key, doc->dump());
+          serialized =
+              persistence::RocksDBSerializer::SerializeJson(key, doc->dump());
           success = !serialized.empty();
         }
         break;
@@ -288,8 +288,7 @@ class Database {
       uint32_t metadata_size =
           core::memory::ObjectSizeEstimator::EstimateMetadataSize(key);
 
-      ASTRADB_LOG_DEBUG(
-          "EvictKey: successfully removed key: {}", key);
+      ASTRADB_LOG_DEBUG("EvictKey: successfully removed key: {}", key);
 
       // Subtract memory from tracker
       if (memory_tracker_) {
@@ -366,8 +365,8 @@ class Database {
     metadata_manager_.UpdateAccessInfo(key);
 
     uint64_t internal_id = std::hash<std::string>{}(key);
-    auto inserted = vector_index_mgr_.AddVector(index_name, internal_id,
-                                                 vector.data());
+    auto inserted =
+        vector_index_mgr_.AddVector(index_name, internal_id, vector.data());
 
     if (!inserted) {
       ASTRADB_LOG_ERROR("VecSet: AddVector failed for key='{}' id={}", key,
@@ -376,8 +375,7 @@ class Database {
     }
 
     if (inserted && memory_tracker_) {
-      size_t bytes = vector.size() * sizeof(float) +
-                     key.size() + 64;
+      size_t bytes = vector.size() * sizeof(float) + key.size() + 64;
       memory_tracker_->AddMemory(bytes);
     }
 
@@ -388,8 +386,7 @@ class Database {
     return inserted;
   }
 
-  std::optional<container::VectorEntry> VecGet(
-      const std::string& key) {
+  std::optional<container::VectorEntry> VecGet(const std::string& key) {
     std::shared_ptr<container::VectorEntry> entry;
     if (vectors_.Get(key, &entry)) {
       metadata_manager_.UpdateAccessInfo(key);
@@ -404,14 +401,11 @@ class Database {
         uint32_t dimension = 0;
         uint8_t dist_metric = 0;
         if (persistence::RocksDBSerializer::DeserializeVector(
-                *serialized, &vec_data, &idx_name, &dimension,
-                &dist_metric)) {
-          auto entry_ptr =
-              std::make_shared<astra::container::VectorEntry>(
-                  std::move(vec_data), idx_name);
+                *serialized, &vec_data, &idx_name, &dimension, &dist_metric)) {
+          auto entry_ptr = std::make_shared<astra::container::VectorEntry>(
+              std::move(vec_data), idx_name);
           vectors_.Insert(key, entry_ptr);
-          metadata_manager_.RegisterKey(key,
-                                        astra::storage::KeyType::kVector);
+          metadata_manager_.RegisterKey(key, astra::storage::KeyType::kVector);
           metadata_manager_.UpdateAccessInfo(key);
           return *entry_ptr;
         }
@@ -443,9 +437,7 @@ class Database {
     return vector_index_mgr_.SearchKNN(index_name, query.data(), k);
   }
 
-  size_t VectorGetCount() const {
-    return vector_index_mgr_.TotalVectorCount();
-  }
+  size_t VectorGetCount() const { return vector_index_mgr_.TotalVectorCount(); }
 
   void CompactVectorIndex(const std::string& name) {
     vector_index_mgr_.CompactIndex(name);
@@ -481,7 +473,7 @@ class Database {
   }
 
   std::optional<std::string> JsonGet(const std::string& key,
-                                      const std::string& path = "$") {
+                                     const std::string& path = "$") {
     std::shared_ptr<nlohmann::json> doc;
     if (jsons_.Get(key, &doc) && doc) {
       metadata_manager_.UpdateAccessInfo(key);
@@ -536,7 +528,7 @@ class Database {
   }
 
   std::optional<std::string> JsonType(const std::string& key,
-                                       const std::string& path = "$") {
+                                      const std::string& path = "$") {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
     metadata_manager_.UpdateAccessInfo(key);
@@ -548,15 +540,22 @@ class Database {
         target = &doc->at(jp);
       }
       switch (target->type()) {
-        case nlohmann::json::value_t::null: return "null";
-        case nlohmann::json::value_t::boolean: return "boolean";
+        case nlohmann::json::value_t::null:
+          return "null";
+        case nlohmann::json::value_t::boolean:
+          return "boolean";
         case nlohmann::json::value_t::number_integer:
         case nlohmann::json::value_t::number_unsigned:
-        case nlohmann::json::value_t::number_float: return "number";
-        case nlohmann::json::value_t::string: return "string";
-        case nlohmann::json::value_t::array: return "array";
-        case nlohmann::json::value_t::object: return "object";
-        default: return "unknown";
+        case nlohmann::json::value_t::number_float:
+          return "number";
+        case nlohmann::json::value_t::string:
+          return "string";
+        case nlohmann::json::value_t::array:
+          return "array";
+        case nlohmann::json::value_t::object:
+          return "object";
+        default:
+          return "unknown";
       }
     } catch (...) {
       return std::nullopt;
@@ -564,7 +563,7 @@ class Database {
   }
 
   bool JsonArrayAppend(const std::string& key, const std::string& path,
-                        const std::string& json_val) {
+                       const std::string& json_val) {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return false;
     metadata_manager_.UpdateAccessInfo(key);
@@ -582,7 +581,7 @@ class Database {
   }
 
   std::optional<int64_t> JsonNumIncrBy(const std::string& key,
-                                         const std::string& path, int64_t inc) {
+                                       const std::string& path, int64_t inc) {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
     metadata_manager_.UpdateAccessInfo(key);
@@ -602,7 +601,7 @@ class Database {
   }
 
   std::optional<size_t> JsonArrayLen(const std::string& key,
-                                      const std::string& path = "$") {
+                                     const std::string& path = "$") {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
     metadata_manager_.UpdateAccessInfo(key);
@@ -617,7 +616,7 @@ class Database {
   }
 
   std::optional<size_t> JsonObjLen(const std::string& key,
-                                    const std::string& path = "$") {
+                                   const std::string& path = "$") {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
     metadata_manager_.UpdateAccessInfo(key);
@@ -632,8 +631,8 @@ class Database {
   }
 
   std::optional<int64_t> JsonArrIndex(const std::string& key,
-                                        const std::string& path,
-                                        const std::string& json_val) {
+                                      const std::string& path,
+                                      const std::string& json_val) {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return std::nullopt;
     metadata_manager_.UpdateAccessInfo(key);
@@ -652,7 +651,7 @@ class Database {
   }
 
   bool JsonStrAppend(const std::string& key, const std::string& path,
-                      const std::string& str) {
+                     const std::string& str) {
     std::shared_ptr<nlohmann::json> doc;
     if (!jsons_.Get(key, &doc) || !doc) return false;
     metadata_manager_.UpdateAccessInfo(key);
@@ -667,7 +666,6 @@ class Database {
     }
     return false;
   }
-
 
   static std::string json_parent_path(const nlohmann::json::json_pointer& jp) {
     auto s = jp.to_string();
@@ -846,37 +844,34 @@ class Database {
       if (serialized.has_value()) {
         ASTRADB_LOG_DEBUG("GET: loading from RocksDB cold data: {}, data: {}",
                           key, *serialized);
-        auto* serializer = persistence::SerializerFactory::GetSerializer(
-            astra::storage::KeyType::kString);
-        if (serializer) {
-          std::string deserialized_str;
-          if (serializer->Deserialize(*serialized, &deserialized_str)) {
-            ASTRADB_LOG_DEBUG("GET: deserialized: {}", deserialized_str);
-            StringValue str_value(deserialized_str);
+        std::string deserialized_str;
+        int64_t timestamp, ttl_ms;
+        if (persistence::RocksDBSerializer::DeserializeString(
+                *serialized, &deserialized_str, &timestamp, &ttl_ms)) {
+          ASTRADB_LOG_DEBUG("GET: deserialized: {}", deserialized_str);
+          StringValue str_value(deserialized_str);
 
-            // Insert into memory cache and metadata
-            strings_.Insert(key, std::move(str_value));
-            metadata_manager_.RegisterKey(key,
-                                          astra::storage::KeyType::kString);
+          // Insert into memory cache and metadata
+          strings_.Insert(key, std::move(str_value));
+          metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+          if (ShouldTrackAccessInfo()) {
             metadata_manager_.UpdateAccessInfo(key);
-
-            // Update memory tracker
-            if (memory_tracker_) {
-              core::memory::MemoryTrackerHelper::UpdateString(
-                  memory_tracker_, &metadata_manager_, key, "",
-                  deserialized_str);
-            }
-
-            // Return the loaded value
-            StringValue result;
-            if (strings_.Get(key, &result)) {
-              ASTRADB_LOG_DEBUG("GET: returning loaded value: {}",
-                                result.value);
-              return result;
-            }
-          } else {
-            ASTRADB_LOG_WARN("GET: failed to deserialize key: {}", key);
           }
+
+          // Update memory tracker
+          if (memory_tracker_) {
+            core::memory::MemoryTrackerHelper::UpdateString(
+                memory_tracker_, &metadata_manager_, key, "", deserialized_str);
+          }
+
+          // Return the loaded value
+          StringValue result;
+          if (strings_.Get(key, &result)) {
+            ASTRADB_LOG_DEBUG("GET: returning loaded value: {}", result.value);
+            return result;
+          }
+        } else {
+          ASTRADB_LOG_WARN("GET: failed to deserialize key: {}", key);
         }
       }
     }
@@ -2583,9 +2578,8 @@ class Database {
 
  private:
   bool ShouldTrackAccessInfo() const {
-    return memory_tracker_ &&
-           memory_tracker_->GetEvictionPolicy() !=
-               core::memory::EvictionPolicy::kNoEviction;
+    return memory_tracker_ && memory_tracker_->GetEvictionPolicy() !=
+                                  core::memory::EvictionPolicy::kNoEviction;
   }
 
   std::shared_ptr<HashType> GetHash(const std::string& key) {
@@ -2649,11 +2643,11 @@ class Database {
         if (persistence::RocksDBSerializer::DeserializeString(
                 *serialized, &value, &timestamp, &ttl_ms)) {
           StringValue str_value(value);
-            strings_.Insert(key, std::move(str_value));
-            metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
-            if (ShouldTrackAccessInfo()) {
-              metadata_manager_.UpdateAccessInfo(key);
-            }
+          strings_.Insert(key, std::move(str_value));
+          metadata_manager_.RegisterKey(key, astra::storage::KeyType::kString);
+          if (ShouldTrackAccessInfo()) {
+            metadata_manager_.UpdateAccessInfo(key);
+          }
           return true;
         }
         break;
@@ -2706,7 +2700,8 @@ class Database {
   astra::container::DashMap<std::string, std::shared_ptr<StreamData>> streams_;
   VectorMap vectors_;
   VectorIndexManager vector_index_mgr_;
-  astra::container::DashMap<std::string, std::shared_ptr<nlohmann::json>> jsons_;
+  astra::container::DashMap<std::string, std::shared_ptr<nlohmann::json>>
+      jsons_;
   astra::storage::KeyMetadataManager metadata_manager_;
   std::unique_ptr<core::memory::StringPool> string_pool_;
   core::memory::MemoryTracker* memory_tracker_ = nullptr;  // Not owned

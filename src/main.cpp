@@ -168,48 +168,51 @@ int main(int argc, char** argv) {
   fmt::print(TEXT, "★ Constellations ★\n");
 
   fmt::print(LINE, "     ╲     ╱ ╲           ╲     ╱    ");
-  fmt::print(TEXT, ""
+  fmt::print(TEXT,
+             ""
 #ifdef __clang__
-  "Compiler: Clang"
+             "Compiler: Clang"
 #elif defined(__GNUC__)
-  "Compiler: GCC"
+             "Compiler: GCC"
 #else
-  "Compiler: Unknown"
+             "Compiler: Unknown"
 #endif
-  "\n");
+             "\n");
 
   fmt::print(DOT, "      ·───");
   fmt::print(STAR, "★");
   fmt::print(DOT, "───·           ·───");
   fmt::print(STAR, "★     ");
-  fmt::print(TEXT, ""
+  fmt::print(TEXT,
+             ""
 #if defined(__linux__)
-  "Platform: Linux"
+             "Platform: Linux"
 #elif defined(__APPLE__)
-  "Platform: macOS"
+             "Platform: macOS"
 #elif defined(_WIN32)
-  "Platform: Windows"
+             "Platform: Windows"
 #endif
-  " · "
+             " · "
 #if defined(__x86_64__) || defined(_M_X64)
-  "x86_64"
+             "x86_64"
 #elif defined(__aarch64__)
-  "aarch64"
+             "aarch64"
 #endif
-  "\n");
+             "\n");
 
   fmt::print(LINE, "       ╲ ╱     ╲         ╱          ");
-  fmt::print(TEXT, ""
+  fmt::print(TEXT,
+             ""
 #ifdef __AVX2__
-  "SIMD: AVX2"
+             "SIMD: AVX2"
 #elif defined(__SSE4_2__)
-  "SIMD: SSE4.2"
+             "SIMD: SSE4.2"
 #elif defined(__ARM_NEON)
-  "SIMD: NEON"
+             "SIMD: NEON"
 #else
-  "SIMD: SSE2/SSE4"
+             "SIMD: SSE2/SSE4"
 #endif
-  "\n");
+             "\n");
 
   fmt::print(STAR, "        ★       ★───●───★           ");
   fmt::print(TEXT, "Vector Search: hnswlib\n");
@@ -228,13 +231,14 @@ int main(int argc, char** argv) {
 #endif
 
   fmt::print(LINE, "     ╱                         ╲    ");
-  fmt::print(TEXT, "Cluster: "
+  fmt::print(TEXT,
+             "Cluster: "
 #ifdef ASTRADB_CLUSTER_ENABLED
-  "enabled"
+             "enabled"
 #else
-  "disabled"
+             "disabled"
 #endif
-  "\n");
+             "\n");
 
   fmt::print(STAR, "    ★");
   fmt::print(LINE, "───────·───────────·───────");
@@ -258,7 +262,7 @@ int main(int argc, char** argv) {
   if (config.memory.max_memory == 0)
     fmt::print(TEXT, "unlimited\n");
   else
-    fmt::print(TEXT, "{} MiB\n", config.memory.max_memory / (1024*1024));
+    fmt::print(TEXT, "{} MiB\n", config.memory.max_memory / (1024 * 1024));
 
   fmt::print(STAR, "        ★                   ★       ");
   fmt::print(TEXT, "Replication: ");
@@ -345,6 +349,7 @@ int main(int argc, char** argv) {
   server_config.use_async_commands = config.use_async_commands;
   server_config.use_per_worker_io = config.use_per_worker_io;
   server_config.use_so_reuseport = config.use_so_reuseport;
+  server_config.storage = config.storage;
 
   // Copy persistence config
   server_config.persistence.enabled = config.persistence.enabled;
