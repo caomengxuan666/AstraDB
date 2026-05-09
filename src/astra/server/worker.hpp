@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <thread>
 #include <vector>
 
@@ -443,8 +444,15 @@ class DataShard {
   // Set memory configuration
   void SetMemoryConfig(
       const core::memory::MemoryTrackerConfig& config,
-      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
-      const RocksDBRuntimeConfig& rocksdb_config = RocksDBRuntimeConfig()) {
+      core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr) {
+    SetMemoryConfig(config, std::move(get_total_memory_callback),
+                    RocksDBRuntimeConfig{});
+  }
+
+  void SetMemoryConfig(
+      const core::memory::MemoryTrackerConfig& config,
+      core::memory::GetTotalMemoryCallback get_total_memory_callback,
+      const RocksDBRuntimeConfig& rocksdb_config) {
     ASTRADB_LOG_INFO(
         "Shard {}: Setting memory config - max_memory={}, policy={}, "
         "threshold={}, rocksdb={}, storage_mode={}",

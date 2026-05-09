@@ -456,7 +456,6 @@ class Database {
       metadata_manager_.UpdateAccessInfo(key);
 
       if (memory_tracker_) {
-        size_t old_size = 0;
         size_t new_size = json_str.size() + 128;
         if (!key_existed) {
           memory_tracker_->AddMemory(new_size);
