@@ -47,7 +47,9 @@ bool RocksDBAdapter::Put(const std::string& key, const std::string& value) {
     return false;
   }
 
-  rocksdb::Status status = db_->Put(rocksdb::WriteOptions(), key, value);
+  rocksdb::WriteOptions write_options;
+  write_options.disableWAL = !config_.enable_wal;
+  rocksdb::Status status = db_->Put(write_options, key, value);
 
   if (!status.ok()) {
     logger_->error("Failed to put key {}: {}", key, status.ToString());
@@ -84,7 +86,9 @@ bool RocksDBAdapter::Delete(const std::string& key) {
     return false;
   }
 
-  rocksdb::Status status = db_->Delete(rocksdb::WriteOptions(), key);
+  rocksdb::WriteOptions write_options;
+  write_options.disableWAL = !config_.enable_wal;
+  rocksdb::Status status = db_->Delete(write_options, key);
 
   if (!status.ok()) {
     logger_->error("Failed to delete key {}: {}", key, status.ToString());
@@ -118,7 +122,9 @@ bool RocksDBAdapter::BatchPut(
     batch.Put(kv.first, kv.second);
   }
 
-  rocksdb::Status status = db_->Write(rocksdb::WriteOptions(), &batch);
+  rocksdb::WriteOptions write_options;
+  write_options.disableWAL = !config_.enable_wal;
+  rocksdb::Status status = db_->Write(write_options, &batch);
 
   if (!status.ok()) {
     logger_->error("Failed to batch write: {}", status.ToString());

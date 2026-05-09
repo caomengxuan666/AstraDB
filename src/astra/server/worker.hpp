@@ -14,6 +14,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -21,11 +22,11 @@
 #include "astra/base/concurrentqueue_wrapper.hpp"
 #include "astra/base/config.hpp"
 #include "astra/base/logging.hpp"
+#include "astra/commands/astra/vector_search_runtime.hpp"
 #include "astra/commands/blocking_manager.hpp"
 #include "astra/commands/command_auto_register.hpp"
 #include "astra/commands/command_handler.hpp"
 #include "astra/commands/database.hpp"
-#include "astra/commands/astra/vector_search_runtime.hpp"
 #include "astra/commands/redis/pubsub_commands.hpp"
 #include "astra/core/memory/eviction_policy.hpp"
 #include "astra/core/metrics.hpp"
@@ -44,6 +45,7 @@
 
 #ifdef __linux__
 #include <sched.h>
+
 #include <cstring>
 #endif
 
@@ -55,7 +57,8 @@ inline bool SetCpuAffinity(size_t cpu_id) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   CPU_SET(cpu_id, &cpuset);
-  return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0;
+  return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) ==
+         0;
 #else
   (void)cpu_id;
   return true;
@@ -208,7 +211,8 @@ class WorkerCommandContext : public astra::commands::CommandContext {
     transaction_state_store_.QueueCommand(connection_id_, cmd);
   }
 
-  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands() const override {
+  absl::InlinedVector<protocol::Command, 16> GetQueuedCommands()
+      const override {
     return transaction_state_store_.GetQueuedCommands(connection_id_);
   }
 
@@ -402,6 +406,19 @@ class WorkerCommandContext : public astra::commands::CommandContext {
 // DataShard - Contains a full Database instance
 class DataShard {
  public:
+  struct RocksDBRuntimeConfig {
+    bool enabled = false;
+    base::StorageMode storage_mode = base::StorageMode::kRedis;
+    std::string data_dir = "./data/rocksdb";
+    size_t cache_size = 256 * 1024 * 1024;
+    size_t write_buffer_size = 64 * 1024 * 1024;
+    bool enable_wal = true;
+    bool create_if_missing = true;
+    int max_open_files = 1000;
+    bool enable_compression = true;
+    std::string compression_type = "zlib";
+  };
+
   explicit DataShard(size_t shard_id)
       : shard_id_(shard_id), context_(&database_) {
     // Initialize command registry
@@ -427,13 +444,15 @@ class DataShard {
   void SetMemoryConfig(
       const core::memory::MemoryTrackerConfig& config,
       core::memory::GetTotalMemoryCallback get_total_memory_callback = nullptr,
-      bool enable_rocksdb = false) {
+      const RocksDBRuntimeConfig& rocksdb_config = RocksDBRuntimeConfig()) {
     ASTRADB_LOG_INFO(
         "Shard {}: Setting memory config - max_memory={}, policy={}, "
-        "threshold={}, rocksdb={}",
+        "threshold={}, rocksdb={}, storage_mode={}",
         shard_id_, config.max_memory_limit,
         static_cast<int>(config.eviction_policy), config.eviction_threshold,
-        enable_rocksdb);
+        rocksdb_config.enabled,
+        rocksdb_config.storage_mode == base::StorageMode::kRocksDB ? "rocksdb"
+                                                                   : "redis");
     memory_tracker_.SetMaxMemory(config.max_memory_limit);
     memory_tracker_.SetEvictionPolicy(config.eviction_policy);
     memory_tracker_.SetEvictionThreshold(config.eviction_threshold);
@@ -441,25 +460,33 @@ class DataShard {
     memory_tracker_.SetTrackingEnabled(config.enable_tracking);
 
     // Initialize RocksDB if enabled
-    if (enable_rocksdb && !rocksdb_adapter_) {
-      std::string db_path = "data/rocksdb/shard_" + std::to_string(shard_id_);
-      persistence::RocksDBAdapter::Config rocksdb_config;
-      rocksdb_config.db_path = db_path;
-      rocksdb_config.create_if_missing = true;
-      rocksdb_config.enable_wal = true;
-      rocksdb_config.cache_size = 256 * 1024 * 1024;  // 256MB cache
+    if (rocksdb_config.enabled && !rocksdb_adapter_) {
+      persistence::RocksDBAdapter::Config adapter_config;
+      adapter_config.db_path =
+          MakeShardPath(rocksdb_config.data_dir, shard_id_);
+      adapter_config.create_if_missing = rocksdb_config.create_if_missing;
+      adapter_config.enable_wal = rocksdb_config.enable_wal;
+      adapter_config.cache_size = rocksdb_config.cache_size;
+      adapter_config.write_buffer_size = rocksdb_config.write_buffer_size;
+      adapter_config.max_open_files = rocksdb_config.max_open_files;
+      adapter_config.enable_compression = rocksdb_config.enable_compression;
+      adapter_config.compression_type =
+          ParseCompressionType(rocksdb_config.compression_type);
 
       rocksdb_adapter_ =
-          std::make_unique<persistence::RocksDBAdapter>(rocksdb_config);
+          std::make_unique<persistence::RocksDBAdapter>(adapter_config);
       if (rocksdb_adapter_->IsOpen()) {
-        database_.SetRocksDBAdapter(rocksdb_adapter_.get());
+        database_.SetRocksDBAdapter(rocksdb_adapter_.get(),
+                                    rocksdb_config.storage_mode);
         ASTRADB_LOG_INFO("Shard {}: RocksDB initialized at {}", shard_id_,
-                         db_path);
+                         adapter_config.db_path);
       } else {
         ASTRADB_LOG_ERROR("Shard {}: Failed to initialize RocksDB at {}",
-                          shard_id_, db_path);
+                          shard_id_, adapter_config.db_path);
         rocksdb_adapter_.reset();
       }
+    } else if (!rocksdb_config.enabled) {
+      database_.SetRocksDBAdapter(nullptr, base::StorageMode::kRedis);
     }
 
     // Initialize eviction manager after config is set
@@ -616,6 +643,33 @@ class DataShard {
   WorkerCommandContext context_;
   astra::commands::CommandRegistry registry_;
   std::unique_ptr<persistence::RocksDBAdapter> rocksdb_adapter_;
+
+  static std::string MakeShardPath(const std::string& data_dir,
+                                   size_t shard_id) {
+    std::string path = data_dir.empty() ? "./data/rocksdb" : data_dir;
+    const char last = path.back();
+    if (last != '/' && last != '\\') {
+      path.push_back('/');
+    }
+    path += "shard_";
+    path += std::to_string(shard_id);
+    return path;
+  }
+
+  static rocksdb::CompressionType ParseCompressionType(
+      const std::string& compression_type) {
+    const std::string type = absl::AsciiStrToLower(compression_type);
+    if (type == "none" || type == "no" || type == "off") {
+      return rocksdb::kNoCompression;
+    }
+    if (type == "zstd") {
+      return rocksdb::kZSTD;
+    }
+    if (type == "lz4") {
+      return rocksdb::kLZ4Compression;
+    }
+    return rocksdb::kZlibCompression;
+  }
 };
 
 // Cross-worker request (forwarded from one worker to another)
@@ -1071,10 +1125,13 @@ class Worker {
   }
 
   // Set persistence manager (called by Server after persistence is initialized)
-  // aof_enabled: whether AOF logging is enabled (if false, AOF callback will not be set)
-  void SetPersistenceManager(void* persistence_manager, bool aof_enabled = false) {
-    ASTRADB_LOG_DEBUG("Worker {}: SetPersistenceManager called with ptr={}, aof_enabled={}",
-                      worker_id_, persistence_manager, aof_enabled);
+  // aof_enabled: whether AOF logging is enabled (if false, AOF callback will
+  // not be set)
+  void SetPersistenceManager(void* persistence_manager,
+                             bool aof_enabled = false) {
+    ASTRADB_LOG_DEBUG(
+        "Worker {}: SetPersistenceManager called with ptr={}, aof_enabled={}",
+        worker_id_, persistence_manager, aof_enabled);
 
     if (persistence_manager) {
       auto* pm = static_cast<PersistenceManager*>(persistence_manager);
@@ -1088,11 +1145,13 @@ class Worker {
               pm->AppendCommand(command);
               ASTRADB_LOG_TRACE("AOF callback completed");
             });
-        ASTRADB_LOG_DEBUG("Worker {}: AOF callback set successfully", worker_id_);
+        ASTRADB_LOG_DEBUG("Worker {}: AOF callback set successfully",
+                          worker_id_);
       } else {
         // Explicitly clear AOF callback to avoid unnecessary overhead
         data_shard_.GetCommandContext()->SetAofCallbackString(nullptr);
-        ASTRADB_LOG_DEBUG("Worker {}: AOF disabled, skipping AOF callback", worker_id_);
+        ASTRADB_LOG_DEBUG("Worker {}: AOF disabled, skipping AOF callback",
+                          worker_id_);
       }
 
       // Set RDB save callback
@@ -1188,8 +1247,7 @@ class Worker {
   }
 
   // Enqueue a cross-worker request (called by other workers)
-  void EnqueueCrossWorkerRequest(CrossWorkerRequest req,
-                                 bool notify = true) {
+  void EnqueueCrossWorkerRequest(CrossWorkerRequest req, bool notify = true) {
     // Create a command with connection ID for the request
     CommandWithConnId cmd{req.conn_id, std::move(req.command), true,
                           req.source_worker_id};  // Mark as forwarded
@@ -1263,47 +1321,46 @@ class Worker {
       return;
     }
 
-    acceptor_.async_accept(
-        [this](asio::error_code ec, asio::ip::tcp::socket socket) {
-          if (!ec && running_) {
-            ASTRADB_LOG_DEBUG("Worker {}: Accepted connection", worker_id_);
+    acceptor_.async_accept([this](asio::error_code ec,
+                                  asio::ip::tcp::socket socket) {
+      if (!ec && running_) {
+        ASTRADB_LOG_DEBUG("Worker {}: Accepted connection", worker_id_);
 
-            // Create connection ID
-            uint64_t conn_id = next_conn_id_++;
+        // Create connection ID
+        uint64_t conn_id = next_conn_id_++;
 
-            // Create connection
-            auto conn = std::make_shared<Connection>(
-                worker_id_, conn_id, std::move(socket), &cmd_queue_,
-                &resp_queue_, [this]() { NotifyExecutorLoop(); },
-                [this](uint64_t conn_id) {
-                  // Remove connection from map when it's closed
-                  std::lock_guard<std::mutex> lock(connections_mutex_);
-                  connections_.erase(conn_id);
-                  task_queue_.enqueue([this, conn_id]() {
-                    data_shard_.GetCommandContext()->ClearConnectionState(
-                        conn_id);
-                  });
-                  NotifyExecutorLoop();
-                  ASTRADB_LOG_DEBUG(
-                      "Worker {}: Connection {} removed, total connections: {}",
-                      worker_id_, conn_id, connections_.size());
-                },
-                io_context_);
+        // Create connection
+        auto conn = std::make_shared<Connection>(
+            worker_id_, conn_id, std::move(socket), &cmd_queue_, &resp_queue_,
+            [this]() { NotifyExecutorLoop(); },
+            [this](uint64_t conn_id) {
+              // Remove connection from map when it's closed
+              std::lock_guard<std::mutex> lock(connections_mutex_);
+              connections_.erase(conn_id);
+              task_queue_.enqueue([this, conn_id]() {
+                data_shard_.GetCommandContext()->ClearConnectionState(conn_id);
+              });
+              NotifyExecutorLoop();
+              ASTRADB_LOG_DEBUG(
+                  "Worker {}: Connection {} removed, total connections: {}",
+                  worker_id_, conn_id, connections_.size());
+            },
+            io_context_);
 
-            connections_[conn_id] = conn;
-            conn->Start();
+        connections_[conn_id] = conn;
+        conn->Start();
 
-            // Record connection in metrics
-            astra::metrics::AstraMetrics::Instance().IncrementConnections();
+        // Record connection in metrics
+        astra::metrics::AstraMetrics::Instance().IncrementConnections();
 
-            ASTRADB_LOG_INFO(
-                "Worker {}: Connection {} started, total connections: {}",
-                worker_id_, conn_id, connections_.size());
-          }
+        ASTRADB_LOG_INFO(
+            "Worker {}: Connection {} started, total connections: {}",
+            worker_id_, conn_id, connections_.size());
+      }
 
-          // Continue accepting
-          DoAccept();
-        });
+      // Continue accepting
+      DoAccept();
+    });
   }
 
   // Connection class - belongs to one worker
@@ -1523,8 +1580,9 @@ class Worker {
       bool protocol_error = false;
       size_t total_consumed = 0;
 
-      std::string_view remaining(receive_buffer_.data() + receive_buffer_offset_,
-                                 receive_buffer_.size() - receive_buffer_offset_);
+      std::string_view remaining(
+          receive_buffer_.data() + receive_buffer_offset_,
+          receive_buffer_.size() - receive_buffer_offset_);
       while (!remaining.empty()) {
         std::string_view parse_view = remaining;
         auto command_opt =
@@ -1552,8 +1610,9 @@ class Worker {
               astra::protocol::RespParser::ParseCommand(std::move(*value_opt));
           parse_view = slow_view;
           if (!command_opt) {
-            ASTRADB_LOG_ERROR("Worker {}: Connection {} failed to parse command",
-                              worker_id_, conn_id_);
+            ASTRADB_LOG_ERROR(
+                "Worker {}: Connection {} failed to parse command", worker_id_,
+                conn_id_);
             astra::metrics::AstraMetrics::Instance().RecordError("syntax");
             SendResponseViaQueue("ERR invalid command format");
             total_consumed += remaining.size() - parse_view.size();
@@ -1621,8 +1680,8 @@ class Worker {
       return worker_id_ % worker_count_;
     }
     // Use CRC16 with hash tag support (Redis compatible)
-    const auto slot = static_cast<size_t>(
-        cluster::HashSlotCalculator::CalculateWithTag(key));
+    const auto slot =
+        static_cast<size_t>(cluster::HashSlotCalculator::CalculateWithTag(key));
     if (worker_count_is_pow2_) {
       return slot & worker_count_mask_;
     }
@@ -1662,8 +1721,7 @@ class Worker {
           return out;
         };
     std::string last_routing_cmd;
-    commands::RoutingStrategy last_routing =
-        commands::RoutingStrategy::kNone;
+    commands::RoutingStrategy last_routing = commands::RoutingStrategy::kNone;
     bool has_last_routing = false;
     auto get_routing_strategy = [&](const std::string& cmd_name) {
       if (has_last_routing && cmd_name == last_routing_cmd) {
@@ -1681,7 +1739,8 @@ class Worker {
           command.args.empty()) {
         return true;
       }
-      if (!command.args[0].IsBulkString() && !command.args[0].IsSimpleString()) {
+      if (!command.args[0].IsBulkString() &&
+          !command.args[0].IsSimpleString()) {
         return true;
       }
       return RouteToWorker(absl::string_view(command.args[0].AsString())) ==
@@ -1714,7 +1773,8 @@ class Worker {
         size_t remaining = kMaxLocalCommandsPerLoop - local_cmd_count;
         size_t batch_size =
             remaining < kCommandDequeueBatch ? remaining : kCommandDequeueBatch;
-        size_t dequeued = cmd_queue_.try_dequeue_bulk(cmd_batch.data(), batch_size);
+        size_t dequeued =
+            cmd_queue_.try_dequeue_bulk(cmd_batch.data(), batch_size);
         if (dequeued == 0) {
           break;
         }
@@ -1811,7 +1871,8 @@ class Worker {
                   })) {
                 context->DiscardTransaction();
                 ResponseWithConnId resp{
-                    cmd.conn_id, astra::protocol::RespBuilder::BuildNullArray()};
+                    cmd.conn_id,
+                    astra::protocol::RespBuilder::BuildNullArray()};
                 resp_queue_.enqueue(std::move(resp));
                 has_responses = true;
                 continue;
@@ -1860,7 +1921,8 @@ class Worker {
             auto routing_strategy = get_routing_strategy(cmd.command.name);
 
             ASTRADB_LOG_TRACE(
-                "Worker {}: Command '{}' has routing strategy={}, args_count={}",
+                "Worker {}: Command '{}' has routing strategy={}, "
+                "args_count={}",
                 worker_id_, cmd.command.name,
                 static_cast<int>(routing_strategy), cmd.command.args.size());
 
@@ -2221,11 +2283,10 @@ class Worker {
     ~LocalCommandTimer() {
       if (!stats_ || !command_) return;
       const int64_t end_nanos = absl::GetCurrentTimeNanos();
-      const uint64_t usec = end_nanos > start_nanos_
-                                ? static_cast<uint64_t>(end_nanos -
-                                                        start_nanos_) /
-                                      1000
-                                : 0;
+      const uint64_t usec =
+          end_nanos > start_nanos_
+              ? static_cast<uint64_t>(end_nanos - start_nanos_) / 1000
+              : 0;
       stats_->RecordCommand(*command_, success_, usec);
     }
 
