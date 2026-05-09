@@ -1,180 +1,117 @@
-# AstraDB Development Configuration File
-# This file is a template for development environment configuration
-# Copy this file to astradb-dev.toml and modify as needed
+# AstraDB development configuration example
+#
+# Copy this file to astradb-dev.toml for local development. It keeps the same
+# unified schema as astradb.toml, but with louder logging and smaller memory
+# limits for quick iteration.
 
 [server]
-# Network binding
 host = "0.0.0.0"
 port = 6379
 max_connections = 10000
-# Set to 0 to auto-detect number of threads
 thread_count = 2
-
-# Network Architecture Configuration
-# use_per_worker_io: Enable per-worker IO architecture (SO_REUSEPORT)
-#   - true: Each worker has its own io_context and acceptor (recommended for high performance)
-#   - false: Use legacy single acceptor architecture (backward compatible)
-use_per_worker_io = true
-# use_so_reuseport: Enable SO_REUSEPORT for kernel-level load balancing (only works with use_per_worker_io=true)
-#   - true: Kernel automatically distributes connections across workers
-#   - false: Connections accepted by worker 0 only (fallback mode)
-use_so_reuseport = true
+use_per_worker_io = false
+use_so_reuseport = false
 
 [database]
-# Number of databases
 num_databases = 16
-# Number of data shards for parallel processing
 num_shards = 16
 
 [logging]
-# Development: set to 'trace' for detailed debugging information
-level = "trace"
+level = "debug"
 file = "astradb.log"
 async = false
 queue_size = 8192
 
 [performance]
-# Enable automatic pipeline processing
 enable_pipeline = true
-# Enable response compression (not implemented yet)
 enable_compression = false
 
-# =============================================================================
-# Async / Coroutine Configuration
-# =============================================================================
 [async]
-# Use coroutines for command processing (default: true)
-# When enabled, commands are processed asynchronously using C++20 coroutines
-# When disabled, commands are processed synchronously (fallback mode)
 use_async_commands = true
 
-# =============================================================================
-# Persistence Configuration (ROCKSDB)
-# =============================================================================
-[persistence]
-# Enable persistence (RDB-like snapshots + AOF-like WAL via ROCKSDB)
-enabled = false
-# Data directory for ROCKSDB storage
-data_dir = "./data/astradb"
-# Write buffer size (4MB default)
-write_buffer_size = 4194304
-# LRU cache size (256MB default)
-cache_size = 268435456
-# Sync writes to disk (slower but more durable)
-sync_writes = false
+# Start in Redis-compatible mode for day-to-day development.
+[storage]
+mode = "redis"
+enable_rocksdb_cold_data = true
+enable_compression = true
+compression_type = "zlib"
 
-# =============================================================================
-# AOF Configuration (NO SHARING Architecture)
-# =============================================================================
-[aof]
-# Enable AOF (Append-Only File) persistence
-enabled = true
-# AOF file path
-path = "./data/aof/appendonly.aof"
-# Sync policy: true = sync every second, false = sync after every write
-sync_everysec = true
+[storage.redis_mode]
+rdb_enabled = true
+rdb_path = "./data/dump.rdb"
+rdb_auto_save = false
+rdb_save_interval = 300
+aof_enabled = true
+aof_path = "./data/aof/appendonly.aof"
+aof_sync_everysec = true
 
-# =============================================================================
-# RDB Configuration (NO SHARING Architecture)
-# =============================================================================
-[rdb]
-# Enable RDB (Redis Database) persistence
-enabled = true
-# RDB file path
-path = "./data/dump.rdb"
-# Auto-save (not implemented yet)
-auto_save = false
-# Save interval in seconds (not implemented yet)
-save_interval = 300
-
-# =============================================================================
-# Prometheus Metrics Configuration
-# =============================================================================
-[metrics]
-# Enable Prometheus metrics collection
-enabled = true
-# Metrics bind address
-bind_addr = "0.0.0.0"
-# Metrics port (default: 12345, avoid conflict with other services)
-port = 12345
-# Metrics endpoint path
-endpoint = "/metrics"
-# Stats aggregation frequency in seconds (0 = disabled, 10 = 10 seconds, 60 = 1 minute)
-# - 0: Disabled for maximum performance (INFO command will return outdated data)
-# - 10: Optimal balance (default) - 10% performance improvement vs 1s
-# - 1: Detailed monitoring (may impact performance)
-# - 60: Low frequency monitoring (minimal performance impact)
-stats_frequency_seconds = 10
-
-# =============================================================================
-# Cluster Configuration (Redis Cluster Compatible)
-# =============================================================================
-[cluster]
-# Enable cluster mode
-enabled = true
-# Unique node ID (32 hex characters, auto-generated if empty)
-node_id = "node1"
-# Bind address for gossip protocol
-bind_addr = "0.0.0.0"
-# Gossip protocol port (default: 7946, Redis uses 16379 for cluster bus)
-gossip_port = 7946
-# Number of hash slots / shards (16384 total slots, Redis compatible)
-shard_count = 20
-# Seed nodes for cluster join (format: "ip:port")
-# Example: seeds = ["192.168.1.1:7946", "192.168.1.2:7946"]
-seeds = []
-
-# =============================================================================
-# RocksDB Cold Data Storage Configuration (NO SHARING Architecture)
-# =============================================================================
-[rocksdb]
-# Enable RocksDB for cold data storage (evicted keys are written to RocksDB)
-enabled = true
-# Data directory for RocksDB storage (per-worker shards will be created as rocksdb/shard_N/)
+[storage.rocksdb_mode]
 data_dir = "./data/rocksdb"
-# Write-Ahead Log (WAL) enabled for durability
-enable_wal = true
-# Cache size in bytes (256MB default)
 cache_size = 268435456
-# Create database if missing
+write_buffer_size = 67108864
+enable_wal = true
+create_if_missing = true
+max_open_files = -1
+max_total_wal_size = 104857600
+
+[rocksdb]
+enabled = true
+data_dir = "./data/rocksdb-cold"
+enable_wal = true
+cache_size = 268435456
 create_if_missing = true
 
-# =============================================================================
-# Memory and Eviction Configuration (NO SHARING Architecture)
-# =============================================================================
+[aof]
+enabled = true
+path = "./data/aof/appendonly.aof"
+sync_everysec = true
+
+[rdb]
+enabled = true
+path = "./data/dump.rdb"
+auto_save = false
+save_interval = 300
+
+[persistence]
+enabled = false
+data_dir = "./data/astradb"
+write_buffer_size = 4194304
+cache_size = 268435456
+sync_writes = false
+
+[metrics]
+enabled = true
+bind_addr = "0.0.0.0"
+port = 9100
+stats_frequency_seconds = 10
+
+[cluster]
+enabled = false
+node_id = ""
+bind_addr = "0.0.0.0"
+gossip_port = 7946
+shard_count = 256
+use_tcp = false
+seeds = []
+
 [memory]
-# Maximum memory limit in bytes (0 = no limit)
-# For development/testing: 1MB = 1048576 bytes
-# For production: 2GB = 2147483648 bytes
 max_memory = 1048576
-# Eviction policy: noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-lfu, allkeys-random, volatile-random, volatile-ttl, 2q
 eviction_policy = "2q"
-# Eviction threshold (0.0 to 1.0, e.g., 0.9 means trigger eviction at 90% of max_memory)
 eviction_threshold = 0.9
-# Number of samples for LRU/LFU algorithms (3 to 100, default: 5)
 eviction_samples = 5
-# Enable/disable memory tracking
 enable_tracking = true
 
-# =============================================================================
-# Replication Configuration (NO SHARING Architecture)
-# =============================================================================
 [replication]
-# Enable replication
 enabled = false
-# Role: master or slave
 role = "master"
-# Master host (only for slave)
 master_host = "127.0.0.1"
-# Master port (only for slave)
 master_port = 6379
-# Master authentication password (only for slave)
 master_auth = ""
-# Read-only mode (only for slave)
 read_only = false
-# Replication backlog size in bytes (1MB default)
 repl_backlog_size = 1048576
-# Replication timeout in seconds (60 default)
 repl_timeout = 60
-# Enable/disable memory tracking
-enable_tracking = true
+
+[acl]
+enabled = false
+default_user = "default"
+default_password = ""

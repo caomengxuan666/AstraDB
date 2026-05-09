@@ -104,6 +104,12 @@ struct ReplicationConfig {
   uint32_t repl_timeout = 60;                    // seconds
 };
 
+struct AclConfig {
+  bool enabled = false;
+  std::string default_user = "default";
+  std::string default_password = "";
+};
+
 struct ServerConfig {
   // Network
   std::string host = "0.0.0.0";
@@ -168,6 +174,9 @@ struct ServerConfig {
 
   // Replication
   ReplicationConfig replication;
+
+  // ACL
+  AclConfig acl;
 
   // Metrics
   struct MetricsConfig {

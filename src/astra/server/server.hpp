@@ -74,15 +74,12 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
   // Default: 10 seconds for optimal performance and monitoring
   int stats_frequency_seconds = 10;
 
-  // Load configuration from file
-  static NoSharingServerConfig LoadFromFile(const std::string& config_file) {
-    // Load base configuration
-    auto base_config = ::astra::base::ServerConfig::LoadFromFile(config_file);
-
-    // Convert to NoSharingServerConfig
+  static NoSharingServerConfig FromBaseConfig(
+      const ::astra::base::ServerConfig& base_config) {
     NoSharingServerConfig config;
 
-    // Copy base fields
+    // Copy base fields through one conversion point. Keep NO SHARING derived
+    // fields below in sync with their canonical base config sections.
     config.host = base_config.host;
     config.port = base_config.port;
     config.max_connections = base_config.max_connections;
@@ -110,6 +107,11 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     config.cluster_seeds = base_config.cluster.seeds;
     config.cluster_shard_count = base_config.cluster.shard_count;
 
+    config.acl = base_config.acl;
+    config.acl_enabled = base_config.acl.enabled;
+    config.acl_default_user = base_config.acl.default_user;
+    config.acl_default_password = base_config.acl.default_password;
+
     config.metrics = base_config.metrics;
     config.metrics_enabled = base_config.metrics.enabled;
     config.metrics_bind_addr = base_config.metrics.bind_addr;
@@ -132,47 +134,13 @@ struct NoSharingServerConfig : public ::astra::base::ServerConfig {
     // Copy Replication configuration
     config.replication = base_config.replication;
 
-    // Load ACL configuration from TOML
-    try {
-#if TOML_EXCEPTIONS
-      toml::table config_table = toml::parse_file(config_file);
-#else
-      auto parse_result = toml::parse_file(config_file);
-      if (parse_result.failed()) {
-        throw std::runtime_error("Failed to parse server configuration");
-      }
-      toml::table& config_table = parse_result.table();
-#endif
-
-      // ACL configuration
-      if (config_table.contains("acl")) {
-        auto* acl_table = config_table["acl"].as_table();
-        if (acl_table && acl_table->contains("enabled")) {
-          if (auto* enabled_val = acl_table->get("enabled")) {
-            config.acl_enabled = enabled_val->value<bool>().value_or(true);
-          }
-        }
-        if (acl_table && acl_table->contains("default_user")) {
-          if (auto* user_val = acl_table->get("default_user")) {
-            config.acl_default_user =
-                user_val->value<std::string>().value_or("default");
-          }
-        }
-        if (acl_table && acl_table->contains("default_password")) {
-          if (auto* password_val = acl_table->get("default_password")) {
-            config.acl_default_password =
-                password_val->value<std::string>().value_or("");
-          }
-        }
-      }
-    } catch (const std::exception& e) {
-      // Use default ACL configuration if parsing fails
-      config.acl_enabled = true;
-      config.acl_default_user = "default";
-      config.acl_default_password = "";
-    }
-
     return config;
+  }
+
+  // Load configuration from file
+  static NoSharingServerConfig LoadFromFile(const std::string& config_file) {
+    return FromBaseConfig(
+        ::astra::base::ServerConfig::LoadFromFile(config_file));
   }
 };
 

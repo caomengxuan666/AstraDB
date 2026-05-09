@@ -58,6 +58,7 @@ target_link_libraries(astradb_tests PRIVATE
   
   # Add test subdirectories
   add_subdirectory(core)
+  add_subdirectory(config)
   add_subdirectory(memory)
   add_subdirectory(container)
   add_subdirectory(protocol)

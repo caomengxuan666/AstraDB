@@ -89,8 +89,8 @@ int main(int argc, char** argv) {
     dev_file.close();
   }
 
-  // Load config from file
-  auto config = astra::server::ServerConfig::LoadFromFile(config_file);
+  // Load base config from file
+  auto config = astra::base::ServerConfig::LoadFromFile(config_file);
 
   // Override config with command line arguments
   if (result.count("host")) {
@@ -335,84 +335,11 @@ int main(int argc, char** argv) {
   // Setup signal handlers
   SetupSignalHandlers();
 
-  // Create server config from loaded config
-  astra::server::ServerConfig server_config;
-  server_config.host = config.host;
-  server_config.port = config.port;
-  server_config.max_connections = config.max_connections;
-  server_config.num_databases = config.num_databases;
-  server_config.num_shards = config.num_shards;
-  server_config.thread_count = config.thread_count;
+  // Create server config from loaded config in one place
+  auto server_config = astra::server::ServerConfig::FromBaseConfig(config);
   server_config.num_workers = config.thread_count > 0
                                   ? config.thread_count
                                   : std::thread::hardware_concurrency();
-  server_config.use_async_commands = config.use_async_commands;
-  server_config.use_per_worker_io = config.use_per_worker_io;
-  server_config.use_so_reuseport = config.use_so_reuseport;
-  server_config.storage = config.storage;
-
-  // Copy persistence config
-  server_config.persistence.enabled = config.persistence.enabled;
-  server_config.persistence.data_dir = config.persistence.data_dir;
-  server_config.persistence.write_buffer_size =
-      config.persistence.write_buffer_size;
-  server_config.persistence.cache_size = config.persistence.cache_size;
-  server_config.persistence.sync_writes = config.persistence.sync_writes;
-
-  // Copy cluster config
-  server_config.cluster.enabled = config.cluster.enabled;
-  server_config.cluster.node_id = config.cluster.node_id;
-  server_config.cluster.bind_addr = config.cluster.bind_addr;
-  server_config.cluster.gossip_port = config.cluster.gossip_port;
-  server_config.cluster.shard_count = config.cluster.shard_count;
-  server_config.cluster.seeds = config.cluster.seeds;
-  server_config.cluster.use_tcp = config.cluster.use_tcp;
-
-  // Also copy to direct member variables (used by Server)
-  server_config.cluster_enabled = config.cluster.enabled;
-  server_config.cluster_node_id = config.cluster.node_id;
-  server_config.cluster_bind_addr = config.cluster.bind_addr;
-  server_config.cluster_gossip_port = config.cluster.gossip_port;
-  server_config.cluster_shard_count = config.cluster.shard_count;
-  server_config.cluster_seeds = config.cluster.seeds;
-
-  // Copy ACL config
-  server_config.acl_enabled = config.acl_enabled;
-  server_config.acl_default_user = config.acl_default_user;
-  server_config.acl_default_password = config.acl_default_password;
-
-  // Copy metrics config
-  server_config.metrics.enabled = config.metrics.enabled;
-  server_config.metrics.bind_addr = config.metrics.bind_addr;
-  server_config.metrics.port = config.metrics.port;
-  server_config.metrics_enabled = config.metrics.enabled;
-  server_config.metrics_bind_addr = config.metrics.bind_addr;
-  server_config.metrics_port = config.metrics.port;
-
-  // Copy memory config
-  server_config.memory.max_memory = config.memory.max_memory;
-  server_config.memory.eviction_policy = config.memory.eviction_policy;
-  server_config.memory.eviction_threshold = config.memory.eviction_threshold;
-  server_config.memory.eviction_samples = config.memory.eviction_samples;
-  server_config.memory.enable_tracking = config.memory.enable_tracking;
-
-  // Copy replication config
-  server_config.replication.enabled = config.replication.enabled;
-  server_config.replication.role = config.replication.role;
-  server_config.replication.master_host = config.replication.master_host;
-  server_config.replication.master_port = config.replication.master_port;
-  server_config.replication.master_auth = config.replication.master_auth;
-  server_config.replication.read_only = config.replication.read_only;
-  server_config.replication.repl_backlog_size =
-      config.replication.repl_backlog_size;
-  server_config.replication.repl_timeout = config.replication.repl_timeout;
-
-  // Copy RocksDB config
-  server_config.rocksdb.enabled = config.rocksdb.enabled;
-  server_config.rocksdb.data_dir = config.rocksdb.data_dir;
-  server_config.rocksdb.enable_wal = config.rocksdb.enable_wal;
-  server_config.rocksdb.cache_size = config.rocksdb.cache_size;
-  server_config.rocksdb.create_if_missing = config.rocksdb.create_if_missing;
 
   ASTRADB_LOG_INFO("Server configuration:");
   ASTRADB_LOG_INFO("  Host: {}", server_config.host);
