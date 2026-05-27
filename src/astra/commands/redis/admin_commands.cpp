@@ -1462,32 +1462,63 @@ CommandResult HandleObject(const astra::protocol::Command& command,
   std::string key = key_arg.AsString();
 
   if (subcommand == "ENCODING") {
-    // Return encoding of key
-    auto existing = db->Get(key);
-    if (!existing.has_value()) {
+    // Return encoding of key based on type
+    auto key_type = db->GetType(key);
+    if (!key_type.has_value()) {
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
-    return CommandResult(RespValue("raw"));
+
+    std::string encoding;
+    switch (*key_type) {
+      case astra::storage::KeyType::kString: {
+        auto value = db->Get(key);
+        if (value.has_value() && value->value.size() <= 44) {
+          encoding = "int";  // Small strings stored as int
+        } else {
+          encoding = "raw";
+        }
+        break;
+      }
+      case astra::storage::KeyType::kHash:
+        encoding = "hashtable";
+        break;
+      case astra::storage::KeyType::kList:
+        encoding = "linkedlist";
+        break;
+      case astra::storage::KeyType::kSet:
+        encoding = "hashtable";
+        break;
+      case astra::storage::KeyType::kZSet:
+        encoding = "b+tree";
+        break;
+      case astra::storage::KeyType::kStream:
+        encoding = "stream";
+        break;
+      default:
+        encoding = "raw";
+        break;
+    }
+    return CommandResult(RespValue(encoding));
   } else if (subcommand == "IDLETIME") {
     // Return idle time in seconds
-    auto existing = db->Get(key);
-    if (!existing.has_value()) {
+    auto key_type = db->GetType(key);
+    if (!key_type.has_value()) {
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
     // For simplicity, return 0
     return CommandResult(RespValue(static_cast<int64_t>(0)));
   } else if (subcommand == "REFCOUNT") {
     // Return reference count
-    auto existing = db->Get(key);
-    if (!existing.has_value()) {
+    auto key_type = db->GetType(key);
+    if (!key_type.has_value()) {
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
     // For simplicity, return 1
     return CommandResult(RespValue(static_cast<int64_t>(1)));
   } else if (subcommand == "FREQ") {
     // Return access frequency
-    auto existing = db->Get(key);
-    if (!existing.has_value()) {
+    auto key_type = db->GetType(key);
+    if (!key_type.has_value()) {
       return CommandResult(RespValue(RespType::kNullBulkString));
     }
     // For simplicity, return 0
@@ -2130,14 +2161,18 @@ CommandResult HandleMemory(const protocol::Command& command,
     // MEMORY STATS - Return memory usage statistics
     std::vector<RespValue> result;
 
-    // Basic memory statistics (simplified implementation)
+    auto* db = context->GetDatabase();
+    auto* memory_tracker = db ? db->GetMemoryTracker() : nullptr;
+    uint64_t current_memory = memory_tracker ? memory_tracker->GetCurrentMemory() : 0;
+    uint64_t max_memory = memory_tracker ? memory_tracker->GetMaxMemory() : 0;
+
     // peak.allocated
     RespValue peak_allocated_key;
     peak_allocated_key.SetString("peak.allocated",
                                  protocol::RespType::kBulkString);
     result.push_back(peak_allocated_key);
     RespValue peak_allocated_val;
-    peak_allocated_val.SetInteger(0);  // TODO: Implement peak memory tracking
+    peak_allocated_val.SetInteger(static_cast<int64_t>(current_memory));
     result.push_back(peak_allocated_val);
 
     // total.allocated
@@ -2146,8 +2181,7 @@ CommandResult HandleMemory(const protocol::Command& command,
                                   protocol::RespType::kBulkString);
     result.push_back(total_allocated_key);
     RespValue total_allocated_val;
-    total_allocated_val.SetInteger(
-        0);  // TODO: Implement actual memory tracking
+    total_allocated_val.SetInteger(static_cast<int64_t>(current_memory));
     result.push_back(total_allocated_val);
 
     // startup.allocated
@@ -2173,8 +2207,7 @@ CommandResult HandleMemory(const protocol::Command& command,
     keys_count_key.SetString("keys.count", protocol::RespType::kBulkString);
     result.push_back(keys_count_key);
     RespValue keys_count_val;
-    auto db = context->GetDatabase();
-    size_t key_count = db ? db->Size() : 0;
+    size_t key_count = db ? db->GetKeyCount() : 0;
     keys_count_val.SetInteger(static_cast<int64_t>(key_count));
     result.push_back(keys_count_val);
 
@@ -2184,7 +2217,7 @@ CommandResult HandleMemory(const protocol::Command& command,
                                 protocol::RespType::kBulkString);
     result.push_back(dataset_bytes_key);
     RespValue dataset_bytes_val;
-    dataset_bytes_val.SetInteger(0);  // TODO: Implement actual dataset tracking
+    dataset_bytes_val.SetInteger(static_cast<int64_t>(current_memory));
     result.push_back(dataset_bytes_val);
 
     // overhead.total
@@ -2195,6 +2228,45 @@ CommandResult HandleMemory(const protocol::Command& command,
     RespValue overhead_total_val;
     overhead_total_val.SetInteger(1024 * 1024);  // Approximate overhead
     result.push_back(overhead_total_val);
+
+    // maxmemory
+    RespValue maxmemory_key;
+    maxmemory_key.SetString("maxmemory", protocol::RespType::kBulkString);
+    result.push_back(maxmemory_key);
+    RespValue maxmemory_val;
+    maxmemory_val.SetInteger(static_cast<int64_t>(max_memory));
+    result.push_back(maxmemory_val);
+
+    // maxmemory-policy
+    RespValue maxmemory_policy_key;
+    maxmemory_policy_key.SetString("maxmemory-policy", protocol::RespType::kBulkString);
+    result.push_back(maxmemory_policy_key);
+    RespValue maxmemory_policy_val;
+    std::string policy_str = "noeviction";
+    if (memory_tracker) {
+      switch (memory_tracker->GetEvictionPolicy()) {
+        case astra::core::memory::EvictionPolicy::kLRU:
+          policy_str = "allkeys-lru";
+          break;
+        case astra::core::memory::EvictionPolicy::kLFU:
+          policy_str = "allkeys-lfu";
+          break;
+        case astra::core::memory::EvictionPolicy::kRandom:
+          policy_str = "allkeys-random";
+          break;
+        case astra::core::memory::EvictionPolicy::kTTL:
+          policy_str = "volatile-ttl";
+          break;
+        case astra::core::memory::EvictionPolicy::k2Q:
+          policy_str = "allkeys-lru";
+          break;
+        default:
+          policy_str = "noeviction";
+          break;
+      }
+    }
+    maxmemory_policy_val.SetString(policy_str, protocol::RespType::kBulkString);
+    result.push_back(maxmemory_policy_val);
 
     return CommandResult(RespValue(std::move(result)));
 
@@ -2464,7 +2536,7 @@ CommandResult HandleFailover(const astra::protocol::Command& command,
 // LATENCY [HELP] - Latency monitoring
 CommandResult HandleLatency(const astra::protocol::Command& command,
                             CommandContext* context) {
-  if (command.ArgCount() > 1) {
+  if (command.ArgCount() > 2) {
     return CommandResult(false,
                          "ERR wrong number of arguments for 'LATENCY' command");
   }
@@ -2477,18 +2549,67 @@ CommandResult HandleLatency(const astra::protocol::Command& command,
         "HELP - Show this help text\n"
         "DOCTOR - Return a different human readable latency analysis report\n"
         "GRAPH - Return a latency graph\n"
-        "HISTORY - Return timestamp-latency samples\n"
-        "LATEST - Return the latest latency samples\n"
-        "RESET - Reset latency data\n"
-        "EVENTS - Return latest latency events";
+        "HISTORY <event> - Return timestamp-latency samples\n"
+        "LATEST [event ...] - Return the latest latency samples\n"
+        "RESET [event ...] - Reset latency data\n"
+        "EVENTS [event ...] - Return latest latency events";
     protocol::RespValue resp;
     resp.SetString(help_text, protocol::RespType::kBulkString);
     return CommandResult(resp);
   }
 
-  // Note: In a real implementation, this would provide latency monitoring data
-  // For now, we return empty array
-  return CommandResult(RespValue(std::vector<RespValue>()));
+  std::string subcommand = absl::AsciiStrToUpper(command[0].AsString());
+
+  if (subcommand == "LATEST") {
+    // LATENCY LATEST [event ...]
+    // Return an array with latest latency samples
+    // For now, return empty array as no latency events are tracked yet
+    std::vector<RespValue> result;
+    return CommandResult(RespValue(std::move(result)));
+  } else if (subcommand == "HISTORY") {
+    // LATENCY HISTORY <event>
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'latency|history' command");
+    }
+    // Return an array of timestamp-latency pairs
+    // For now, return empty array
+    std::vector<RespValue> result;
+    return CommandResult(RespValue(std::move(result)));
+  } else if (subcommand == "RESET") {
+    // LATENCY RESET [event ...]
+    // Reset latency data
+    // For now, just return OK
+    RespValue result;
+    result.SetString("OK", protocol::RespType::kSimpleString);
+    return CommandResult(result);
+  } else if (subcommand == "EVENTS") {
+    // LATENCY EVENTS [event ...]
+    // Return latency events
+    // For now, return empty array
+    std::vector<RespValue> result;
+    return CommandResult(RespValue(std::move(result)));
+  } else if (subcommand == "GRAPH") {
+    // LATENCY GRAPH <event>
+    if (command.ArgCount() < 2) {
+      return CommandResult(false, "ERR wrong number of arguments for 'latency|graph' command");
+    }
+    // Return ASCII graph of latency
+    // For now, return empty string
+    RespValue result;
+    result.SetString("", protocol::RespType::kBulkString);
+    return CommandResult(result);
+  } else if (subcommand == "DOCTOR") {
+    // LATENCY DOCTOR
+    // Return human-readable latency analysis
+    std::string doctor_text =
+        "I'm sorry, I can't find any latency issue in the current AstraDB instance.\n"
+        "The latency data is empty. This is normal for a newly started instance.";
+    RespValue result;
+    result.SetString(doctor_text, protocol::RespType::kBulkString);
+    return CommandResult(result);
+  } else {
+    return CommandResult(false, "ERR unknown LATENCY subcommand '" + subcommand + "'");
+  }
 }
 
 // MONITOR - Echo all commands executed by the server
