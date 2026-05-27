@@ -2244,26 +2244,7 @@ CommandResult HandleMemory(const protocol::Command& command,
     RespValue maxmemory_policy_val;
     std::string policy_str = "noeviction";
     if (memory_tracker) {
-      switch (memory_tracker->GetEvictionPolicy()) {
-        case astra::core::memory::EvictionPolicy::kLRU:
-          policy_str = "allkeys-lru";
-          break;
-        case astra::core::memory::EvictionPolicy::kLFU:
-          policy_str = "allkeys-lfu";
-          break;
-        case astra::core::memory::EvictionPolicy::kRandom:
-          policy_str = "allkeys-random";
-          break;
-        case astra::core::memory::EvictionPolicy::kTTL:
-          policy_str = "volatile-ttl";
-          break;
-        case astra::core::memory::EvictionPolicy::k2Q:
-          policy_str = "allkeys-lru";
-          break;
-        default:
-          policy_str = "noeviction";
-          break;
-      }
+      policy_str = astra::core::memory::EvictionPolicyToString(memory_tracker->GetEvictionPolicy());
     }
     maxmemory_policy_val.SetString(policy_str, protocol::RespType::kBulkString);
     result.push_back(maxmemory_policy_val);
